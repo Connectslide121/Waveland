@@ -8,7 +8,7 @@ import {
   type LevelMap,
 } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
-import { PLAYER_WIDTH, STEP_UP } from '../physics';
+import { PLAYER_WIDTH, STEP_UP, VIEW_AHEAD } from '../physics';
 import { generateLevel, STYLE_OF_FEEL } from './generate';
 import { solidTop, timeAtX, xAtTime, type Chunk, type PlatformerLevel, type Solid } from './level';
 import { FLOAT_RANGE, HEAVE_MAX, MORPH_BEATS } from './terrain';
@@ -205,7 +205,7 @@ describe('terrain styles: a rock song with tempo and mood changes', () => {
       for (const s of moving)
         expect(solidTop(s, c.start - 0.02)).toBeCloseTo(solidTop(s, c.start - 1)!, 3);
       // …and something in view then has moved within a bar or two of it.
-      const view = xAtTime(normal, c.start) + 672;
+      const view = xAtTime(normal, c.start) + VIEW_AHEAD;
       const after = timeOfBeat(map, beatAt(map, c.start) + Math.max(4, MORPH_BEATS) + 2);
       const moved = moving.some((s) => {
         if (s.x0 > view) return false;

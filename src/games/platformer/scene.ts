@@ -21,6 +21,8 @@ import {
 } from './level';
 import { FrameMonitor, QUALITY, type Quality } from './perf';
 import {
+  ANCHOR_SHARE,
+  ANCHOR_X,
   DASH_TIME,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
@@ -310,7 +312,13 @@ export class PlatformerScene extends Phaser.Scene {
    * before the first drop: drawn first on the drop, it hitched that frame.
    */
   #warmFrames = 3;
+  /** Where the 16:9 view's left edge is on screen: centred, for what is drawn in it. */
   #offsetX = 0;
+  /**
+   * Where the world's 16:9 view starts on screen: the player at `ANCHOR_SHARE` of the
+   * screen's width, whatever its shape (on an ultrawide screen, left of `#offsetX`).
+   */
+  #worldX = 0;
   #offsetY = 0;
   /** The mood this frame: intensity, brightness and the grid's roll, refreshed in `#draw`. */
   readonly #mood = { intensity: 0.5, brightness: 0.5, roll: 0 };
@@ -695,6 +703,7 @@ export class PlatformerScene extends Phaser.Scene {
     const { width, height } = this.scale;
     this.#zoom = Math.min(width / VIEW_WIDTH, height / VIEW_HEIGHT);
     this.#offsetX = (width - VIEW_WIDTH * this.#zoom) / 2;
+    this.#worldX = ANCHOR_SHARE * width - ANCHOR_X * this.#zoom;
     this.#offsetY = (height - VIEW_HEIGHT * this.#zoom) / 2;
     this.#drawSkyBase();
     // Tiles drawn for another zoom are drawn again, sharp at this one.
@@ -763,10 +772,10 @@ export class PlatformerScene extends Phaser.Scene {
 
     this.#layer
       .setScale(this.#zoom)
-      .setPosition(this.#offsetX - camera * this.#zoom, this.#offsetY + shakeY * this.#zoom);
+      .setPosition(this.#worldX - camera * this.#zoom, this.#offsetY + shakeY * this.#zoom);
     const { width } = this.scale;
-    const x0 = camera - this.#offsetX / this.#zoom - 40;
-    const x1 = camera + (width - this.#offsetX) / this.#zoom + 40;
+    const x0 = camera - this.#worldX / this.#zoom - 40;
+    const x1 = camera + (width - this.#worldX) / this.#zoom + 40;
     this.#placeTiles(x0, x1);
 
     const g = this.#world.clear();
@@ -812,7 +821,7 @@ export class PlatformerScene extends Phaser.Scene {
       f.text
         .setVisible(true)
         .setPosition(
-          this.#offsetX + (f.x - camera) * this.#zoom,
+          this.#worldX + (f.x - camera) * this.#zoom,
           this.#offsetY + (sy(f.y + age * 50) + shakeY) * this.#zoom,
         )
         .setScale(this.#zoom)
@@ -838,7 +847,7 @@ export class PlatformerScene extends Phaser.Scene {
       .setScale(this.#zoom * (1 + 0.15 * Math.max(0, 1 - bannerAge / 0.15)))
       .setAlpha(bannerAlpha);
 
-    // Flash on death, and darken what lies outside the 16:9 play area.
+    // Flash on death.
     const f = this.#front.clear();
     if (sinceDeath < DEATH_TIME && !this.#reduced)
       f.fillStyle(paletteNumbers.orange, 0.28 * (1 - sinceDeath / DEATH_TIME)).fillRect(
@@ -847,11 +856,6 @@ export class PlatformerScene extends Phaser.Scene {
         width,
         this.scale.height,
       );
-    if (this.#offsetX > 0) {
-      f.fillStyle(paletteNumbers.night, 0.55);
-      f.fillRect(0, 0, this.#offsetX, this.scale.height);
-      f.fillRect(width - this.#offsetX, 0, this.#offsetX, this.scale.height);
-    }
   }
 
   /** The tiles of static ground covering world x from `x0` to `x1`, drawn as they come in. */

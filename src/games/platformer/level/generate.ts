@@ -22,7 +22,8 @@ import {
   PLAYER_WIDTH,
   startState,
   stepPlayer,
-  VIEW_WIDTH,
+  VIEW_AHEAD,
+  VIEW_BEHIND,
   type PlayerState,
 } from '../physics';
 import {
@@ -1558,19 +1559,21 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     if (at >= 0) dropBars.add(at);
   }
 
-  // The run-in: plain ground under the player from before the screen's left edge.
+  // The run-in: plain ground under the player from before the widest screen's left edge,
+  // all through the bar of count-in before the song.
+  const runInFrom = x(timeOfBeat(map, beatAt(map, 0) - 4)) - VIEW_BEHIND - 40;
   level.chunks.push({
     kind: 'run-in',
     planned: 'run-in',
     start: 0,
     end: runIn,
-    x0: -40,
+    x0: runInFrom,
     x1: x(runIn),
     section: sectionAt(0),
     style: 'contour',
     repairs: 0,
   });
-  world.add([ground(-40, x(runIn), START_TOP)]);
+  world.add([ground(runInFrom, x(runIn), START_TOP)]);
   let explorer = Explorer.start(world);
   if (!explorer.run(searchEnd(x, runIn)))
     throw new LevelGenerationError('Nobody gets through the run-in');
@@ -1729,7 +1732,7 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
   }
 
   // The run-out: plain ground to past the end of the song.
-  const end = x(map.duration) + VIEW_WIDTH;
+  const end = x(map.duration) + VIEW_AHEAD;
   world.add([ground(x(runOut), end, h)]);
   level.chunks.push({
     kind: 'run-out',

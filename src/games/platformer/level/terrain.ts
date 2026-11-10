@@ -1,5 +1,5 @@
 import { beatAt, curveAt, periodAt, timeOfBeat, type LevelMap } from '../../../core';
-import { ANCHOR_X, PLAYER_WIDTH, VIEW_WIDTH } from '../physics';
+import { PLAYER_WIDTH, VIEW_AHEAD, VIEW_BEHIND } from '../physics';
 import type { Gate, Solid, SpikeStrip, TerrainStyle } from './level';
 
 /**
@@ -119,10 +119,10 @@ function freeSpans(s: Solid, anchored: [number, number][]): [number, number][] {
   return spans;
 }
 
-/** The song times from which a solid at [x0, x1] is in view until it has left it. */
+/** The song times from which a solid at [x0, x1] is in the widest view until it has left it. */
 function viewTimes(ctx: TerrainContext, x0: number, x1: number): [number, number] {
-  const from = ctx.timeAt(x0 - (VIEW_WIDTH - ANCHOR_X) - VIEW_MARGIN);
-  const to = ctx.timeAt(x1 + ANCHOR_X + VIEW_MARGIN);
+  const from = ctx.timeAt(x0 - VIEW_AHEAD - VIEW_MARGIN);
+  const to = ctx.timeAt(x1 + VIEW_BEHIND + VIEW_MARGIN);
   return [Math.max(0, from), Math.min(ctx.map.duration, to)];
 }
 
@@ -293,7 +293,7 @@ export function shapeTerrain(
   // Still ground the player reaches once it has reshaped, and that is in view on the
   // downbeat, reshapes from the last stretch's height.
   const morphReach = ctx.x(timeOfBeat(ctx.map, beatAt(ctx.map, ctx.since) + MORPH_BEATS) + 0.1);
-  const morphLimit = startX + VIEW_WIDTH - ANCHOR_X;
+  const morphLimit = startX + VIEW_AHEAD;
   const reshapes = (x0: number, x1: number, top: number) =>
     ctx.morphFrom !== undefined &&
     Math.abs(top - ctx.morphFrom) >= 0.5 &&

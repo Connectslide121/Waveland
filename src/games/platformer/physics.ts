@@ -45,11 +45,24 @@ export const PLAYER_HEIGHT = 40;
 /** Running onto a surface at most this much higher than the feet steps up onto it. */
 export const STEP_UP = 6;
 
-/** The view, in world pixels. */
+/**
+ * The view at 16:9, in world pixels. The scene fits its height to the screen's (its width
+ * on screens narrower than 16:9) and a wider screen shows more of the level either side.
+ */
 export const VIEW_WIDTH = 960;
 export const VIEW_HEIGHT = 540;
-/** Where in the view the player always is, px from its left. */
-export const ANCHOR_X = 384;
+/** Where across the screen the player's left edge always is, as a share of its width. */
+export const ANCHOR_SHARE = 0.4;
+/** Where in the 16:9 view the player always is, px from its left. */
+export const ANCHOR_X = ANCHOR_SHARE * VIEW_WIDTH;
+/**
+ * The widest view the level keeps its changes out of (ground reshaping, columns starting
+ * to move): a 32:9 screen. Narrower screens see less of it.
+ */
+export const MAX_VIEW_WIDTH = (VIEW_HEIGHT * 32) / 9;
+/** How much of the level the widest view shows ahead of the player's left edge, and behind it. */
+export const VIEW_AHEAD = (1 - ANCHOR_SHARE) * MAX_VIEW_WIDTH;
+export const VIEW_BEHIND = ANCHOR_SHARE * MAX_VIEW_WIDTH;
 /** Feet below this height mean the player fell into a pit. */
 export const DEATH_Y = -160;
 /** How far spikes stick out of the surface, px. */
