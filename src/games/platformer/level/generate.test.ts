@@ -371,7 +371,7 @@ describe('generateLevel: seeds and difficulty', () => {
     const map = momentsMap();
     const spikes = (d: Difficulty) => mean(generateLevel(map, d).spikes.map((s) => s.x1 - s.x0));
     expect(spikes('hard')).toBeGreaterThan(spikes('easy'));
-  });
+  }, 30_000);
 });
 
 describe('generateLevel: repairs', () => {

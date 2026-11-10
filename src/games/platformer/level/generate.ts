@@ -1039,7 +1039,9 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
     } else if (m.kind === 'gate') {
       if (!abilities.has('dash')) return;
       const gate = gateAt(x, t, h);
-      if (gate.x - PLAYER_WIDTH < from - 1e-6 || gate.x > limit) return;
+      // The gate stands at the player's front: their back must be through it before the
+      // next obstacle's ground (on a fast song a beat is narrower than the player).
+      if (gate.x - PLAYER_WIDTH < from - 1e-6 || gate.x - PLAYER_WIDTH > limit) return;
       gates.push(gate);
       add(
         {
