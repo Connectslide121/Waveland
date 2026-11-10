@@ -15,6 +15,7 @@ const analysis: SongAnalysis = {
   sections: [{ start: 0, end: 125.25, kind: 'main', energy: 0.5 }],
   drops: [{ time: 60, strength: 0.8 }],
   features: { sustains: [], stops: [], accents: [], fills: [], syncopations: [], bars: [] },
+  melody: curve,
 };
 const song: AnalysedSong = {
   file: new File(['x'], 'Midnight Drive.mp3'),

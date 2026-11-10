@@ -272,7 +272,7 @@ kbd {
 }
 
 .timeline--overview {
-  height: 186px;
+  height: 230px;
 }
 
 .timeline--overview .timeline__canvas {
@@ -347,6 +347,13 @@ kbd {
   width: 10px;
   height: 10px;
   border-radius: 50%;
+}
+
+/* A curve over time: a short level line. */
+.legend__swatch--curve {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
 }
 
 .legend__swatch--block {

@@ -1,9 +1,11 @@
 import {
   AudioClock,
+  buildLevelMap,
   decodeSong,
   waveformOf,
   type AnalysedSong,
   type Band,
+  type LevelMap,
   type SectionKind,
   type Waveform,
 } from '../core';
@@ -180,7 +182,11 @@ export function createSongDetails({
 
   const legend = el('ul', 'legend');
   legend.setAttribute('aria-label', 'Legend');
-  const legendItem = (label: string, colour: string, shape: 'line' | 'dash' | 'dot' | 'block') => {
+  const legendItem = (
+    label: string,
+    colour: string,
+    shape: 'line' | 'dash' | 'dot' | 'block' | 'curve',
+  ) => {
     const item = el('li', 'legend__item');
     const swatch = el('span', `legend__swatch legend__swatch--${shape}`);
     swatch.style.setProperty('--c', colour);
@@ -194,6 +200,8 @@ export function createSongDetails({
   legendItem('Drop', palette.magenta, 'block');
   for (const lane of LANES) legendItem(lane.label, lane.colour, 'dot');
   legendItem('Bass energy', palette.violet, 'block');
+  legendItem('Melody height per beat (dashed: none heard)', palette.cyan, 'curve');
+  legendItem('Melody pitch', alpha(palette.cyan, 0.4), 'dot');
   legendItem('Held sound', palette.ink, 'block');
   legendItem('Stop', alpha(palette.muted, 0.6), 'block');
   legendItem('Accent', palette.magenta, 'dot');
@@ -320,6 +328,76 @@ export function createSongDetails({
     return letters;
   }
 
+  /**
+   * The melody in the overview: the pitch heard, as faint dots per pixel column over the
+   * song's own range, and the height per beat the games follow, solid where a melody is
+   * heard and dashed where the level map fills in between.
+   */
+  function drawMelody(
+    ctx: CanvasRenderingContext2D,
+    x: (t: number) => number,
+    plotW: number,
+    top: number,
+    bottom: number,
+  ): void {
+    ctx.fillStyle = alpha(palette.line, 0.6);
+    ctx.fillRect(GUTTER, bottom, plotW, 1);
+    const { step, values } = analysis.melody;
+    const heard = values.filter((v) => v > 0).sort();
+    if (heard.length > 0) {
+      const lo = heard[Math.floor(0.05 * heard.length)]!;
+      const hi = Math.max(lo + 1, heard[Math.floor(0.95 * (heard.length - 1))]!);
+      const columns = Math.max(1, Math.floor(plotW));
+      const column: number[] = [];
+      ctx.fillStyle = alpha(palette.cyan, 0.4);
+      for (let px = 0; px < columns; px++) {
+        const from = Math.floor(((px / columns) * analysis.duration) / step);
+        const to = Math.min(
+          values.length,
+          Math.ceil((((px + 1) / columns) * analysis.duration) / step),
+        );
+        column.length = 0;
+        for (let i = from; i < to; i++) if (values[i]! > 0) column.push(values[i]!);
+        // A column counts when a third of it has a melody: blips are left out.
+        if (column.length === 0 || column.length < (to - from) / 3) continue;
+        column.sort((a, b) => a - b);
+        const v = Math.max(0, Math.min(1, (column[column.length >> 1]! - lo) / (hi - lo)));
+        ctx.fillRect(GUTTER + px, bottom - v * (bottom - top) - 1, 1, 2);
+      }
+    }
+
+    // The height per beat, at each beat's middle.
+    const { beats, mood } = melodyMap();
+    const point = (i: number) =>
+      [
+        x((beats[i]! + (beats[i + 1] ?? analysis.duration)) / 2),
+        bottom - mood.melody[i]! * (bottom - top),
+      ] as const;
+    ctx.strokeStyle = palette.cyan;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    for (let i = 0; i + 1 < beats.length; i++) {
+      const gap = mood.melodyMove[i] === 'none' || mood.melodyMove[i + 1] === 'none';
+      ctx.globalAlpha = gap ? 0.45 : 1;
+      ctx.setLineDash(gap ? [2, 3] : []);
+      const [x0, y0] = point(i);
+      const [x1, y1] = point(i + 1);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+  }
+
+  /** The level map's melody curves, built once when the overview first needs them. */
+  let melodyCache: Pick<LevelMap, 'beats' | 'mood'> | null = null;
+  function melodyMap(): Pick<LevelMap, 'beats' | 'mood'> {
+    melodyCache ??= buildLevelMap(analysis);
+    return melodyCache;
+  }
+
   /** The overview without the playhead, redrawn only when its size changes. */
   let overviewLayer: HTMLCanvasElement | null = null;
 
@@ -340,7 +418,10 @@ export function createSongDetails({
     const momentsTop = repeatsTop + repeatsH + 4;
     const momentsH = 14;
     const top = momentsTop + momentsH + 8;
-    const bottom = h - 4;
+    const melodyH = 36;
+    const melodyBottom = h - 4;
+    const melodyTop = melodyBottom - melodyH;
+    const bottom = melodyTop - 8;
 
     ctx.font = `600 10px ${FONT}`;
     ctx.textBaseline = 'middle';
@@ -350,6 +431,7 @@ export function createSongDetails({
     ctx.fillText('REPEATS', 0, repeatsTop + repeatsH / 2);
     ctx.fillText('MOMENTS', 0, momentsTop + momentsH / 2);
     ctx.fillText('ENERGY', 0, (top + bottom) / 2);
+    ctx.fillText('MELODY', 0, (melodyTop + melodyBottom) / 2);
 
     // Repeated bars: a cell per bar, those the song plays more than once lettered by what
     // they repeat, faint the first time and bright when it comes again.
@@ -443,6 +525,7 @@ export function createSongDetails({
     };
     curve(analysis.bands.low.values, analysis.bands.low.step, true, palette.violet);
     curve(analysis.energy.values, analysis.energy.step, false, palette.ink);
+    drawMelody(ctx, x, plotW, melodyTop, melodyBottom);
 
     // Drops: a magenta line through everything, with a marker on top.
     for (const drop of analysis.drops) {
