@@ -1,6 +1,14 @@
-import { beatAt, periodAt, timeOfBeat, type Section, type TempoGrid } from '../../core';
+import {
+  beatAt,
+  lastAtOrBefore,
+  periodAt,
+  timeOfBeat,
+  type LevelEvent,
+  type Section,
+  type TempoGrid,
+} from '../../core';
 import { stepAt } from './level/validate';
-import { LevelWorld, xAtTime, type PlatformerLevel } from './level';
+import { LevelWorld, xAtTime, type BoosterKind, type PlatformerLevel } from './level';
 import {
   canDash,
   canJump,
@@ -17,29 +25,67 @@ import {
 
 /**
  * One play of the platformer's level, without any drawing: the player's fixed physics
- * steps on song time, deaths and checkpoints, pickups and the score. The scene feeds it
- * the audio clock's time and the controls every frame and draws what it says.
+ * steps on song time, deaths and checkpoints, pickups, boosters and the score. The scene
+ * feeds it the audio clock's time and the controls every frame and draws what it says.
+ *
+ * Song time is the audio clock's, which already takes off the output latency and the
+ * player's latency offset from Settings: an action is judged against the beat as it is
+ * heard.
  */
 
-/** A takeoff, landing, dash or slam within this many seconds of a beat is perfect, or good. */
-export const PERFECT_WINDOW = 0.06;
-export const GOOD_WINDOW = 0.12;
+/**
+ * A takeoff, landing, dash or slam landing within this many seconds of a beat, or of the
+ * eighth between two beats, is perfect, or good. On fast songs the windows shrink to a
+ * share of the eighth (`PERFECT_SHARE`, `GOOD_SHARE`), so not everything is on the grid.
+ */
+export const PERFECT_WINDOW = 0.05;
+export const GOOD_WINDOW = 0.1;
+export const PERFECT_SHARE = 0.18;
+export const GOOD_SHARE = 0.36;
 /** Beats of count-in after a pause: the music rewinds this far and the player waits. */
 export const RESUME_BEATS = 2;
 /** Beats of count-in before every (re)start from a checkpoint: a bar. */
 export const BAR_BEATS = 4;
 /** How long the death effect plays, in song time, before the music rewinds. */
 export const DEATH_TIME = 0.7;
-/** Points, before the combo multiplier. A slam landing on the beat is an accent: doubled. */
-export const POINTS = { coin: 100, gem: 500, perfect: 300, good: 100 } as const;
+/** Points, before the combo multiplier and overdrive. */
+export const POINTS = { coin: 100, gem: 500, booster: 250, perfect: 300, good: 100 } as const;
+/** A dash on a snare, or a slam landing on a kick or a downbeat, is an accent: doubled. */
 export const ACCENT_FACTOR = 2;
 /** Every this many in a row raises the multiplier by one, up to `MAX_MULTIPLIER`. */
 export const COMBO_STEP = 8;
 export const MAX_MULTIPLIER = 4;
+/** Overdrive: lasts this many beats (4 bars), and doubles the score on top of the combo. */
+export const OVERDRIVE_BEATS = 16;
+export const OVERDRIVE_FACTOR = 2;
+/** How much of the overdrive meter a perfect and a gem fill. */
+export const METER_PERFECT = 1 / 12;
+export const METER_GEM = 1 / 4;
+/** Activating overdrive within `GOOD_WINDOW` of a downbeat scores this, times the multiplier. */
+export const DOWNBEAT_BONUS = 1000;
+/** This many perfects in a row bursts for a bonus (times the multiplier and overdrive). */
+export const STREAK_PERFECTS = 10;
+export const STREAK_BONUS = 1000;
+/** Getting through a section without a hit. */
+export const CLEAN_BONUS = 2000;
+/** The magnet lasts this many beats (4 bars) and pulls coins from this far, px. */
+export const MAGNET_BEATS = 16;
+export const MAGNET_RADIUS = 110;
+/**
+ * A shield's bounce lands at least this long after the hit and at most this long, on the
+ * first surface the player can stand on for `SAFE_TIME` without doing anything.
+ */
+export const RESCUE_MIN = 0.35;
+export const RESCUE_MAX = 3;
+export const SAFE_TIME = 0.25;
+/** The bounce rises this far above the higher of where it starts and lands, px. */
+const RESCUE_RISE = 70;
 /** How close to a pickup's centre the player's box has to come, px. */
-const PICKUP_RADIUS = { coin: 16, gem: 22 } as const;
+const PICKUP_RADIUS = { coin: 16, gem: 22, booster: 22 } as const;
 /** The physics never runs more steps than this in one frame (a long stall jumps ahead). */
 const MAX_STEPS_PER_UPDATE = 240;
+/** Kicks and snares at least this strong make accents. */
+const ACCENT_INTENSITY = 0.3;
 
 /** What the controls say this frame. */
 export interface RunInput {
@@ -66,11 +112,17 @@ export type RunEvent =
       type: 'beat';
       action: BeatAction;
       quality: BeatQuality;
+      /** A dash on a snare, a slam landing on a kick or a downbeat. */
+      accent: boolean;
       points: number;
       x: number;
       y: number;
     }
-  | { type: 'pickup'; index: number; points: number }
+  | { type: 'pickup'; index: number; points: number; pulled: boolean }
+  | { type: 'streak'; count: number; points: number; x: number; y: number }
+  | { type: 'overdrive'; downbeat: boolean; points: number; x: number; y: number }
+  | { type: 'clean'; points: number }
+  | { type: 'shield'; x: number; y: number }
   | { type: 'death'; cause: DeathCause; x: number; y: number };
 
 /**
@@ -88,21 +140,78 @@ export interface Checkpoint {
   surface: number;
 }
 
+/** The kicks and snares accents are judged against, from the level map's events. */
+export interface RunMusic {
+  kicks: number[];
+  snares: number[];
+}
+
+/** What a checkpoint puts back: the score, the combo, the overdrive meter and the boosters. */
 interface Score {
   score: number;
   combo: number;
   bestCombo: number;
+  /** Perfects in a row, toward the streak bonus. */
+  perfects: number;
   collected: Uint8Array;
+  /** The overdrive meter, 0 to 1, and the song time an overdrive runs from and to. */
+  meter: number;
+  overdriveFrom: number;
+  overdriveUntil: number;
+  /** Sections got through without a hit. */
+  clean: number;
+  shield: boolean;
+  magnetFrom: number;
+  magnetUntil: number;
+  extraDash: boolean;
 }
+
+/** A shield's bounce: from the hit, up and over to a safe surface. */
+export interface Rescue {
+  from: number;
+  to: number;
+  y0: number;
+  y1: number;
+  surface: number;
+}
+
+export type Rank = 'S' | 'A' | 'B' | 'C';
+
+/**
+ * The ranks, best first: the least timing ((perfects + half the goods) / judged actions)
+ * and the most deaths each allows. C is finishing.
+ */
+export const RANKS: readonly { rank: Rank; timing: number; deaths: number }[] = [
+  { rank: 'S', timing: 0.85, deaths: 0 },
+  { rank: 'A', timing: 0.7, deaths: 2 },
+  { rank: 'B', timing: 0.5, deaths: Infinity },
+  { rank: 'C', timing: 0, deaths: Infinity },
+];
 
 export interface RunResults {
   score: number;
-  /** Share of takeoffs, landings, dashes and slams on the beat, 0 to 1, or null when none. */
+  rank: Rank;
+  /** (Perfects + half the goods) / judged actions, 0 to 1, or null when none were judged. */
+  timing: number | null;
+  /** Share of takeoffs, landings, dashes and slams on the beat or eighth, 0 to 1, or null. */
   accuracy: number | null;
+  perfect: number;
+  good: number;
+  miss: number;
   deaths: number;
+  /** Hits a shield took. */
+  saves: number;
   pickups: number;
   totalPickups: number;
   bestCombo: number;
+  overdrives: number;
+  clean: number;
+  sections: number;
+}
+
+export function rankOf(timing: number | null, deaths: number): Rank {
+  const t = timing ?? 0;
+  return RANKS.find((r) => t >= r.timing && deaths <= r.deaths)?.rank ?? 'C';
 }
 
 /**
@@ -136,8 +245,38 @@ export function offBeat(grid: Pick<TempoGrid, 'beats' | 'segments'>, t: number) 
   return Math.abs(beats - Math.round(beats)) * periodAt(grid, t);
 }
 
+/** Seconds from `t` to the nearest beat or eighth between beats, at the tempo there. */
+export function offGrid(grid: Pick<TempoGrid, 'beats' | 'segments'>, t: number) {
+  const eighths = beatAt(grid, t) * 2;
+  return (Math.abs(eighths - Math.round(eighths)) * periodAt(grid, t)) / 2;
+}
+
+/** How an action at `t` is judged: against the nearest beat or eighth. */
+export function judgeAt(grid: Pick<TempoGrid, 'beats' | 'segments'>, t: number): BeatQuality {
+  const eighth = periodAt(grid, t) / 2;
+  const off = offGrid(grid, t);
+  if (off <= Math.min(PERFECT_WINDOW, PERFECT_SHARE * eighth)) return 'perfect';
+  if (off <= Math.min(GOOD_WINDOW, GOOD_SHARE * eighth)) return 'good';
+  return 'miss';
+}
+
+/** Seconds from `t` to the nearest of the sorted `times`, or Infinity when there are none. */
+function nearest(times: readonly number[], t: number): number {
+  const i = lastAtOrBefore(times, t);
+  const before = i >= 0 ? t - times[i]! : Infinity;
+  const after = i + 1 < times.length ? times[i + 1]! - t : Infinity;
+  return Math.min(before, after);
+}
+
 export function multiplierOf(combo: number): number {
   return Math.min(MAX_MULTIPLIER, 1 + Math.floor(combo / COMBO_STEP));
+}
+
+/** The kicks and snares strong enough to make accents, from the level map's events. */
+export function musicOf(events: readonly LevelEvent[]): RunMusic {
+  const of = (kind: LevelEvent['kind']) =>
+    events.filter((e) => e.kind === kind && e.intensity >= ACCENT_INTENSITY).map((e) => e.time);
+  return { kicks: of('kick'), snares: of('snare') };
 }
 
 export class PlatformerRun {
@@ -162,8 +301,12 @@ export class PlatformerRun {
   /** Song time the last slam started, and landed, for its streak and shockwave. */
   slammedAt = -Infinity;
   slamLandedAt = -Infinity;
+  /** Song time a shield last took a hit. */
+  shieldHitAt = -Infinity;
   /** What the last death was. */
   deathCause: DeathCause | null = null;
+  /** A shield's bounce in progress, or null. */
+  rescue: Rescue | null = null;
 
   #score: Score;
   /** The score as it was at the checkpoint, put back on a death. */
@@ -175,12 +318,15 @@ export class PlatformerRun {
   #jumpUntil = -Infinity;
   #dashUntil = -Infinity;
   #slamUntil = -Infinity;
-  #judged = 0;
-  #onBeat = 0;
+  /** No hit since the section began (or since the checkpoint the player came back to). */
+  #sectionClean = true;
+  /** Over the whole play, rewinds included. */
+  readonly #counts = { perfect: 0, good: 0, miss: 0, overdrives: 0, saves: 0 };
 
   constructor(
     readonly level: PlatformerLevel,
     sections: Section[],
+    readonly music: RunMusic = { kicks: [], snares: [] },
   ) {
     this.world = new LevelWorld(level);
     this.checkpoints = checkpointsOf(level, sections);
@@ -192,7 +338,16 @@ export class PlatformerRun {
       score: 0,
       combo: 0,
       bestCombo: 0,
+      perfects: 0,
       collected: new Uint8Array(level.pickups.length),
+      meter: 0,
+      overdriveFrom: -Infinity,
+      overdriveUntil: -Infinity,
+      clean: 0,
+      shield: false,
+      magnetFrom: -Infinity,
+      magnetUntil: -Infinity,
+      extraDash: false,
     };
     this.#saved = copyScore(this.#score);
   }
@@ -207,6 +362,31 @@ export class PlatformerRun {
 
   get multiplier(): number {
     return multiplierOf(this.#score.combo);
+  }
+
+  /** The overdrive meter, 0 to 1: full, it can be activated. */
+  get meter(): number {
+    return this.#score.meter;
+  }
+
+  /** The song times the last overdrive ran from and to. */
+  get overdrive(): { from: number; until: number } {
+    return { from: this.#score.overdriveFrom, until: this.#score.overdriveUntil };
+  }
+
+  overdriveAt(t: number): boolean {
+    return t >= this.#score.overdriveFrom && t < this.#score.overdriveUntil;
+  }
+
+  /** The boosters the player has: a shield, a magnet until a song time, an extra dash. */
+  get boosters(): { shield: boolean; magnetFrom: number; magnetUntil: number; extraDash: boolean } {
+    const s = this.#score;
+    return {
+      shield: s.shield,
+      magnetFrom: s.magnetFrom,
+      magnetUntil: s.magnetUntil,
+      extraDash: s.extraDash,
+    };
   }
 
   isCollected(index: number): boolean {
@@ -267,6 +447,7 @@ export class PlatformerRun {
         this.#step++;
         this.#advance(this.#step * PHYSICS_DT, input, events);
       }
+      if (this.phase === 'playing' && input.overdrivePressed) this.#activate(time, events);
       if (this.phase === 'playing' && time >= this.level.duration) this.finish();
     }
     const respawn = this.phase === 'dying' && time - this.diedAt >= DEATH_TIME;
@@ -284,25 +465,42 @@ export class PlatformerRun {
     this.dashedAt = -Infinity;
     this.slammedAt = -Infinity;
     this.slamLandedAt = -Infinity;
+    this.shieldHitAt = -Infinity;
+    this.rescue = null;
+    this.#sectionClean = true;
     this.phase = 'countin';
     return this.countInFrom;
   }
 
   finish(): void {
     if (this.phase === 'finished') return;
+    // The last section ends with the song.
+    if (this.#sectionClean && this.phase === 'playing') this.#cleanBonus([]);
     this.phase = 'finished';
   }
 
   results(): RunResults {
     let pickups = 0;
     for (const c of this.#score.collected) pickups += c;
+    const { perfect, good, miss, overdrives, saves } = this.#counts;
+    const judged = perfect + good + miss;
+    const timing = judged > 0 ? (perfect + good / 2) / judged : null;
     return {
       score: this.#score.score,
-      accuracy: this.#judged > 0 ? this.#onBeat / this.#judged : null,
+      rank: rankOf(timing, this.deaths),
+      timing,
+      accuracy: judged > 0 ? (perfect + good) / judged : null,
+      perfect,
+      good,
+      miss,
       deaths: this.deaths,
+      saves,
       pickups,
       totalPickups: this.level.pickups.length,
       bestCombo: this.#score.bestCombo,
+      overdrives,
+      clean: this.#score.clean,
+      sections: this.checkpoints.length,
     };
   }
 
@@ -311,17 +509,37 @@ export class PlatformerRun {
   }
 
   #advance(t: number, input: RunInput, events: RunEvent[]): void {
-    // Passing a checkpoint saves the score to go back to.
+    // Passing a checkpoint ends a section (clean when there was no hit), then saves the
+    // score, meter and boosters to go back to.
     const next = this.checkpoints.find((c) => c.time > this.checkpoint.time);
     if (next && t >= next.time) {
+      if (this.#sectionClean) this.#cleanBonus(events);
+      this.#sectionClean = true;
       this.checkpoint = next;
       this.#saved = copyScore(this.#score);
     }
+    if (this.rescue) {
+      this.#bounce(t);
+      return;
+    }
 
-    const prev = this.player;
+    let prev = this.player;
+    const s = this.#score;
     const jump = t <= this.#jumpUntil && canJump(prev);
     if (jump) this.#jumpUntil = -Infinity;
-    const dash = t <= this.#dashUntil && canDash(prev);
+    let dash = t <= this.#dashUntil && canDash(prev);
+    // The extra dash booster: a second dash in the air, once the first is over.
+    const extra =
+      !dash &&
+      t <= this.#dashUntil &&
+      s.extraDash &&
+      !prev.grounded &&
+      !prev.slamming &&
+      prev.dashLeft === 0;
+    if (extra) {
+      prev = { ...prev, dashReady: true };
+      dash = true;
+    }
     if (dash) this.#dashUntil = -Infinity;
     const slam = t <= this.#slamUntil && canSlam(prev);
     if (slam) this.#slamUntil = -Infinity;
@@ -329,15 +547,15 @@ export class PlatformerRun {
     this.player = p;
 
     if (!p.alive) {
+      if (s.shield && this.#shieldHit(t, p, events)) return;
       this.phase = 'dying';
       this.diedAt = t;
       this.deathCause = p.death ?? 'pit';
       this.deaths++;
-      // The score goes back to the checkpoint's; the best combo reached stays.
-      const best = this.#score.bestCombo;
+      // Everything goes back to the checkpoint's; the best combo reached stays.
+      const best = s.bestCombo;
       this.#score = copyScore(this.#saved);
-      this.#score.combo = 0;
-      this.#score.bestCombo = best;
+      this.#score.bestCombo = Math.max(best, this.#score.bestCombo);
       events.push({ type: 'death', cause: p.death ?? 'pit', x: p.x, y: p.y });
       return;
     }
@@ -347,59 +565,220 @@ export class PlatformerRun {
       events.push(this.#judge('takeoff', t, p));
     }
     if (dash && p.dashLeft > 0) {
+      if (extra) s.extraDash = false;
       this.dashedAt = t;
       events.push(this.#judge('dash', t, p));
     }
     if (slam && p.slamming) this.slammedAt = t;
     if (!prev.grounded && p.grounded) {
       this.landedAt = t;
+      // The extra dash lasts until the next landing.
+      s.extraDash = false;
       if (prev.slamming) {
         this.slamLandedAt = t;
         events.push(this.#judge('slam', t, p));
       } else if (prev.jumped) events.push(this.#judge('land', t, p));
     }
-    this.#collect(p, events);
+    this.#collect(t, p, events);
   }
 
-  /** Rate something the player did by how close to a beat it is, and score it. */
-  #judge(action: BeatAction, t: number, p: PlayerState): RunEvent {
-    const off = offBeat(this.level.grid, t);
-    const quality: BeatQuality =
-      off <= PERFECT_WINDOW ? 'perfect' : off <= GOOD_WINDOW ? 'good' : 'miss';
-    this.#judged++;
-    let points = 0;
-    if (quality === 'miss') this.#score.combo = 0;
-    else {
-      this.#onBeat++;
-      points = this.#gain(POINTS[quality] * (action === 'slam' ? ACCENT_FACTOR : 1));
+  /**
+   * A hit with a shield: the shield goes, the combo breaks, and the player bounces up and
+   * over onto the nearest surface they can stand on safely. False when there is none near
+   * enough: the hit is a death after all.
+   */
+  #shieldHit(t: number, p: PlayerState, events: RunEvent[]): boolean {
+    const safe = this.#safeLanding(t);
+    if (!safe) return false;
+    const s = this.#score;
+    s.shield = false;
+    this.#breakCombo();
+    this.#sectionClean = false;
+    this.#counts.saves++;
+    this.shieldHitAt = t;
+    this.#clearPresses();
+    const y0 = p.y;
+    this.rescue = { from: t, to: safe.time, y0, y1: safe.y, surface: safe.surface };
+    const x = this.world.xAt(t);
+    const up: PlayerState = { ...p, alive: true, x, grounded: false, slamming: false, dashLeft: 0 };
+    delete up.death;
+    this.player = up;
+    events.push({ type: 'shield', x: x + PLAYER_WIDTH / 2, y: y0 });
+    return true;
+  }
+
+  /** The first moment and surface after a hit the player can land on and stand on safely. */
+  #safeLanding(t: number): { time: number; y: number; surface: number } | null {
+    const world = this.world;
+    for (let step = stepAt(t + RESCUE_MIN); step * PHYSICS_DT <= t + RESCUE_MAX; step++) {
+      const at = step * PHYSICS_DT;
+      if (at >= this.level.duration) return null;
+      const x = world.xAt(at);
+      let best: { surface: number; top: number } | null = null;
+      let ceiling = Infinity;
+      for (const i of world.solidsBetween(x, x + PLAYER_WIDTH)) {
+        const top = world.topAt(i, at);
+        if (top === null) continue;
+        const bottom = world.bottomOf(i);
+        if (bottom !== -Infinity) ceiling = Math.min(ceiling, bottom);
+        else if (!best || top > best.top) best = { surface: i, top };
+      }
+      if (!best || best.top + PLAYER_HEIGHT > ceiling) continue;
+      // Standing there doing nothing for a moment must be safe: no wall, gate or spikes.
+      let q: PlayerState = { ...startState(x, best.top), surface: best.surface };
+      for (let k = 1; k * PHYSICS_DT <= SAFE_TIME && q.alive; k++)
+        q = stepPlayer(q, { jump: false }, world, (step + k) * PHYSICS_DT);
+      if (q.alive && q.grounded) return { time: at, y: best.top, surface: best.surface };
     }
-    return { type: 'beat', action, quality, points, x: p.x + PLAYER_WIDTH / 2, y: p.y };
+    return null;
   }
 
-  #collect(p: PlayerState, events: RunEvent[]): void {
+  /** A step of the shield's bounce: an arc over everything, landing on its safe surface. */
+  #bounce(t: number): void {
+    const r = this.rescue!;
+    const x = this.world.xAt(t);
+    if (t >= r.to - 1e-9) {
+      this.player = { ...startState(x, r.y1), surface: r.surface };
+      this.rescue = null;
+      this.landedAt = t;
+      return;
+    }
+    const u = (t - r.from) / (r.to - r.from);
+    const rise = Math.max(r.y0, r.y1) + RESCUE_RISE - (r.y0 + r.y1) / 2;
+    const y = r.y0 + (r.y1 - r.y0) * u + 4 * rise * u * (1 - u);
+    this.player = { ...this.player, x, y, vy: 0, grounded: false, slamming: false, dashLeft: 0 };
+  }
+
+  /** Rate something the player did by how close to a beat or an eighth it is, and score it. */
+  #judge(action: BeatAction, t: number, p: PlayerState): RunEvent {
+    const quality = judgeAt(this.level.grid, t);
+    this.#counts[quality]++;
+    const s = this.#score;
+    const x = p.x + PLAYER_WIDTH / 2;
+    let points = 0;
+    let accent = false;
+    if (quality === 'miss') this.#breakCombo();
+    else {
+      accent = this.#isAccent(action, t);
+      points = this.#gain(t, POINTS[quality] * (accent ? ACCENT_FACTOR : 1));
+      if (quality === 'perfect') {
+        this.#fill(t, METER_PERFECT);
+        if (++s.perfects % STREAK_PERFECTS === 0)
+          this.#streak = {
+            type: 'streak',
+            count: s.perfects,
+            points: this.#bonus(t, STREAK_BONUS),
+            x,
+            y: p.y,
+          };
+      } else s.perfects = 0;
+    }
+    return { type: 'beat', action, quality, accent, points, x, y: p.y };
+  }
+
+  /** A streak bonus earned by the last judgement, handed out after its beat event. */
+  #streak: RunEvent | null = null;
+
+  /** A dash on a snare, or a slam landing on a kick or a downbeat. */
+  #isAccent(action: BeatAction, t: number): boolean {
+    if (action === 'dash') return nearest(this.music.snares, t) <= GOOD_WINDOW;
+    if (action === 'slam')
+      return (
+        nearest(this.music.kicks, t) <= GOOD_WINDOW ||
+        nearest(this.level.grid.downbeats, t) <= GOOD_WINDOW
+      );
+    return false;
+  }
+
+  /** Overdrive, when the meter is full: 4 bars of double score, a bonus on a downbeat. */
+  #activate(t: number, events: RunEvent[]): void {
+    const s = this.#score;
+    if (s.meter < 1 || this.overdriveAt(t) || this.rescue) return;
+    const grid = this.level.grid;
+    // The bonus is the combo's, not doubled: overdrive starts with it.
+    const downbeat = nearest(grid.downbeats, t) <= GOOD_WINDOW;
+    const points = downbeat ? this.#bonus(t, DOWNBEAT_BONUS) : 0;
+    s.meter = 0;
+    s.overdriveFrom = t;
+    s.overdriveUntil = timeOfBeat(grid, beatAt(grid, t) + OVERDRIVE_BEATS);
+    this.#counts.overdrives++;
+    const p = this.player;
+    events.push({ type: 'overdrive', downbeat, points, x: p.x + PLAYER_WIDTH / 2, y: p.y });
+  }
+
+  #cleanBonus(events: RunEvent[]): void {
+    const s = this.#score;
+    s.clean++;
+    s.score += CLEAN_BONUS;
+    events.push({ type: 'clean', points: CLEAN_BONUS });
+  }
+
+  #collect(t: number, p: PlayerState, events: RunEvent[]): void {
     const pickups = this.level.pickups;
-    const collected = this.#score.collected;
+    const s = this.#score;
+    const collected = s.collected;
+    const magnet = t >= s.magnetFrom && t < s.magnetUntil;
     for (let i = 0; i < pickups.length; i++) {
       if (collected[i]) continue;
       const k = pickups[i]!;
-      const r = PICKUP_RADIUS[k.kind];
+      const kind = k.kind === 'coin' || k.kind === 'gem' ? k.kind : 'booster';
+      const pull = magnet && kind === 'coin';
+      const r = pull ? MAGNET_RADIUS : PICKUP_RADIUS[kind];
       if (k.x < p.x - r || k.x > p.x + PLAYER_WIDTH + r) continue;
       // Nearest point of the box to the pickup's centre.
       const nx = Math.max(p.x, Math.min(k.x, p.x + PLAYER_WIDTH));
       const ny = Math.max(p.y, Math.min(k.y, p.y + PLAYER_HEIGHT));
-      if ((nx - k.x) ** 2 + (ny - k.y) ** 2 > r * r) continue;
+      const d2 = (nx - k.x) ** 2 + (ny - k.y) ** 2;
+      if (d2 > r * r) continue;
       collected[i] = 1;
-      events.push({ type: 'pickup', index: i, points: this.#gain(POINTS[k.kind]) });
+      const points = this.#gain(t, POINTS[kind]);
+      if (k.kind === 'gem') this.#fill(t, METER_GEM);
+      else if (kind === 'booster') this.#boost(k.kind as BoosterKind, t);
+      const pulled = pull && d2 > PICKUP_RADIUS.coin ** 2;
+      events.push({ type: 'pickup', index: i, points, pulled });
+    }
+    if (this.#streak) {
+      events.push(this.#streak);
+      this.#streak = null;
     }
   }
 
+  #boost(kind: BoosterKind, t: number): void {
+    const s = this.#score;
+    if (kind === 'shield') s.shield = true;
+    else if (kind === 'dash') s.extraDash = true;
+    else {
+      const grid = this.level.grid;
+      s.magnetFrom = t;
+      s.magnetUntil = timeOfBeat(grid, beatAt(grid, t) + MAGNET_BEATS);
+    }
+  }
+
+  /** The overdrive meter fills, but not while an overdrive runs. */
+  #fill(t: number, amount: number): void {
+    const s = this.#score;
+    // Twelve twelfths make a full meter, whatever the rounding.
+    if (!this.overdriveAt(t)) s.meter = s.meter + amount >= 1 - 1e-9 ? 1 : s.meter + amount;
+  }
+
+  #breakCombo(): void {
+    this.#score.combo = 0;
+    this.#score.perfects = 0;
+  }
+
   /** Add to the combo and the score, multiplied; returns the points scored. */
-  #gain(base: number): number {
+  #gain(t: number, base: number): number {
     const s = this.#score;
     s.combo++;
     s.bestCombo = Math.max(s.bestCombo, s.combo);
-    const points = base * multiplierOf(s.combo);
-    s.score += points;
+    return this.#bonus(t, base);
+  }
+
+  /** Points times the multiplier and overdrive, without adding to the combo. */
+  #bonus(t: number, base: number): number {
+    const points =
+      base * multiplierOf(this.#score.combo) * (this.overdriveAt(t) ? OVERDRIVE_FACTOR : 1);
+    this.#score.score += points;
     return points;
   }
 }

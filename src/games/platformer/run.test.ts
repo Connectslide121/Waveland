@@ -3,16 +3,29 @@ import { steadyGrid, type Section } from '../../core';
 import type { Chunk } from './level';
 import { ground, testLevel } from './level/test-level';
 import { ANCHOR_X, JUMP_AIR, PHYSICS_DT, PLAYER_WIDTH } from './physics';
+import { stepAt } from './level/validate';
 import {
   ACCENT_FACTOR,
   checkpointsOf,
+  CLEAN_BONUS,
   COMBO_STEP,
   DEATH_TIME,
-  RESUME_BEATS,
+  DOWNBEAT_BONUS,
+  GOOD_WINDOW,
+  judgeAt,
+  MAGNET_BEATS,
+  METER_GEM,
   multiplierOf,
   offBeat,
+  OVERDRIVE_BEATS,
+  OVERDRIVE_FACTOR,
+  PERFECT_WINDOW,
   PlatformerRun,
   POINTS,
+  rankOf,
+  RESUME_BEATS,
+  STREAK_BONUS,
+  STREAK_PERFECTS,
   type RunEvent,
   type RunInput,
 } from './run';
@@ -158,7 +171,12 @@ describe('PlatformerRun', () => {
     level.pickups.push({ kind: 'coin', x: ANCHOR_X + 40 + PLAYER_WIDTH / 2, y: 20, time: 0.2 });
     const run = new PlatformerRun(level, []);
     const events = play(run, 0, 0.3, NOTHING);
-    expect(events).toContainEqual({ type: 'pickup', index: 0, points: POINTS.coin });
+    expect(events).toContainEqual({
+      type: 'pickup',
+      index: 0,
+      points: POINTS.coin,
+      pulled: false,
+    });
     expect(run.score).toBe(POINTS.coin);
     expect(run.isCollected(0)).toBe(true);
 
@@ -169,23 +187,30 @@ describe('PlatformerRun', () => {
     expect(run.results().bestCombo).toBe(1);
   });
 
-  it('rates takeoffs and landings by how close to a beat they are', () => {
-    // Beats every 0.5 s. A jump on the beat at 1 s lands about 0.683 s later: off the beat.
+  it('rates takeoffs and landings by how close to a beat or an eighth they are', () => {
+    // Beats every 0.5 s. A jump on the beat at 1 s lands about 0.683 s later: 0.067 s
+    // before the eighth at 1.75 s, good. One at 1.11 s is off both the beat and the eighth.
     const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });
     const run = new PlatformerRun(level, []);
     run.update(0, NOTHING);
     play(run, PHYSICS_DT, 1 - PHYSICS_DT, NOTHING);
-    const events = run.update(1, JUMP).events.concat(play(run, 1 + PHYSICS_DT, 2, HOLD));
-    const beats = events.filter((e) => e.type === 'beat');
+    let events = run.update(1, JUMP).events.concat(play(run, 1 + PHYSICS_DT, 2, HOLD));
+    let beats = events.filter((e) => e.type === 'beat');
     expect(beats[0]).toMatchObject({ type: 'beat', action: 'takeoff', quality: 'perfect' });
-    expect(beats[1]).toMatchObject({ type: 'beat', action: 'land', quality: 'miss' });
-    expect(run.results().accuracy).toBe(0.5);
+    expect(beats[1]).toMatchObject({ type: 'beat', action: 'land', quality: 'good' });
+    expect(run.combo).toBe(2);
+    play(run, 2 + PHYSICS_DT, 3.1, NOTHING);
+    events = run.update(3.1 + PHYSICS_DT, JUMP).events;
+    beats = events.filter((e) => e.type === 'beat');
+    expect(beats[0]).toMatchObject({ action: 'takeoff', quality: 'miss', points: 0 });
     expect(run.combo).toBe(0);
+    expect(run.results()).toMatchObject({ perfect: 1, good: 1, miss: 1 });
+    expect(run.results().accuracy).toBeCloseTo(2 / 3);
   });
 
-  it('scores a slam landing on the beat as an accent', () => {
+  it('scores a slam landing on a kick as an accent', () => {
     const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });
-    const run = new PlatformerRun(level, []);
+    const run = new PlatformerRun(level, [], { kicks: [0.5], snares: [] });
     run.update(0, NOTHING);
     run.update(0.25, JUMP);
     play(run, 0.25 + PHYSICS_DT, 0.4, HOLD);
@@ -199,6 +224,7 @@ describe('PlatformerRun', () => {
     const slam = events.find((e) => e.type === 'beat' && e.action === 'slam');
     expect(slam).toMatchObject({ quality: expect.stringMatching(/perfect|good/) });
     expect(run.slamLandedAt).toBeGreaterThan(0.4);
+    expect(slam).toMatchObject({ accent: true });
     if (slam?.type === 'beat') expect(slam.points % (POINTS.good * ACCENT_FACTOR)).toBe(0);
   });
 
@@ -210,6 +236,290 @@ describe('PlatformerRun', () => {
     run.update(2, NOTHING);
     expect(run.phase).toBe('finished');
     expect(run.results()).toMatchObject({ deaths: 0, accuracy: null, pickups: 0, totalPickups: 0 });
+  });
+});
+
+/** Run step by step from `from` to `to`, pressing what `at(t)` says on each step. */
+function drive(
+  run: PlatformerRun,
+  from: number,
+  to: number,
+  at: (t: number) => Partial<RunInput> = () => ({}),
+) {
+  const events: RunEvent[] = [];
+  for (let k = stepAt(from); k * PHYSICS_DT <= to + 1e-9; k++) {
+    const t = k * PHYSICS_DT;
+    events.push(...run.update(t, { ...NOTHING, ...at(t) }).events);
+  }
+  return events;
+}
+
+/** True on the step nearest to one of `times`. */
+const on = (t: number, times: number[]) => times.some((x) => Math.abs(x - t) < PHYSICS_DT / 2);
+/** Dash on the ground on each of `times`. */
+const dashOn = (times: number[]) => (t: number) => ({ dashPressed: on(t, times) });
+/** The beats from `from` to `to`, every 0.5 s. */
+const beatsFrom = (from: number, to: number) =>
+  Array.from({ length: Math.round((to - from) / 0.5) + 1 }, (_, i) => from + i * 0.5);
+const flat = (duration = 30, speed = 0) =>
+  testLevel([ground(-40, 20000)], { speed, duration }).level;
+
+describe('PlatformerRun: judging, combo and overdrive', () => {
+  it('judges against the nearest beat or eighth, with tighter windows on fast songs', () => {
+    const grid = steadyGrid(0, 0.5, 10);
+    expect(judgeAt(grid, 1.04)).toBe('perfect');
+    expect(judgeAt(grid, 0.96)).toBe('perfect');
+    expect(judgeAt(grid, 1.07)).toBe('good');
+    expect(judgeAt(grid, 1.11)).toBe('miss');
+    // The eighth between two beats counts too.
+    expect(judgeAt(grid, 1.27)).toBe('perfect');
+    expect(judgeAt(grid, 1.18)).toBe('good');
+    // At 171 BPM an eighth is 0.175 s: the windows shrink to a share of it.
+    const fast = steadyGrid(0, 0.35, 10);
+    expect(judgeAt(fast, 0.7 + 0.04)).toBe('good');
+    expect(judgeAt(fast, 0.7 + 0.07)).toBe('miss');
+    expect(PERFECT_WINDOW).toBeLessThan(GOOD_WINDOW);
+  });
+
+  it('chains the combo with judged actions and pickups, and an off-beat action breaks it', () => {
+    const level = flat();
+    level.pickups.push({ kind: 'coin', x: ANCHOR_X + 14, y: 20, time: 0 });
+    const run = new PlatformerRun(level, []);
+    const events = drive(run, 0, 2.2, dashOn([0.5, 1, 1.5, 2]));
+    expect(
+      events.filter((e) => e.type === 'beat').map((e) => e.type === 'beat' && e.quality),
+    ).toEqual(['perfect', 'perfect', 'perfect', 'perfect']);
+    expect(run.combo).toBe(5);
+    // A dash 0.12 s after the beat is a miss: the combo breaks.
+    const miss = drive(run, 2.2 + PHYSICS_DT, 2.8, dashOn([2.62]));
+    expect(miss).toContainEqual(expect.objectContaining({ type: 'beat', quality: 'miss' }));
+    expect(run.combo).toBe(0);
+    expect(run.results().bestCombo).toBe(5);
+  });
+
+  it('doubles a dash on a snare as an accent', () => {
+    const run = new PlatformerRun(flat(), [], { kicks: [], snares: [1] });
+    const events = drive(run, 0, 1.6, dashOn([0.5, 1, 1.5]));
+    const dashes = events.filter((e) => e.type === 'beat');
+    expect(dashes.map((e) => e.type === 'beat' && e.accent)).toEqual([false, true, false]);
+    expect(dashes[1]).toMatchObject({ points: POINTS.perfect * ACCENT_FACTOR });
+  });
+
+  it('bursts for a bonus after a streak of perfects', () => {
+    const run = new PlatformerRun(flat(), []);
+    const events = drive(run, 0, 5.2, dashOn(beatsFrom(0.5, 5)));
+    const streak = events.find((e) => e.type === 'streak');
+    expect(streak).toMatchObject({
+      count: STREAK_PERFECTS,
+      points: STREAK_BONUS * multiplierOf(STREAK_PERFECTS),
+    });
+  });
+
+  it('fills the meter with perfects and gems, and runs overdrive for 4 bars at double score', () => {
+    const level = flat();
+    level.pickups.push({ kind: 'gem', x: ANCHOR_X + 14, y: 20, time: 0 });
+    const run = new PlatformerRun(level, []);
+    // Not full: pressing does nothing.
+    drive(run, 0, 0.2, (t) => ({ overdrivePressed: on(t, [0.1]) }));
+    expect(run.meter).toBeCloseTo(METER_GEM);
+    expect(run.overdriveAt(0.2)).toBe(false);
+    // A gem and nine perfects fill it.
+    drive(run, 0.2 + PHYSICS_DT, 4.7, dashOn(beatsFrom(0.5, 4.5)));
+    expect(run.meter).toBe(1);
+
+    // Off the downbeat: no bonus. The downbeats are every 2 s.
+    const score = run.score;
+    const events = drive(run, 4.7 + PHYSICS_DT, 5.2, (t) => ({
+      overdrivePressed: on(t, [4.75]),
+      dashPressed: on(t, [5]),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'overdrive', downbeat: false }));
+    expect(run.meter).toBe(0);
+    const until = 4.75 + OVERDRIVE_BEATS * 0.5;
+    expect(run.overdrive.until).toBeCloseTo(until);
+    const dash = events.find((e) => e.type === 'beat');
+    const mult = multiplierOf(run.combo);
+    expect(dash).toMatchObject({ points: POINTS.perfect * mult * OVERDRIVE_FACTOR });
+    // Everything scored in the meantime: the dash and its streak's bonus, both doubled.
+    const scored = events.reduce((sum, e) => sum + ('points' in e ? e.points : 0), 0);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'streak', points: STREAK_BONUS * mult * OVERDRIVE_FACTOR }),
+    );
+    expect(run.score).toBe(score + scored);
+    // The meter doesn't fill while it runs; after 4 bars it's over.
+    drive(run, 5.2 + PHYSICS_DT, until + 0.6, dashOn(beatsFrom(5.5, 12.5)));
+    expect(run.meter).toBe(0);
+    expect(run.overdriveAt(until - 0.01)).toBe(true);
+    expect(run.overdriveAt(until + 0.01)).toBe(false);
+    expect(run.results().overdrives).toBe(1);
+  });
+
+  it('gives a bonus for overdrive on a downbeat', () => {
+    const run = new PlatformerRun(flat(), []);
+    drive(run, 0, 6.2, dashOn(beatsFrom(0.5, 6)));
+    expect(run.meter).toBe(1);
+    const score = run.score;
+    const events = drive(run, 6.2 + PHYSICS_DT, 8.1, (t) => ({ overdrivePressed: on(t, [8.03]) }));
+    const points = DOWNBEAT_BONUS * run.multiplier;
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'overdrive', downbeat: true, points }),
+    );
+    expect(run.score).toBe(score + points);
+  });
+
+  it('gives a clean section bonus at the section change, unless there was a hit', () => {
+    const level = flat(10, 100);
+    level.chunks.push(chunk(0, 3), chunk(3, 6), chunk(6, 10));
+    const run = new PlatformerRun(level, [section(0, 3), section(3, 6), section(6, 10)]);
+    const events = drive(run, 0, 3.2);
+    expect(events).toContainEqual({ type: 'clean', points: CLEAN_BONUS });
+    expect(run.score).toBe(CLEAN_BONUS);
+    expect(run.results()).toMatchObject({ clean: 1, sections: 3 });
+  });
+});
+
+describe('PlatformerRun: boosters', () => {
+  /** Ground, a pit the player falls into at about 0.95 s, then ground from x 700. */
+  const pitLevel = () =>
+    testLevel([ground(-40, 400), ground(700, 20000)], { speed: 200, duration: 10 }).level;
+  const shieldAtStart = { kind: 'shield', x: ANCHOR_X + 14, y: 20, time: 0 } as const;
+
+  it('survives a pit fall with a shield, bouncing onto the nearest safe ground', () => {
+    const level = pitLevel();
+    level.pickups.push(shieldAtStart);
+    const run = new PlatformerRun(level, []);
+    drive(run, 0, 0.1);
+    expect(run.boosters.shield).toBe(true);
+    expect(run.combo).toBe(1);
+    const events = drive(run, 0.1 + PHYSICS_DT, 2.5);
+    expect(events.some((e) => e.type === 'death')).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'shield' }));
+    expect(run.phase).toBe('playing');
+    expect(run.deaths).toBe(0);
+    expect(run.boosters.shield).toBe(false);
+    // A hit breaks the combo.
+    expect(run.combo).toBe(0);
+    // Back on the ground past the pit, running on.
+    expect(run.player).toMatchObject({ alive: true, grounded: true, y: 0 });
+    expect(run.player.x).toBeGreaterThan(700);
+    expect(run.rescue).toBeNull();
+    expect(run.results().saves).toBe(1);
+  });
+
+  it('bounces up onto a wall it would have run into', () => {
+    const { level } = testLevel([ground(-40, 500), ground(500, 20000, 80)], { speed: 200 });
+    level.pickups.push(shieldAtStart);
+    const run = new PlatformerRun(level, []);
+    drive(run, 0, 2);
+    expect(run.deaths).toBe(0);
+    expect(run.player).toMatchObject({ alive: true, grounded: true, y: 80 });
+  });
+
+  it('dies after all when there is no safe ground within reach', () => {
+    const { level } = testLevel([ground(-40, 400)], { speed: 200, duration: 10 });
+    level.pickups.push(shieldAtStart);
+    const run = new PlatformerRun(level, []);
+    const events = drive(run, 0, 2);
+    expect(events.some((e) => e.type === 'death')).toBe(true);
+  });
+
+  it('pulls coins from afar while the magnet lasts', () => {
+    const level = flat(30, 100);
+    level.pickups.push(
+      { kind: 'magnet', x: ANCHOR_X + 14, y: 20, time: 0 },
+      // 60 px over the head at 1 s: out of reach without the magnet.
+      { kind: 'coin', x: ANCHOR_X + 100 + 14, y: 100, time: 1 },
+      // Long after the magnet's 4 bars.
+      { kind: 'coin', x: ANCHOR_X + 1200 + 14, y: 100, time: 12 },
+    );
+    const run = new PlatformerRun(level, []);
+    const events = drive(run, 0, 13);
+    expect(run.boosters.magnetUntil).toBeCloseTo(MAGNET_BEATS * 0.5, 1);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'pickup', index: 1, pulled: true }),
+    );
+    expect(run.isCollected(2)).toBe(false);
+  });
+
+  it('gives a second dash in the air until the next landing', () => {
+    const tryTwice = (extra: boolean) => {
+      const level = flat();
+      if (extra) level.pickups.push({ kind: 'dash', x: ANCHOR_X + 14, y: 20, time: 0 });
+      const run = new PlatformerRun(level, []);
+      drive(run, 0, 0.5, (t) => ({
+        jumpPressed: on(t, [0.1]),
+        jumpHeld: true,
+        dashPressed: on(t, [0.15]),
+      }));
+      const first = run.dashedAt;
+      drive(run, 0.5 + PHYSICS_DT, 0.55, (t) => ({ dashPressed: on(t, [0.55]) }));
+      return { run, first, second: run.dashedAt };
+    };
+    const without = tryTwice(false);
+    expect(without.second).toBe(without.first);
+    const withIt = tryTwice(true);
+    expect(withIt.second).toBeCloseTo(0.55);
+    // Used up.
+    expect(withIt.run.boosters.extraDash).toBe(false);
+  });
+
+  it('loses an unused extra dash on landing', () => {
+    const level = flat();
+    level.pickups.push({ kind: 'dash', x: ANCHOR_X + 14, y: 20, time: 0 });
+    const run = new PlatformerRun(level, []);
+    drive(run, 0, 0.3, (t) => ({ jumpPressed: on(t, [0.1]), jumpHeld: true }));
+    expect(run.boosters.extraDash).toBe(true);
+    drive(run, 0.3 + PHYSICS_DT, 1.2);
+    expect(run.player.grounded).toBe(true);
+    expect(run.boosters.extraDash).toBe(false);
+  });
+});
+
+describe('PlatformerRun: checkpoints', () => {
+  it('puts the score, combo, meter and boosters back as they were at the checkpoint', () => {
+    // Ground to x 1000, a checkpoint at 2 s (x 688), the pit at about 3.6 s.
+    const { level } = testLevel([ground(-40, 1000)], { speed: 200, duration: 10 });
+    level.chunks.push(chunk(0, 2), chunk(2, 10));
+    level.pickups.push(
+      { kind: 'magnet', x: ANCHOR_X + 100 + 14, y: 20, time: 0.5 },
+      { kind: 'dash', x: ANCHOR_X + 500 + 14, y: 20, time: 2.5 },
+    );
+    const run = new PlatformerRun(level, [section(0, 2), section(2, 10)]);
+    drive(run, 0, 1.9, dashOn([0.5, 1, 1.5]));
+    const at = {
+      score: run.score + CLEAN_BONUS,
+      combo: run.combo,
+      meter: run.meter,
+      boosters: run.boosters,
+    };
+    expect(at.combo).toBe(4);
+    expect(at.boosters.magnetUntil).toBeGreaterThan(2);
+    drive(run, 1.9 + PHYSICS_DT, 3, dashOn([2.5, 3]));
+    expect(run.boosters.extraDash).toBe(true);
+    expect(run.combo).toBe(7);
+    drive(run, 3 + PHYSICS_DT, 5);
+    expect(run.phase).toBe('dying');
+    expect(run.score).toBe(at.score);
+    expect(run.combo).toBe(at.combo);
+    expect(run.meter).toBeCloseTo(at.meter);
+    expect(run.boosters).toEqual(at.boosters);
+    expect(run.isCollected(0)).toBe(true);
+    expect(run.isCollected(1)).toBe(false);
+    expect(run.results().bestCombo).toBe(7);
+    run.respawn();
+    expect(run.player.x).toBeCloseTo(688);
+  });
+});
+
+describe('rankOf', () => {
+  it('ranks by timing and deaths, with clear thresholds', () => {
+    expect(rankOf(0.9, 0)).toBe('S');
+    expect(rankOf(0.9, 1)).toBe('A');
+    expect(rankOf(0.72, 2)).toBe('A');
+    expect(rankOf(0.72, 3)).toBe('B');
+    expect(rankOf(0.5, 9)).toBe('B');
+    expect(rankOf(0.49, 0)).toBe('C');
+    expect(rankOf(null, 0)).toBe('C');
   });
 });
 

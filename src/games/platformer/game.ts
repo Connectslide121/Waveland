@@ -21,7 +21,7 @@ import { palette } from '../../theme/palette';
 import type { GameSession } from '../registry';
 import { generateLevelInWorker, type PlatformerLevel } from './level';
 import { Controls } from './controls';
-import { PlatformerRun } from './run';
+import { musicOf, PlatformerRun, type RunMusic } from './run';
 import { PlatformerScene, type FrameState } from './scene';
 import { createHud, createPauseMenu, createResultsScreen } from './ui';
 
@@ -60,6 +60,8 @@ class PlatformerSession {
   readonly #learnt = new Set<string>();
   /** What the scene draws, filled in again every frame. */
   readonly #state: FrameState;
+  /** The kicks and snares accents are judged against. */
+  readonly #music: RunMusic;
 
   constructor(
     readonly song: AnalysedSong,
@@ -70,6 +72,7 @@ class PlatformerSession {
     surface: HTMLElement,
     private readonly exit: () => void,
   ) {
+    this.#music = musicOf(map.events);
     this.controls = new Controls(window, undefined, surface);
     this.clock = new AudioClock(buffer);
     this.clock.onEnded = () => this.run.finish();
@@ -97,13 +100,13 @@ class PlatformerSession {
     this.overlay.className = 'pf-overlay';
     this.overlay.append(this.hud.element, this.pause.element, this.results.element);
     document.addEventListener('visibilitychange', this.#hidden);
-    this.run = new PlatformerRun(level, map.sections);
+    this.run = new PlatformerRun(level, map.sections, this.#music);
     this.#state = { time: 0, run: this.run, beatInBar: -1, beatPhase: 0, paused: false };
   }
 
   /** A fresh run from the top, after a one-bar count-in. */
   begin(): void {
-    this.run = new PlatformerRun(this.level, this.map.sections);
+    this.run = new PlatformerRun(this.level, this.map.sections, this.#music);
     this.scene?.reset();
     this.#seek(this.run.countInFrom);
   }

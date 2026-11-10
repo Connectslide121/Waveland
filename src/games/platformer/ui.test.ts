@@ -167,11 +167,20 @@ describe('createResultsScreen', () => {
     document.body.append(results.element);
     results.show({
       score: 12345,
+      rank: 'B',
+      timing: 0.55,
       accuracy: 0.5,
+      perfect: 30,
+      good: 20,
+      miss: 50,
       deaths: 3,
+      saves: 1,
       pickups: 40,
       totalPickups: 52,
       bestCombo: 17,
+      overdrives: 2,
+      clean: 4,
+      sections: 9,
     });
     expect(results.element.querySelector('.pf-results__score')!.textContent).toBe('012 345');
     const stats = [...results.element.querySelectorAll('.pf-results__stat')].map((s) => [
