@@ -5,7 +5,7 @@
 
 export const TEST_RATE = 22050;
 
-function noise(seed: number, length: number): Float32Array {
+export function noise(seed: number, length: number): Float32Array {
   let s = seed >>> 0;
   const out = new Float32Array(length);
   for (let i = 0; i < length; i++) {
@@ -19,7 +19,7 @@ function noise(seed: number, length: number): Float32Array {
 }
 
 /** An RBJ biquad, run over the samples in place. */
-function biquad(
+export function biquad(
   x: Float32Array,
   kind: 'highpass' | 'bandpass',
   hz: number,
