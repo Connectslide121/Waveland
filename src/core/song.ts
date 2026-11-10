@@ -20,6 +20,9 @@ export const SUPPORTED_AUDIO = {
   ],
 } as const;
 
+/** Songs shorter than this, in seconds, are too short to make a level from. */
+export const MIN_SONG_SECONDS = 15;
+
 /** The `accept` value for a file input. */
 export const AUDIO_ACCEPT = [...SUPPORTED_AUDIO.extensions, ...SUPPORTED_AUDIO.mimeTypes].join(',');
 

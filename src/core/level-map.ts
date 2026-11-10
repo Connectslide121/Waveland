@@ -1,6 +1,7 @@
 import { hashOf } from './random';
 import type {
   Band,
+  BeatFit,
   EnergyCurve,
   LevelEvent,
   LevelEventKind,
@@ -79,6 +80,27 @@ export function beatIndexAt(map: Pick<LevelMap, 'beats' | 'beatPeriod'>, time: n
   const start = map.beats[0] ?? 0;
   const i = Math.floor((time - start) / map.beatPeriod + 1e-6);
   return Math.max(0, Math.min(map.beats.length - 1, i));
+}
+
+/** Fewer tracked beats than this, and the song has no beat to play to. */
+const MIN_BEATS = 8;
+/** At least this share of the tracked beats on the grid, and the tempo is steady. */
+const STEADY_SHARE = 0.8;
+
+/**
+ * How well one steady beat grid fits the song: `steady` when most tracked beats sit on it,
+ * `changing` when they drift off it (the tempo changes, or swings), `none` when there is
+ * hardly a beat at all. Games keep to one grid either way; the menus say so.
+ */
+export function beatFit(analysis: Pick<SongAnalysis, 'beats' | 'tempo'>): BeatFit {
+  if (analysis.beats.length < MIN_BEATS) return 'none';
+  const { start, period } = fitBeatGrid(analysis.beats, analysis.tempo);
+  const tolerance = Math.min(0.05, 0.12 * period);
+  const on = analysis.beats.filter((t) => {
+    const k = (t - start) / period;
+    return Math.abs(k - Math.round(k)) * period <= tolerance;
+  }).length;
+  return on / analysis.beats.length >= STEADY_SHARE ? 'steady' : 'changing';
 }
 
 /**

@@ -51,6 +51,7 @@ The trade-off: Essentia's multi-feature beat tracker is more robust on music wit
 - **Beat grid**: a straight line fitted through the tracked beats, extended to cover the whole song, so games can place things on any beat, even in silent intros. The bar phase is the one most of the analysis' downbeats agree on.
 - **Levels per beat**: bass and overall energy averaged over each beat, spread to 0–1 over the song's own range.
 - **Events**, sorted by time: kicks, snares and hats (onsets moved onto the eighth-note grid when within 0.15 beats of it), an off-beat halfway through every beat, drops moved onto the nearest bar line, and section starts with their kind.
+- **Beat fit** (`beatFit`): `steady` when at least 80% of the tracked beats sit on the grid, `changing` when they drift off it (tempo changes, swing), `none` with fewer than 8 beats. Games keep to the one grid either way; the title screen says so under the song's name.
 - **Seed**: a hash of the analysis, so games seed their randomness from the song (`random.ts` has the seeded generator).
 
 The map is cheap to build and isn't cached; each game builds its own level from it.

@@ -22,11 +22,20 @@ const soon: GameDefinition = {
 
 let screen: TitleScreen | null = null;
 
+/** Enough of an analysis for the title screen: a two-minute song on a steady 120 BPM. */
+const analysisOf = (overrides: Partial<SongAnalysis> = {}): SongAnalysis =>
+  ({
+    duration: 120,
+    tempo: 120,
+    beats: Array.from({ length: 240 }, (_, i) => i / 2),
+    ...overrides,
+  }) as SongAnalysis;
+
 /** An analysis that finishes at once, as from the cache. */
 const instant = async (song: Song): Promise<AnalysedSong> => ({
   ...song,
   hash: 'h',
-  analysis: {} as SongAnalysis,
+  analysis: analysisOf(),
 });
 
 /** An analysis the test finishes (or fails) by hand, reporting progress meanwhile. */
@@ -47,7 +56,7 @@ function controlled() {
   return {
     analyse,
     progress: (done: number) => progress(done),
-    finish: () => finish({ ...picked!, hash: 'h', analysis: {} as SongAnalysis }),
+    finish: (analysis = analysisOf()) => finish({ ...picked!, hash: 'h', analysis }),
     fail: () => fail(new Error('bad file')),
   };
 }
@@ -166,8 +175,8 @@ describe('title screen', () => {
     pick(fileInput, 'broken.mp3');
     analysis.fail();
     await vi.waitFor(() => expect(zone.dataset.state).toBe('error'));
-    expect(zone.textContent).toContain("broken couldn't be read");
-    expect(hint.textContent).toBe('Pick a song that can be read');
+    expect(zone.textContent).toContain("broken.mp3 couldn't be read");
+    expect(hint.textContent).toBe('Pick a song that can be played');
     expect(play.disabled).toBe(true);
   });
 
@@ -186,6 +195,57 @@ describe('title screen', () => {
     await Promise.resolve();
     expect(zone.textContent).toContain('New');
     expect(zone.textContent).not.toContain('Old');
+  });
+
+  it('says so when the song is too short to make a level from', async () => {
+    const analysis = controlled();
+    const { play, hint, fileInput, zone } = mount(undefined, analysis.analyse);
+    pick(fileInput, 'jingle.mp3');
+    analysis.finish(analysisOf({ duration: 4 }));
+    await vi.waitFor(() => expect(zone.dataset.state).toBe('error'));
+    expect(zone.textContent).toContain('jingle.mp3 is too short to play');
+    expect(hint.textContent).toBe('Pick a song that can be played');
+    expect(play.disabled).toBe(true);
+  });
+
+  it('says so when the file is empty, without analysing it', async () => {
+    const analyse = vi.fn(instant);
+    const { play, fileInput, zone } = mount(undefined, analyse);
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      value: [new File([], 'nothing.wav', { type: 'audio/wav' })],
+    });
+    fileInput.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(zone.dataset.state).toBe('error'));
+    expect(zone.textContent).toContain('nothing.wav is empty');
+    expect(analyse).not.toHaveBeenCalled();
+    expect(play.disabled).toBe(true);
+  });
+
+  it('says when the tempo changes or there is no beat, and still lets the song play', async () => {
+    const analysis = controlled();
+    const { play, fileInput, zone } = mount(undefined, analysis.analyse);
+    pick(fileInput, 'Live.mp3');
+    const slow = Array.from({ length: 64 }, (_, i) => (i * 60) / 100);
+    const fast = Array.from({ length: 128 }, (_, i) => 40 + (i * 60) / 130);
+    analysis.finish(analysisOf({ tempo: 100, beats: [...slow, ...fast] }));
+    await vi.waitFor(() => expect(play.disabled).toBe(false));
+    expect(zone.textContent).toContain('Tempo changes · the level keeps 100 BPM');
+
+    pick(fileInput, 'Rain.mp3');
+    analysis.finish(analysisOf({ beats: [] }));
+    await vi.waitFor(() => expect(zone.textContent).toContain('No clear beat'));
+    expect(play.disabled).toBe(false);
+  });
+
+  it('drops the picked song when a file it cannot play replaces it', async () => {
+    const { play, hint, fileInput, details } = mount();
+    pick(fileInput, 'Midnight Drive.mp3');
+    await vi.waitFor(() => expect(play.disabled).toBe(false));
+    pick(fileInput, 'notes.txt');
+    expect(play.disabled).toBe(true);
+    expect(hint.textContent).toBe('Drop a song first');
+    expect(details.dataset.shown).toBe('false');
   });
 
   it('says so when the file is not a song it can play', () => {

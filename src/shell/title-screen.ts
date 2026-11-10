@@ -1,4 +1,11 @@
-import { AUDIO_ACCEPT, songFromFile, type AnalysedSong, type Song } from '../core';
+import {
+  AUDIO_ACCEPT,
+  beatFit,
+  MIN_SONG_SECONDS,
+  songFromFile,
+  type AnalysedSong,
+  type Song,
+} from '../core';
 import type { GameDefinition, ReadyGame } from '../games';
 import { openSettings } from './settings';
 import './title-screen.css';
@@ -73,7 +80,8 @@ export function createTitleScreen({
   let analysed: AnalysedSong | null = null;
   /** Progress of the running analysis, 0 to 1, or null when none runs. */
   let progress: number | null = null;
-  let analysisFailed = false;
+  /** Why the picked song can't be played, once that's known: no sound in it, or too short. */
+  let problem: 'unreadable' | 'empty' | 'short' | null = null;
   let starting = false;
   let selected = games.find((g): g is ReadyGame => g.status === 'ready') ?? null;
 
@@ -82,6 +90,7 @@ export function createTitleScreen({
 
   const settings = el('button', 'title__settings');
   settings.type = 'button';
+  settings.setAttribute('aria-label', 'Settings');
   settings.innerHTML = `${GEAR_ICON}<span>Settings</span>`;
   settings.addEventListener('click', () => openSettings());
 
@@ -143,9 +152,15 @@ export function createTitleScreen({
   const startAnalysis = async (picked: Song) => {
     const id = ++pickId;
     analysed = null;
-    analysisFailed = false;
+    problem = null;
     progress = 0;
     render();
+    if (picked.file.size === 0) {
+      problem = 'empty';
+      progress = null;
+      render();
+      return;
+    }
     try {
       const result = await analyse(picked, (done) => {
         if (id !== pickId) return;
@@ -153,11 +168,12 @@ export function createTitleScreen({
         renderProgress();
       });
       if (id !== pickId) return;
-      analysed = result;
+      if (result.analysis.duration < MIN_SONG_SECONDS) problem = 'short';
+      else analysed = result;
     } catch (error) {
       if (id !== pickId) return;
       console.error(error);
-      analysisFailed = true;
+      problem = 'unreadable';
     }
     progress = null;
     render();
@@ -170,7 +186,13 @@ export function createTitleScreen({
       rejected = null;
       void startAnalysis(picked);
     } else {
+      // A file that can't be played replaces the song: Play never starts a song not shown.
       rejected = file.name;
+      song = null;
+      analysed = null;
+      problem = null;
+      progress = null;
+      pickId++;
     }
     render();
   };
@@ -233,23 +255,36 @@ export function createTitleScreen({
   function render(): void {
     const dragging = zone.classList.contains('dropzone--over');
     const analysing = progress !== null;
-    const unreadable = !rejected && song && analysisFailed;
-    zone.dataset.state = rejected || unreadable ? 'error' : song ? 'ready' : 'empty';
+    zone.dataset.state = rejected || problem ? 'error' : song ? 'ready' : 'empty';
     if (dragging) {
       zoneMain.textContent = 'Let go to load the song';
       zoneSub.textContent = 'MP3, WAV or OGG';
     } else if (rejected) {
       zoneMain.textContent = `${rejected} can't be played`;
       zoneSub.textContent = 'Pick an MP3, WAV or OGG file instead';
-    } else if (song && unreadable) {
-      zoneMain.textContent = `${song.title} couldn't be read`;
-      zoneSub.textContent = 'The file may be damaged. Pick another song';
+    } else if (song && problem === 'empty') {
+      zoneMain.textContent = `${song.file.name} is empty`;
+      zoneSub.textContent = 'There is no sound in it. Pick another song';
+    } else if (song && problem === 'short') {
+      zoneMain.textContent = `${song.file.name} is too short to play`;
+      zoneSub.textContent = `Pick a song of at least ${MIN_SONG_SECONDS} seconds`;
+    } else if (song && problem) {
+      zoneMain.textContent = `${song.file.name} couldn't be read`;
+      zoneSub.textContent = 'It may be damaged or not really audio. Pick another song';
     } else if (song && analysing) {
       zoneMain.textContent = song.title;
       zoneSub.textContent = 'Listening for the beat, the sections and the drops';
     } else if (song) {
       zoneMain.textContent = song.title;
-      zoneSub.textContent = 'Drop another song or click to change it';
+      // One steady grid is all the games keep to: say when the song doesn't have one.
+      const fit = analysed ? beatFit(analysed.analysis) : 'steady';
+      const bpm = Math.round(analysed?.analysis.tempo ?? 120);
+      zoneSub.textContent =
+        fit === 'none'
+          ? `No clear beat · the level keeps ${bpm} BPM`
+          : fit === 'changing'
+            ? `Tempo changes · the level keeps ${bpm} BPM`
+            : 'Drop another song or click to change it';
     } else {
       zoneMain.textContent = 'Drop a song here';
       zoneSub.textContent = 'or choose one from your computer';
@@ -261,16 +296,16 @@ export function createTitleScreen({
     play.disabled = !analysed || !selected || starting;
     play.setAttribute('aria-busy', String(starting));
     playIcon.innerHTML = starting ? SPINNER_ICON : PLAY_ICON;
-    hint.classList.toggle('play-row__hint--error', failed || Boolean(unreadable));
+    hint.classList.toggle('play-row__hint--error', failed || Boolean(problem));
     if (!selected) hint.textContent = 'No mode can be played yet';
-    else if (!song || rejected) hint.textContent = 'Drop a song first';
-    else if (unreadable) hint.textContent = 'Pick a song that can be read';
+    else if (!song) hint.textContent = 'Drop a song first';
+    else if (problem) hint.textContent = 'Pick a song that can be played';
     else if (analysing) hint.textContent = `Analysing ${song.title} first`;
     else if (starting) hint.textContent = `Building the level for ${song.title}`;
     else if (failed) hint.textContent = `${selected.name} couldn't start. Try again.`;
     else hint.textContent = `Ready to play ${selected.name}`;
 
-    const canShowDetails = Boolean(analysed) && !rejected;
+    const canShowDetails = Boolean(analysed);
     details.dataset.shown = String(canShowDetails);
     details.disabled = !canShowDetails || starting;
     details.setAttribute('aria-hidden', String(!canShowDetails));

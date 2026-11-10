@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { beatIndexAt, buildLevelMap, fitBeatGrid } from './level-map';
+import { beatFit, beatIndexAt, buildLevelMap, fitBeatGrid } from './level-map';
 import { randomAnalysis } from './test-analysis';
 
 describe('fitBeatGrid', () => {
@@ -13,6 +13,26 @@ describe('fitBeatGrid', () => {
   it('falls back to the tempo, or 120 BPM, without beats', () => {
     expect(fitBeatGrid([], 100).period).toBeCloseTo(0.6);
     expect(fitBeatGrid([], 0).period).toBeCloseTo(0.5);
+  });
+});
+
+describe('beatFit', () => {
+  const at = (bpm: number, from: number, count: number) =>
+    Array.from({ length: count }, (_, i) => from + (i * 60) / bpm);
+
+  it('calls a song steady when its beats sit on one grid', () => {
+    expect(beatFit({ beats: at(128, 0.3, 200), tempo: 128 })).toBe('steady');
+  });
+
+  it('calls a song changing when its tempo moves from 100 to 130 BPM', () => {
+    const slow = at(100, 0.3, 64);
+    const fast = at(130, slow.at(-1)! + 0.6, 128);
+    expect(beatFit({ beats: [...slow, ...fast], tempo: 100 })).toBe('changing');
+  });
+
+  it('finds no beat in a song with hardly any', () => {
+    expect(beatFit({ beats: [], tempo: 120 })).toBe('none');
+    expect(beatFit({ beats: at(120, 0, 5), tempo: 120 })).toBe('none');
   });
 });
 

@@ -60,6 +60,9 @@ export interface SongAnalysis {
   drops: Drop[];
 }
 
+/** How well one steady beat grid fits a song (`beatFit` in `level-map.ts`). */
+export type BeatFit = 'steady' | 'changing' | 'none';
+
 /** How hard a game builds its level: density of obstacles, gap sizes and so on. */
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
