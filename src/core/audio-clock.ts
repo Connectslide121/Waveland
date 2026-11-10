@@ -1,4 +1,4 @@
-import { getLatencyMs } from './settings';
+import { getLatencyMs, getMusicVolume, onSettingsChange } from './settings';
 
 /** The parts of an AudioContext the clock uses, so tests can drive it with a fake. */
 export type ClockContext = Pick<
@@ -15,7 +15,23 @@ export function getAudioContext(): AudioContext {
   return shared;
 }
 
+let music: GainNode | null = null;
+
+/** Where songs play to: the shared context's output, at the music volume setting. */
+export function getMusicOutput(): AudioNode {
+  if (!music) {
+    const context = getAudioContext();
+    const gain = context.createGain();
+    gain.gain.value = getMusicVolume();
+    gain.connect(context.destination);
+    onSettingsChange(() => gain.gain.setTargetAtTime(getMusicVolume(), context.currentTime, 0.02));
+    music = gain;
+  }
+  return music;
+}
+
 export interface AudioClockOptions {
+  /** A context of its own (tests); songs then play straight to its destination. */
   context?: ClockContext;
   /** The player's latency offset in ms; defaults to the saved setting. */
   latencyMs?: number;
@@ -33,6 +49,7 @@ export class AudioClock {
   latencyMs: number;
 
   readonly #context: ClockContext;
+  readonly #output: AudioNode;
   #source: AudioBufferSourceNode | null = null;
   /** Song position when paused, or where the current playback started from. */
   #position = 0;
@@ -44,6 +61,7 @@ export class AudioClock {
   constructor(buffer: AudioBuffer, { context, latencyMs }: AudioClockOptions = {}) {
     this.buffer = buffer;
     this.#context = context ?? getAudioContext();
+    this.#output = context ? context.destination : getMusicOutput();
     this.latencyMs = latencyMs ?? getLatencyMs();
   }
 
@@ -77,7 +95,7 @@ export class AudioClock {
     if (this.#context.state === 'suspended') await this.#context.resume();
     const source = this.#context.createBufferSource();
     source.buffer = this.buffer;
-    source.connect(this.#context.destination);
+    source.connect(this.#output);
     this.#position = Math.max(0, Math.min(this.duration, from));
     this.#lead = Math.max(0, -from);
     this.#startedAt = this.#context.currentTime + this.#lead;
