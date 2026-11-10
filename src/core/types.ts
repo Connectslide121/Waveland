@@ -195,6 +195,41 @@ export interface TempoGrid {
 }
 
 /**
+ * How a section feels, for the games to shape their world by: a calm part (quiet, sparse),
+ * a groove (a verse, steady), a chorus (loud, full), a build toward a drop, the drop
+ * itself, or a breakdown (the band thinning out before or after one).
+ */
+export type SectionFeel = 'calm' | 'groove' | 'chorus' | 'build' | 'drop' | 'breakdown';
+
+/** What a stretch of the song is like, each 0 to 1. */
+export interface Mood {
+  /** How loud and driven: the energy, over the song's own range. */
+  intensity: number;
+  /** How bright: the high band's share of the sound (cymbals, a lead, distortion). */
+  brightness: number;
+  /** How busy: hits per beat, 1 at four a beat (sixteenths) or more. */
+  density: number;
+  /** How heavy: the low band's share of the sound (kick and bass). */
+  heaviness: number;
+}
+
+/** A section's mood (its beats' mean) and how it feels. */
+export interface SectionMood extends Mood {
+  feel: SectionFeel;
+}
+
+/**
+ * The mood beat by beat (one value per grid beat in each), smoothed over about a bar so
+ * it follows the music's contour rather than every hit.
+ */
+export interface MoodCurves {
+  intensity: number[];
+  brightness: number[];
+  density: number[];
+  heaviness: number[];
+}
+
+/**
  * The level built from a song: what every game reads, each in its own way. Pure data,
  * the same for the same analysis; the beat grid follows the tempo map and covers the
  * whole song.
@@ -214,6 +249,10 @@ export interface LevelMap extends TempoGrid {
   /** Every moment, sorted by time. */
   events: LevelEvent[];
   sections: Section[];
+  /** Each section's mood and feel, in the same order as `sections`. */
+  moods: SectionMood[];
+  /** The mood per grid beat, smoothed: what the games' look and terrain follow. */
+  mood: MoodCurves;
   drops: Drop[];
   /**
    * The analysis' musical moments put on the grid: hits snapped as the events are, fills

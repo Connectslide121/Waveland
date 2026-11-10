@@ -1,4 +1,5 @@
 import { noFeatures } from './analysis/features';
+import { moodCurves, sectionMoods } from './mood';
 import { hashOf } from './random';
 import { beatAt, beatIndexAt, FALLBACK_TEMPO, periodAt, snapToGrid } from './tempo-map';
 import type {
@@ -252,6 +253,9 @@ export function buildLevelMap(analysis: SongAnalysis): LevelMap {
     duration,
   );
 
+  const mood = moodCurves(analysis, beats, span, energy);
+  const moods = sectionMoods(analysis.sections, beats, mood);
+
   // The tempo the song spends most of its time at.
   const main = segments.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
   return {
@@ -266,6 +270,8 @@ export function buildLevelMap(analysis: SongAnalysis): LevelMap {
     energy,
     events,
     sections: analysis.sections,
+    moods,
+    mood,
     drops: analysis.drops,
     features,
   };

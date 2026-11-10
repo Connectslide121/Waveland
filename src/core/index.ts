@@ -6,5 +6,6 @@ export * from './song';
 export * from './types';
 export * from './waveform';
 export * from './level-map';
+export * from './mood';
 export * from './random';
 export * from './tempo-map';
