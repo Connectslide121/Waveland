@@ -21,8 +21,21 @@ import {
  * bridge: a thin slab over a pit, there only after snare hits.
  * ledge: a thin slab added to make a jump possible.
  * overhang: a wall hanging from the sky down to `bottom`, to slam (or hop low) under.
+ * float: a floating slab of a calm part, drifting gently with the music (a slab: stood
+ *   on, passed through from below and the sides).
+ * heave: a column of a chorus's ground, heaving with the bass on every beat along with
+ *   the rest of its run.
  */
-export type SolidKind = 'ground' | 'step' | 'eq' | 'bridge' | 'ledge' | 'overhang';
+export type SolidKind =
+  'ground' | 'step' | 'eq' | 'bridge' | 'ledge' | 'overhang' | 'float' | 'heave';
+
+/**
+ * How a stretch's ground looks and moves, from the feel of its section (`SectionMood`):
+ * floating slabs in calm parts and breakdowns, ground following the energy's contour in a
+ * groove, heaving equaliser ground in a chorus, ground climbing step by step in a build,
+ * and the drop's set piece.
+ */
+export type TerrainStyle = 'float' | 'contour' | 'heave' | 'climb' | 'drop';
 
 export interface Solid {
   kind: SolidKind;
@@ -32,8 +45,13 @@ export interface Solid {
   top: number;
   /** Overhangs: the underside. Other solids reach down into the pit. */
   bottom?: number;
-  /** Equalisers: from each time on, the top eases to the matching height. */
+  /**
+   * Moving solids (equalisers, floating slabs, heaving columns, ground reshaping at a
+   * section change): from each time on, the top eases to the matching height.
+   */
   keys?: { times: number[]; tops: number[] };
+  /** Seconds the top takes to reach each key's height (`EQ_EASE` when left out). */
+  ease?: number;
   /** Bridges: the spans of song time they are there, [from, to]. */
   windows?: [number, number][];
 }
@@ -148,6 +166,8 @@ export interface Chunk {
   x0: number;
   x1: number;
   section: SectionKind;
+  /** How its ground looks and moves, from its section's feel. */
+  style: TerrainStyle;
   /** How many times the validator sent it back to be made easier. */
   repairs: number;
 }
@@ -296,7 +316,7 @@ export function solidTop(solid: Solid, t: number): number | null {
   }
   const from = lo > 0 ? keys.tops[lo - 1]! : solid.top;
   const to = keys.tops[lo]!;
-  const progress = Math.min(1, (t - keys.times[lo]!) / EQ_EASE);
+  const progress = Math.min(1, (t - keys.times[lo]!) / (solid.ease ?? EQ_EASE));
   return from + (to - from) * progress;
 }
 
@@ -409,7 +429,7 @@ export class LevelWorld implements PhysicsWorld {
 
   isSlab(solid: number): boolean {
     const kind = this.level.solids[solid]!.kind;
-    return kind === 'bridge' || kind === 'ledge';
+    return kind === 'bridge' || kind === 'ledge' || kind === 'float';
   }
 
   solidX(solid: number): { x0: number; x1: number } {

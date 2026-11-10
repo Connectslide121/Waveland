@@ -41,6 +41,7 @@ const chunk = (start: number, end: number, kind: Chunk['kind'] = 'flat'): Chunk 
   x0: 0,
   x1: 0,
   section: 'main',
+  style: 'contour',
   repairs: 0,
 });
 

@@ -22,6 +22,11 @@ export interface RandomAnalysisOptions {
   tempo?: number;
   /** Tempo changes: from the first beat at or after each `time`, the beat goes at `tempo`. */
   changes?: { time: number; tempo: number }[];
+  /**
+   * The song's sections in order, each so many bars long at an energy (0 to 1), instead
+   * of random ones; the last runs to the end of the song.
+   */
+  sections?: { bars: number; kind: SectionKind; energy: number }[];
 }
 
 const RATE = 50;
@@ -59,6 +64,15 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
   let start = 0;
   let bar = 0;
   let previous: SectionKind = 'intro';
+  const scripted = options.sections ?? [];
+  for (const [i, s] of scripted.entries()) {
+    if (start >= duration - 1e-6) break;
+    bar += s.bars;
+    const end = i === scripted.length - 1 ? duration : (downbeats[bar] ?? duration);
+    sections.push({ start, end, kind: s.kind, energy: s.energy });
+    if (s.kind === 'drop') drops.push({ time: start, strength: 0.9 });
+    start = end;
+  }
   while (start < duration - 1e-6) {
     // Sections start and end on bar lines, like the analysis' own.
     bar += rng.int(4, 16);

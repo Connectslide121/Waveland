@@ -1,6 +1,7 @@
 import {
   beatAt,
   beatIndexAt,
+  curveAt,
   hashOf,
   periodAt,
   Random,
@@ -8,6 +9,7 @@ import {
   timeOfBeat,
   type Difficulty,
   type LevelMap,
+  type SectionFeel,
   type SectionKind,
 } from '../../../core';
 import {
@@ -26,6 +28,7 @@ import {
   LOWEST_TOP,
   scrollFor,
   solidTop,
+  timeAtX,
   xAtTime,
   type Ability,
   type ChunkKind,
@@ -36,7 +39,9 @@ import {
   type PlatformerLevel,
   type Solid,
   type SpikeStrip,
+  type TerrainStyle,
 } from './level';
+import { endsHeaving, HEAVE_MAX, shapeTerrain } from './terrain';
 import { DECISION_STEPS, Explorer, stepAt } from './validate';
 
 /**
@@ -165,6 +170,14 @@ const START_TOP = 40;
 const CONTOUR_RANGE = 140;
 /** The small step a calm stretch takes toward the energy's height, on a kick, px. */
 const CALM_STEP = 24;
+/** A groove's (and a chorus's) steps toward the energy's height, as a share of `rise`. */
+const CONTOUR_STEP = 0.6;
+/** A build climbs a step each stretch, this share of `rise` (at least `CALM_STEP`)… */
+const CLIMB_STEP = 0.5;
+/** …up to this high, leaving room above for what comes. */
+const CLIMB_TOP = MAX_TOP - 80;
+/** By the end of a build, this many more common obstacles than its music alone gives. */
+const BUILD_DENSER = 0.8;
 /** Seconds of plain ground at the start and the end of every level. */
 const RUN_IN_SECONDS = 3;
 const RUN_OUT_SECONDS = 3;
@@ -175,7 +188,9 @@ const MIN_BAR_WIDTH = 340;
 /** Coins are at least this far apart, and from gems, px. */
 const COIN_SPACING = 26;
 /** The drop staircase's steps. */
-const STAIR_STEPS = 5;
+const STAIR_STEPS = 7;
+/** Gems in the arc over the drop's plateau. */
+const PLATEAU_GEMS = 5;
 /** A fill's steps: at most this many, its hits at least this far apart (s). */
 const FILL_STEPS = 8;
 const FILL_STEP_GAP = 0.1;
@@ -431,7 +446,8 @@ function shifted(m: Moment, by: number, repeats: number): Moment {
  * belongs to the bar its beat is in; a low ceiling or a fill's steps to the bar its
  * approach starts in. A bar the song repeats takes the first bar's obstacles again, each
  * on its own moment there (a moment the repeat doesn't have is left out); on hard, from
- * the third time on, with one more of its own.
+ * the third time on, with one more of its own. A build gets denser as it goes: `busyAt`
+ * scales how many common ones a bar gets.
  */
 function planBars(
   map: LevelMap,
@@ -439,6 +455,7 @@ function planBars(
   bars: number[],
   barEnd: (i: number) => number,
   calmAt: (t: number) => boolean,
+  busyAt: (t: number) => number,
   seed: number,
 ): Moment[][] {
   const all = momentsOf(map, settings).filter((m) => m.from >= beatAt(map, bars[0] ?? 0) - 1e-6);
@@ -482,7 +499,7 @@ function planBars(
       0.6 * Math.max(0, Math.min(1, (rate - 0.5) / 2)) + 0.4 * (beats > 0 ? energy / beats : 0);
     // Whole obstacles, the fractions carried on to the next bar, so a hazard of 0.45
     // gives about half as many as 0.9 however busy each bar is.
-    carry += activity * settings.hazard * COMMON_PER_BAR * (calm ? 0.5 : 1);
+    carry += activity * settings.hazard * COMMON_PER_BAR * (calm ? 0.5 : 1) * busyAt(start);
     const common = Math.floor(carry);
     carry -= common;
 
@@ -581,11 +598,15 @@ interface BuildContext {
   h: number;
   stretch: Stretch;
   x: (t: number) => number;
+  /** The song time the player is at `x`. */
+  timeAt: (x: number) => number;
   /** Abilities the player has been taught by now (and the one this stretch teaches). */
   abilities: ReadonlySet<Ability>;
   /** Every snare's time, for the bridges' windows. */
   snares: number[];
   calm: boolean;
+  /** How the stretch's ground looks and moves: it sets the steps plain ground takes. */
+  style: TerrainStyle;
 }
 
 interface Built {
@@ -599,6 +620,8 @@ interface Built {
   h: number;
   /** When the player meets the obstacle needing an ability, and is past it, for a lesson. */
   focus: Partial<Record<Ability, { time: number; end: number }>>;
+  /** Ground whose height an obstacle needs (hurdles, a fill's steps): the terrain keeps it. */
+  fixed: Set<Solid>;
 }
 
 const clampTop = (h: number) => Math.max(MIN_TOP, Math.min(MAX_TOP, h));
@@ -611,6 +634,7 @@ const built = (kind: ChunkKind, solids: Solid[], h: number, more: Partial<Built>
   pickups: [],
   obstacles: [],
   focus: {},
+  fixed: new Set(),
   h,
   ...more,
 });
@@ -619,30 +643,75 @@ function flat({ stretch, x, h }: BuildContext, kind: ChunkKind = 'flat'): Built 
   return built(kind, [ground(x(stretch.start), x(stretch.end), h)], h);
 }
 
-/** The ground's height for the song's energy at `t`: higher where it is louder. */
+/**
+ * The ground's height for the song's intensity at `t` (the mood curve, smoothed over
+ * about a bar): higher where it is louder.
+ */
 function contourTop(map: LevelMap, t: number): number {
-  return clampTop(START_TOP + (map.energy[beatIndexAt(map, t)] ?? 0) * CONTOUR_RANGE);
+  const level = map.mood?.intensity.length
+    ? curveAt(map.mood.intensity, beatAt(map, t))
+    : (map.energy[beatIndexAt(map, t)] ?? 0);
+  return clampTop(START_TOP + level * CONTOUR_RANGE);
 }
 
 /**
- * Plain ground, taking a low step toward the energy's height on the first kick past the
- * stretch's middle when the music has got clearly louder or quieter.
+ * Where the stretch's plain ground steps to, by its style: a build climbs a step every
+ * stretch; elsewhere the ground steps toward the intensity's height when the music has
+ * got clearly louder or quieter, a low step in a calm part, up to `CONTOUR_STEP` of the
+ * difficulty's `rise` in a groove or a chorus.
  */
-function plain(ctx: BuildContext): Built {
-  const { stretch, x, h, map } = ctx;
-  const kind = ctx.calm ? 'calm' : 'flat';
+function stepTarget(ctx: BuildContext): { to: number; reason: string } | null {
+  const { stretch, h, map, settings } = ctx;
+  const size = (share: number) =>
+    Math.max(CALM_STEP, settings.rise * share * ctx.common(stretch.start));
+  if (ctx.style === 'climb') {
+    const to = Math.min(CLIMB_TOP, h + size(CLIMB_STEP));
+    return to - h >= CALM_STEP * 0.75 ? { to, reason: 'kick, the build climbing' } : null;
+  }
   const target = contourTop(map, stretch.end);
-  if (Math.abs(target - h) < CALM_STEP) return flat(ctx, kind);
-  const mid = (stretch.start + stretch.end) / 2;
-  const kick = map.events.find(
-    (e) => e.kind === 'kick' && e.time >= mid && e.time <= stretch.end - stretch.period,
-  );
-  if (!kick) return flat(ctx, kind);
+  if (Math.abs(target - h) < CALM_STEP) return null;
+  const most = ctx.style === 'float' ? CALM_STEP : size(CONTOUR_STEP);
   const up = target > h;
-  const next = clampTop(h + (up ? CALM_STEP : -CALM_STEP));
+  return {
+    to: clampTop(h + Math.sign(target - h) * Math.min(most, Math.abs(target - h))),
+    reason: up ? 'kick, the music getting louder' : 'kick, the music getting quieter',
+  };
+}
+
+/**
+ * The stretch's last stretch of plain ground takes its step (`stepTarget`) on the first
+ * kick past the stretch's middle and a beat into the plain ground, with a beat to spare
+ * before its end, clear of spikes, gates and ceilings.
+ */
+function tailStep(ctx: BuildContext, made: Built): Built {
+  const { stretch, x, map } = ctx;
+  const tail = made.solids[made.solids.length - 1];
+  const end = x(stretch.end);
+  if (!tail || tail.kind !== 'ground' || made.fixed.has(tail) || Math.abs(tail.x1 - end) > 0.5)
+    return made;
+  const target = stepTarget({ ...ctx, h: made.h });
+  if (!target) return made;
+  const earliest = Math.max(
+    (stretch.start + stretch.end) / 2,
+    ctx.timeAt(tail.x0) + stretch.period,
+  );
+  const kick = map.events.find(
+    (e) => e.kind === 'kick' && e.time >= earliest && e.time <= stretch.end - stretch.period,
+  );
+  if (!kick) return made;
   const at = x(kick.time) + PLAYER_WIDTH;
-  return built(kind, [ground(x(stretch.start), at, h), ground(at, x(stretch.end), next)], next, {
+  const clear =
+    made.spikes.every((s) => s.x1 < at - 40) &&
+    made.gates.every((g) => g.x < at - 60) &&
+    made.solids.every((s) => s.kind !== 'overhang' || s.x1 < at - 20);
+  if (!clear) return made;
+  const up = target.to > made.h;
+  return {
+    ...made,
+    solids: [...made.solids.slice(0, -1), { ...tail, x1: at }, ground(at, end, target.to)],
+    h: target.to,
     obstacles: [
+      ...made.obstacles,
       {
         kind: 'kick',
         time: kick.time,
@@ -650,10 +719,15 @@ function plain(ctx: BuildContext): Built {
         x0: at,
         x1: at + 1,
         label: up ? 'Step up' : 'Step down',
-        reason: up ? 'kick, the music getting louder' : 'kick, the music getting quieter',
+        reason: target.reason,
       },
     ],
-  });
+  };
+}
+
+/** Plain ground, taking its style's step on a kick (`tailStep`). */
+function plain(ctx: BuildContext): Built {
+  return tailStep(ctx, flat(ctx, ctx.calm ? 'calm' : 'flat'));
 }
 
 /**
@@ -768,9 +842,9 @@ function equaliser(ctx: BuildContext, moment: Moment): Built | null {
 function drop(ctx: BuildContext): Built {
   const { stretch, x, settings, ease } = ctx;
   const steps = stretch.steps;
-  const count = Math.min(STAIR_STEPS, steps.length - 3);
-  if (count < 2) return flat(ctx);
   const rise = settings.stepRise * ease;
+  const count = Math.min(STAIR_STEPS, steps.length - 3, Math.floor((MAX_TOP - MIN_TOP) / rise));
+  if (count < 2) return flat(ctx);
   const base = clampTop(Math.min(ctx.h, MAX_TOP - count * rise));
   const end = x(stretch.end);
   const solids: Solid[] = [ground(x(stretch.start), x(steps[1]!), ctx.h)];
@@ -787,9 +861,11 @@ function drop(ctx: BuildContext): Built {
   // The plateau, with an arc of gems to jump for.
   const plateau = x(steps[count + 1]!);
   solids.push({ kind: 'step', x0: plateau, x1: end, top });
-  for (let i = 0; i < 3; i++) {
-    const t = steps[count + 1]! + (i + 0.5) * (stretch.period / 2);
-    pickups.push({ kind: 'gem', x: x(t), y: top + 70 + (i === 1 ? 30 : 0), time: t });
+  const room = stretch.end - steps[count + 1]!;
+  for (let i = 0; i < PLATEAU_GEMS; i++) {
+    const t = steps[count + 1]! + ((i + 0.5) / PLATEAU_GEMS) * Math.min(room, 2 * stretch.period);
+    const arc = Math.sin(((i + 0.5) / PLATEAU_GEMS) * Math.PI);
+    pickups.push({ kind: 'gem', x: x(t), y: top + 56 + 50 * arc, time: t });
   }
   return built('drop', solids, top, {
     pickups,
@@ -854,6 +930,7 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
   const gates: Gate[] = [];
   const obstacles: Obstacle[] = [];
   const focus: Built['focus'] = {};
+  const fixed = new Set<Solid>();
   let from = x(stretch.start);
   let h = ctx.h;
   const add = (o: Omit<Obstacle, 'repeats'>, m: Moment) =>
@@ -998,11 +1075,9 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
       const hurdle1 = x(takeoff + HURDLE_LEAD + HURDLE_TIME) + PLAYER_WIDTH;
       if (leave - meet < period / 2 || hurdle0 < from - 1e-6 || x(leave) > limit) return;
       const clearance = Math.min(30, settings.clearance / ease);
-      solids.push(
-        ground(from, hurdle0, h),
-        ground(hurdle0, hurdle1, h + HURDLE_RISE),
-        overhangAt(x, meet, leave, h, clearance),
-      );
+      const hurdle = ground(hurdle0, hurdle1, h + HURDLE_RISE);
+      fixed.add(hurdle);
+      solids.push(ground(from, hurdle0, h), hurdle, overhangAt(x, meet, leave, h, clearance));
       from = hurdle1;
       add(
         {
@@ -1044,7 +1119,9 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
       steps.forEach((_, k) => {
         const x0 = k === 0 ? riser : x(steps[k]!) + PLAYER_WIDTH / 2;
         const x1 = k === n - 1 ? edge : x(steps[k + 1]!) + PLAYER_WIDTH / 2;
-        solids.push(ground(x0, x1, h + lift + (n - k) * rise));
+        const step = ground(x0, x1, h + lift + (n - k) * rise);
+        fixed.add(step);
+        solids.push(step);
       });
       if (slam) solids.push(overhangAt(x, line, leave, h, Math.min(30, settings.clearance / ease)));
       from = edge;
@@ -1068,7 +1145,7 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
   solids.push(ground(from, end, h));
   if (obstacles.length === 0) return plain(ctx);
   const main = [...obstacles].sort((a, b) => SALIENCE[b.kind] - SALIENCE[a.kind])[0]!;
-  return {
+  const made: Built = {
     kind: chunkKindOf(main),
     solids,
     spikes,
@@ -1077,7 +1154,11 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
     obstacles,
     h,
     focus,
+    fixed,
   };
+  // A build climbs after its obstacles too, but a bar the song plays again stays as the
+  // player learned it.
+  return ctx.style === 'climb' && !moments.some((m) => m.repeats) ? tailStep(ctx, made) : made;
 }
 
 /**
@@ -1097,6 +1178,33 @@ function wouldNeed(m: Moment, ability: Ability, map: LevelMap, settings: Difficu
   const length = timeOfBeat(map, m.beat + m.length) - timeOfBeat(map, m.beat);
   return Math.min(length, dashPitAir(settings.held)) > JUMP_REACH;
 }
+
+/** The feel of a section by its kind, for a map without moods. */
+const FEEL_OF_KIND: Record<SectionKind, SectionFeel> = {
+  intro: 'calm',
+  outro: 'calm',
+  breakdown: 'breakdown',
+  build: 'build',
+  drop: 'drop',
+  main: 'groove',
+};
+
+/**
+ * The terrain style for each feel: floating slabs in calm parts and breakdowns, the
+ * energy's contour in a groove, heaving equaliser ground in a chorus and in a drop after
+ * its set piece, and a climb in a build.
+ */
+export const STYLE_OF_FEEL: Record<SectionFeel, TerrainStyle> = {
+  calm: 'float',
+  breakdown: 'float',
+  groove: 'contour',
+  chorus: 'heave',
+  drop: 'heave',
+  build: 'climb',
+};
+
+/** Heaving ground rises this share of the difficulty's equaliser range (up to `HEAVE_MAX`). */
+const HEAVE_SHARE = 0.45;
 
 /** Calm sections are built this much easier, with wider ground and narrower gaps. */
 const CALM_EASE = 0.6;
@@ -1229,8 +1337,19 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
   level.finishX = xAtTime(level, map.duration);
   const x = (t: number) => xAtTime(level, t);
   const world = new LevelWorld(level);
-  const sectionAt = (t: number): SectionKind =>
-    map.sections.find((s) => t >= s.start && t < s.end)?.kind ?? 'main';
+  const sectionIndexAt = (t: number) => map.sections.findIndex((s) => t >= s.start && t < s.end);
+  const sectionAt = (t: number): SectionKind => map.sections[sectionIndexAt(t)]?.kind ?? 'main';
+  const feelAt = (t: number): SectionFeel => {
+    const i = sectionIndexAt(t);
+    return map.moods?.[i]?.feel ?? FEEL_OF_KIND[map.sections[i]?.kind ?? 'main'];
+  };
+  const styleAt = (t: number) => STYLE_OF_FEEL[feelAt(t)];
+  // A build gets denser as it goes, up to BUILD_DENSER more by its end.
+  const busyAt = (t: number) => {
+    const s = map.sections[sectionIndexAt(t)];
+    if (!s || feelAt(t) !== 'build') return 1;
+    return 1 + BUILD_DENSER * Math.max(0, Math.min(1, (t - s.start) / (s.end - s.start)));
+  };
 
   // Bars between the run-in and the run-out, each as a stretch.
   const runIn = map.downbeats.find((d) => d >= RUN_IN_SECONDS) ?? map.duration;
@@ -1258,7 +1377,7 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
   };
 
   const snares = map.events.filter((e) => e.kind === 'snare').map((e) => e.time);
-  const plans = planBars(map, settings, bars, barEnd, (t) => isCalm(sectionAt(t)), seed);
+  const plans = planBars(map, settings, bars, barEnd, (t) => isCalm(sectionAt(t)), busyAt, seed);
 
   // Each drop's set piece starts on the first bar at or after it.
   const dropBars = new Set<number>();
@@ -1278,6 +1397,7 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     x0: -40,
     x1: x(runIn),
     section: sectionAt(0),
+    style: 'contour',
     repairs: 0,
   });
   world.add([ground(-40, x(runIn), START_TOP)]);
@@ -1290,12 +1410,17 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
   const taught = new Set<Ability>();
   const lessons = [...LESSONS];
   let lessonTries = 0;
+  // The terrain style of the stretch before, since when it has been that, and how much
+  // its moving ground moved (a repair moves it less).
+  let lastStyle: TerrainStyle = 'contour';
+  let since = 0;
+  let lastAmount = 1;
   for (let i = 0; i < bars.length;) {
     const isDrop = dropBars.has(i);
     // Every stretch of a song whose bars are too short for an obstacle takes two bars, and
-    // drops two (four on such a song, for room to climb the staircase), never into a drop.
+    // drops three (four on such a song, for room to climb the staircase), never into a drop.
     const narrow = narrowAt(bars[i]!);
-    const want = isDrop ? (narrow ? 4 : 2) : narrow ? 2 : 1;
+    const want = isDrop ? (narrow ? 4 : 3) : narrow ? 2 : 1;
     let span = 1;
     while (span < want && i + span < bars.length && !dropBars.has(i + span)) span++;
     const beatOf = (k: number) => beatAt(map, barEnd(k));
@@ -1335,6 +1460,10 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     const calmSection = isCalm(section);
     const abilities = new Set(taught);
     if (teaching && lesson) abilities.add(lesson);
+    // The ground's style, by the section's feel; a new one starts on this downbeat.
+    const style: TerrainStyle = isDrop ? 'drop' : styleAt(stretch.start);
+    const fresh = style !== lastStyle;
+    const styleSince = fresh ? stretch.start : since;
 
     const attempts: (Attempt | null)[] = [...attemptsFor(moments.length, isDrop), null];
     let accepted = false;
@@ -1353,11 +1482,37 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
         abilities,
         snares,
         calm: calmSection,
+        style,
+        timeAt: (px) => timeAtX(level, px),
       };
       const main = attempt?.main ? [...moments].sort(byStrength).slice(0, 1) : moments;
       // The last resort is flat ground at the height the last stretch ended at.
       const made: Built = !attempt ? flat(ctx) : isDrop ? drop(ctx) : compose(ctx, main);
       planned ??= made.kind;
+      const amount = attempt?.ease ?? 1;
+      const shaped = attempt !== null && !isDrop;
+      if (shaped)
+        made.solids = shapeTerrain(
+          {
+            map,
+            style,
+            x,
+            timeAt: ctx.timeAt,
+            start: stretch.start,
+            end: stretch.end,
+            since: styleSince,
+            ...(fresh ? { morphFrom: h } : {}),
+            amount,
+            heave: settings.eqRange * HEAVE_SHARE,
+            heavingIn:
+              !fresh && amount === lastAmount && endsHeaving(level.solids, x(stretch.start), h),
+            bounds: { min: MIN_TOP, max: MAX_TOP + HEAVE_MAX },
+          },
+          made.solids,
+          made.spikes,
+          made.gates,
+          made.fixed,
+        );
       const mark = world.mark();
       world.add(made.solids, made.spikes, made.gates);
       const next = explorer.clone();
@@ -1374,8 +1529,13 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
           x0: x(stretch.start),
           x1: x(stretch.end),
           section,
+          style: shaped || isDrop ? style : 'contour',
           repairs: a,
         });
+        const kept = shaped || isDrop ? style : 'contour';
+        if (kept !== lastStyle) since = stretch.start;
+        lastStyle = kept;
+        lastAmount = amount;
         const met = lesson && made.focus[lesson];
         if (teaching && lesson && met) {
           taught.add(lesson);
@@ -1408,6 +1568,7 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     x0: x(runOut),
     x1: end,
     section: sectionAt(runOut),
+    style: 'contour',
     repairs: 0,
   });
   if (!explorer.run(stepAt(map.duration)))

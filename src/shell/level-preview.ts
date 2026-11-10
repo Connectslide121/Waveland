@@ -586,8 +586,17 @@ function drawSolid(
     ctx.fillRect(x0, y, width, 6);
     return;
   }
+  if (s.kind === 'float') {
+    // A floating slab of a calm part: a thick slab with nothing under it.
+    ctx.fillStyle = alpha(palette.violet, 0.3);
+    ctx.fillRect(x0, y, width, 14);
+    ctx.fillStyle = palette.violet;
+    ctx.fillRect(x0, y, width, 2);
+    return;
+  }
   const colour = s.kind === 'step' ? palette.magenta : palette.violet;
-  ctx.fillStyle = alpha(colour, s.kind === 'eq' ? 0.4 : s.kind === 'step' ? 0.22 : 0.2);
+  const moving = s.kind === 'eq' || s.kind === 'heave';
+  ctx.fillStyle = alpha(colour, moving ? 0.4 : s.kind === 'step' ? 0.22 : 0.2);
   ctx.fillRect(x0, y, width, h - y);
   ctx.fillStyle = colour;
   ctx.shadowColor = colour;
