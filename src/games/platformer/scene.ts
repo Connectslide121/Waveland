@@ -1,5 +1,13 @@
 import * as Phaser from 'phaser';
-import { beatAt, getEffects, onSettingsChange, periodAt, type LevelMap } from '../../core';
+import {
+  beatAt,
+  curveAt,
+  getEffects,
+  onSettingsChange,
+  periodAt,
+  type LevelMap,
+  type MoodCurves,
+} from '../../core';
 import { palette, paletteNumbers } from '../../theme/palette';
 import {
   cameraAt,
@@ -30,7 +38,12 @@ import { DEATH_TIME, type PlatformerRun, type RunEvent } from './run';
  * draws what is there then, so a pause freezes it and a rewind plays it again.
  *
  * Glow comes from bloom on the camera, over wide faint strokes under thin bright ones.
- * With effects reduced there are no flashes and no screen shake.
+ * The look follows the song's mood (`LevelMap.mood`): the louder the music, the faster
+ * the grid rolls, the stronger the glow, the thicker its lines, the taller the waves and
+ * the harder the speaker thumps, and the more magenta comes in over the world's violet.
+ * Every platform in view pulses on the kick (its cap squashes and glows) and its edges
+ * flash on the snare; drawn only, so collisions stay exact. With effects reduced there
+ * are no flashes and no screen shake.
  *
  * Kept cheap (docs/platformer.md, "Frame budget"): ground, steps and ledges never move, so
  * they are drawn once into tile textures that scroll with the camera; bridges are pooled
@@ -134,6 +147,37 @@ interface Floater {
   at: number;
 }
 
+/** `a` and `b` (0xRRGGBB) mixed, `k` of the way to `b`. */
+function mix(a: number, b: number, k: number): number {
+  const c = Math.max(0, Math.min(1, k));
+  const ch = (shift: number) => {
+    const x = (a >> shift) & 0xff;
+    const y = (b >> shift) & 0xff;
+    return Math.round(x + (y - x) * c) << shift;
+  };
+  return ch(16) | ch(8) | ch(0);
+}
+
+/** The index of the last item at or before `time` in a list sorted by time, or -1. */
+function latest(list: readonly { time: number }[], time: number): number {
+  let last = -1;
+  for (let lo = 0, hi = list.length - 1; lo <= hi;) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid]!.time <= time) {
+      last = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return last;
+}
+
+/** How long a platform's kick pulse and snare flash last, in beats and seconds. */
+const PULSE_BEATS = 0.35;
+const FLASH_TIME = 0.14;
+/** Grid rows rolling by per beat: calm to loud. */
+const ROLL_CALM = 0.5;
+const ROLL_LOUD = 1.5;
+
 /** A burst of particles in world space, drawn from its song time. */
 interface Burst {
   kind: 'land' | 'spark' | 'drop';
@@ -147,7 +191,7 @@ interface Burst {
 const BURSTS = {
   land: { life: 0.35, count: 10, speed: 140 },
   spark: { life: 0.45, count: 12, speed: 220 },
-  drop: { life: 0.6, count: 20, speed: 360 },
+  drop: { life: 0.7, count: 28, speed: 420 },
 } as const;
 const DROP_COLORS = [paletteNumbers.cyan, paletteNumbers.magenta, paletteNumbers.violet];
 
@@ -174,6 +218,12 @@ export interface FrameState {
 interface Music {
   /** Kick times and strengths, sorted. */
   kicks: { time: number; intensity: number }[];
+  /** Snare times and strengths, sorted (the clear ones). */
+  snares: { time: number; intensity: number }[];
+  /** The song's mood per grid beat. */
+  mood: MoodCurves;
+  /** Grid rows rolled by the start of each beat, faster where the song is louder. */
+  roll: Float64Array;
   /** The drop set pieces' song time spans. */
   drops: { start: number; end: number }[];
   /** Overall energy per grid beat, 0 to 1. */
@@ -229,6 +279,8 @@ export class PlatformerScene extends Phaser.Scene {
   #zoom = 1;
   #offsetX = 0;
   #offsetY = 0;
+  /** The mood this frame: intensity, brightness and the grid's roll, refreshed in `#draw`. */
+  readonly #mood = { intensity: 0.5, brightness: 0.5, roll: 0 };
   /** Where the player died, for the shards. */
   #death = { x: 0, y: 0, shown: false };
   /** The last slam's shockwave: where, when, and whether it landed on the beat. */
@@ -264,7 +316,15 @@ export class PlatformerScene extends Phaser.Scene {
         .filter((c) => c.kind === 'drop' || c.planned === 'drop')
         .map((c) => ({ start: c.start, end: c.end })),
       energy: map.energy,
+      snares: map.events
+        .filter((e) => e.kind === 'snare' && e.intensity >= 0.3)
+        .map((e) => ({ time: e.time, intensity: e.intensity })),
+      mood: map.mood,
+      roll: new Float64Array(map.beats.length + 1),
     };
+    const roll = this.#music.roll;
+    for (let k = 0; k < map.beats.length; k++)
+      roll[k + 1] = roll[k]! + ROLL_CALM + (ROLL_LOUD - ROLL_CALM) * (map.mood.intensity[k] ?? 0.5);
     const solids = level.solids;
     this.#joinedLeft = new Uint8Array(solids.length);
     this.#joinedRight = new Uint8Array(solids.length);
@@ -575,7 +635,16 @@ export class PlatformerScene extends Phaser.Scene {
       shakeY = Math.cos(sinceDeath * 70) * 5 * k;
     }
     const drop = this.#dropLevel(time);
-    const beat = Math.floor(beatAt(level.grid, time) + 1e-6);
+    const beats = beatAt(level.grid, time);
+    const beat = Math.floor(beats + 1e-6);
+    const mood = this.#mood;
+    const music = this.#music;
+    mood.intensity = Math.max(curveAt(music.mood.intensity, beats), drop);
+    mood.brightness = curveAt(music.mood.brightness, beats);
+    const k = Math.max(0, Math.min(music.roll.length - 2, Math.floor(beats)));
+    mood.roll = music.roll[k]! + (music.roll[k + 1]! - music.roll[k]!) * Math.max(0, beats - k);
+    // The glow follows the mood: soft in calm parts, strong when it is loud.
+    if (this.#bloom) this.#bloom.blur.strength = 1.1 + 0.9 * mood.intensity;
 
     // Bursts for what happened since the last frame: a landing, a beat of the drop.
     if (run.landedAt > this.#landingSeen && run.player.alive) {
@@ -608,10 +677,12 @@ export class PlatformerScene extends Phaser.Scene {
       if (solid.x0 > x1) break;
       if (solid.x1 < x0) continue;
       if (solid.kind === 'bridge') this.#placeBridge(solid, time);
-      else if (solid.kind === 'eq') this.#drawSolid(g, i, time, state.beatPhase, drop);
+      // What moves (equalisers, heaving and floating ground, ground reshaping) every frame.
+      else if (solid.keys) this.#drawSolid(g, i, time, state.beatPhase, drop);
       else if (solid.kind === 'step') this.#drawStepFlare(g, i, state.beatPhase, drop);
-      // Ground and ledges are in the tiles.
+      // Still ground and ledges are in the tiles.
     }
+    this.#drawPulse(g, time, x0, x1);
     const dots = this.#dotImages;
     for (let i = this.#dotsShown; i < dots.length && dots[i]!.visible; i++)
       dots[i]!.setVisible(false);
@@ -745,6 +816,9 @@ export class PlatformerScene extends Phaser.Scene {
     g.fillStyle(paletteNumbers.dusk, 0.5).fillRect(0, horizon, width, height - horizon);
   }
 
+  /** The grid's colour, line width and brightness this frame, from the mood. */
+  readonly #grid = { color: paletteNumbers.violet, width: 1, alpha: 1 };
+
   #gridLine(
     g: Phaser.GameObjects.Graphics,
     ax: number,
@@ -753,8 +827,9 @@ export class PlatformerScene extends Phaser.Scene {
     by: number,
     a: number,
   ): void {
-    g.lineStyle(6, paletteNumbers.violet, a * 0.15).lineBetween(ax, ay, bx, by);
-    g.lineStyle(1.5, paletteNumbers.violet, a).lineBetween(ax, ay, bx, by);
+    const { color, width, alpha } = this.#grid;
+    g.lineStyle(6 * width, color, a * alpha * 0.15).lineBetween(ax, ay, bx, by);
+    g.lineStyle(1.5 * width, color, Math.min(1, a * alpha)).lineBetween(ax, ay, bx, by);
   }
 
   /** The floor grid rolling toward the player, the horizon's flare and the drop's flash. */
@@ -771,7 +846,7 @@ export class PlatformerScene extends Phaser.Scene {
         .setPosition(width / 2, height * 0.6)
         .setDisplaySize(width * 1.5, height * 1.4)
         .setTint(beatInBar % 2 === 0 ? paletteNumbers.magenta : paletteNumbers.violet)
-        .setAlpha(drop * (0.12 + 0.4 * hit));
+        .setAlpha(drop * (0.15 + 0.5 * hit));
     } else if (drop > 0) {
       // Reduced: a steady glow instead of flashes.
       flash
@@ -781,10 +856,19 @@ export class PlatformerScene extends Phaser.Scene {
         .setAlpha(drop * 0.18);
     } else flash.setAlpha(0);
 
-    // Rows roll toward the player, one per beat; columns slide with the camera.
+    // The grid follows the mood: dim, thin and violet when calm; bright, thick and
+    // magenta-tinged when loud.
+    const loud = this.#mood.intensity;
+    const grid = this.#grid;
+    grid.color = mix(paletteNumbers.violet, paletteNumbers.magenta, ((loud - 0.5) / 0.5) * 0.55);
+    grid.width = 0.7 + 0.8 * loud;
+    grid.alpha = 0.55 + 0.6 * loud;
+
+    // Rows roll toward the player, faster the louder it is; columns slide with the camera.
     const depth = height - horizon;
+    const roll = this.#mood.roll - Math.floor(this.#mood.roll);
     for (let i = 0; i < GRID_ROWS; i++) {
-      const z = (i + beatPhase) / GRID_ROWS;
+      const z = (i + roll) / GRID_ROWS;
       const y = horizon + depth * z * z;
       this.#gridLine(g, 0, y, width, y, 0.08 + 0.45 * z);
     }
@@ -798,13 +882,14 @@ export class PlatformerScene extends Phaser.Scene {
     // The horizon flares on every beat, brightest on the bar's first.
     const flare =
       Math.max(0, 1 - beatPhase * 2.5) * (beatInBar === 0 ? 1 : 0.55) * (this.#reduced ? 0.4 : 1);
-    g.lineStyle(8 + 10 * flare, paletteNumbers.magenta, 0.15 + 0.2 * flare).lineBetween(
+    const glow = 0.5 + 0.6 * loud;
+    g.lineStyle(8 + 10 * flare, paletteNumbers.magenta, (0.15 + 0.2 * flare) * glow).lineBetween(
       0,
       horizon,
       width,
       horizon,
     );
-    g.lineStyle(2, paletteNumbers.magenta, 0.6 + 0.4 * flare).lineBetween(
+    g.lineStyle(2 * grid.width, paletteNumbers.magenta, (0.6 + 0.4 * flare) * glow).lineBetween(
       0,
       horizon,
       width,
@@ -858,7 +943,7 @@ export class PlatformerScene extends Phaser.Scene {
     for (let i = 0; i <= points; i++) {
       const x = (i / points) * width;
       const u = x / z / 180 + time * 1.2;
-      const yy = middle + sign * Math.sin(u * Math.PI) * 100 * swell * z;
+      const yy = middle + sign * Math.sin(u * Math.PI) * 130 * swell * z;
       if (i === 0) g.moveTo(x, yy);
       else g.lineTo(x, yy);
     }
@@ -870,40 +955,39 @@ export class PlatformerScene extends Phaser.Scene {
     const g = this.#back.clear();
     const z = this.#zoom;
     const level = this.level;
-    const beatIndex = Math.floor(beatAt(level.grid, time));
     const period = periodAt(level.grid, time);
-    const energy = this.#music.energy[Math.max(0, beatIndex)] ?? 0.4;
+    const loud = this.#mood.intensity;
 
-    // Two faint wave lines across the sky, drifting with the song, taller when it's loud.
-    const amp = 18 + 22 * energy;
-    this.#wave(g, camera, 156, amp, time * 0.4, paletteNumbers.violet, 1.5, 0.35);
-    this.#wave(g, camera, 180, amp * 0.8, time * 0.4 + 0.35, paletteNumbers.magenta, 1, 0.22);
+    // Two faint wave lines across the sky, drifting with the song, taller and thicker when
+    // it's loud; the magenta one comes up as it gets louder.
+    const amp = 10 + 40 * loud;
+    const line = 0.8 + 0.6 * loud;
+    const magenta = 0.08 + 0.32 * loud;
+    this.#wave(g, camera, 156, amp, time * 0.4, paletteNumbers.violet, 1.5 * line, 0.35);
+    this.#wave(g, camera, 180, amp * 0.8, time * 0.4 + 0.35, paletteNumbers.magenta, line, magenta);
 
-    // The speaker: a violet light that thumps on every kick, sending out rings.
+    // The speaker: a violet light that thumps on every kick, sending out rings: softly when
+    // the song is calm, hard when it is loud.
     const cx = this.#offsetX + VIEW_WIDTH * 0.77 * z;
     const cy = this.#offsetY + VIEW_HEIGHT * 0.37 * z;
     const radius = VIEW_WIDTH * 0.11 * z;
     const kicks = this.#music.kicks;
     const ringLife = RING_BEATS * period;
-    let last = -1;
-    for (let lo = 0, hi = kicks.length - 1; lo <= hi;) {
-      const mid = (lo + hi) >> 1;
-      if (kicks[mid]!.time <= time) {
-        last = mid;
-        lo = mid + 1;
-      } else hi = mid - 1;
-    }
+    const last = latest(kicks, time);
+    const follow = 0.35 + 0.85 * loud;
     let thump = 0;
     for (let i = last; i >= 0; i--) {
       const kick = kicks[i]!;
       const age = time - kick.time;
       if (age > ringLife) break;
       const k = age / ringLife;
-      const strength = 0.5 + 0.5 * kick.intensity;
+      const strength = (0.5 + 0.5 * kick.intensity) * follow;
       if (i === last) thump = Math.max(0, 1 - age / (0.4 * period)) * strength;
       const r = radius * (0.3 + 1.1 * (1 - Math.pow(1 - k, 2)));
-      g.lineStyle(7 * z, paletteNumbers.violet, 0.12 * (1 - k) * strength).strokeCircle(cx, cy, r);
-      g.lineStyle(2 * z, paletteNumbers.violet, 0.9 * (1 - k) * strength).strokeCircle(cx, cy, r);
+      g.lineStyle(7 * z, paletteNumbers.violet, Math.min(1, 0.12 * (1 - k) * strength));
+      g.strokeCircle(cx, cy, r);
+      g.lineStyle(2 * z * line, paletteNumbers.violet, Math.min(1, 0.9 * (1 - k) * strength));
+      g.strokeCircle(cx, cy, r);
     }
     const core = radius * 0.24 * (0.9 + 0.35 * thump);
     g.fillStyle(paletteNumbers.violet, 0.12 + 0.1 * thump).fillCircle(cx, cy, core * 2.6);
@@ -929,7 +1013,7 @@ export class PlatformerScene extends Phaser.Scene {
     return c;
   }
 
-  /** A column (ground, step, equaliser) or a ledge, as it is at `t`. */
+  /** A column (ground, step, equaliser, heaving column), a ledge or a floating slab, at `t`. */
   #drawSolid(
     g: Phaser.GameObjects.Graphics,
     index: number,
@@ -941,6 +1025,10 @@ export class PlatformerScene extends Phaser.Scene {
     const top = solidTop(s, t);
     if (top === null) return;
     const w = s.x1 - s.x0;
+    if (s.kind === 'float') {
+      this.#drawFloat(g, s, sy(top));
+      return;
+    }
     if (s.kind === 'ledge') {
       g.fillStyle(paletteNumbers.cyan, 0.2).fillRoundedRect(s.x0 - 4, sy(top) - 4, w + 8, 17, 8);
       g.fillStyle(paletteNumbers.cyan, 1).fillRoundedRect(s.x0, sy(top), w, 9, 4.5);
@@ -971,26 +1059,37 @@ export class PlatformerScene extends Phaser.Scene {
     g.lineStyle(1, color, 0.3);
     if (!joinedLeft) g.lineBetween(s.x0 + 1.5, y, s.x0 + 1.5, bottom);
     if (!joinedRight) g.lineBetween(s.x1 - 1.5, y, s.x1 - 1.5, bottom);
-    // The cap: a halo, the bright edge and a hot line on it. Equalisers and the
-    // staircase flare on the beat, the staircase more through the drop.
+    // The cap: a halo, the bright edge and a hot line on it. Equalisers, heaving columns
+    // and the staircase flare on the beat, the staircase more through the drop.
     const flare =
-      s.kind === 'eq' ? 0.35 * pulse : s.kind === 'step' ? (0.3 + 0.5 * drop) * pulse : 0;
+      s.kind === 'eq' || s.kind === 'heave'
+        ? 0.35 * pulse
+        : s.kind === 'step'
+          ? (0.3 + 0.5 * drop) * pulse
+          : 0;
     const haloA = joinedLeft ? s.x0 : s.x0 - 2;
     const haloB = joinedRight ? s.x1 : s.x1 + 2;
-    g.fillStyle(color, 0.22 + flare).fillRoundedRect(
-      haloA,
-      y - 7,
-      haloB - haloA,
-      16,
-      this.#cornersFor(5, joinedLeft, joinedRight),
-    );
-    g.fillStyle(color, 1).fillRoundedRect(
-      a,
-      y,
-      b - a,
-      6,
-      this.#cornersFor(2, joinedLeft, joinedRight),
-    );
+    if (s.kind === 'heave') {
+      // Heaving columns stand a few px apart and many are in view, every frame: square
+      // caps, much cheaper than rounded ones and the same at that size.
+      g.fillStyle(color, 0.22 + flare).fillRect(haloA, y - 7, haloB - haloA, 16);
+      g.fillStyle(color, 1).fillRect(a, y, b - a, 6);
+    } else {
+      g.fillStyle(color, 0.22 + flare).fillRoundedRect(
+        haloA,
+        y - 7,
+        haloB - haloA,
+        16,
+        this.#cornersFor(5, joinedLeft, joinedRight),
+      );
+      g.fillStyle(color, 1).fillRoundedRect(
+        a,
+        y,
+        b - a,
+        6,
+        this.#cornersFor(2, joinedLeft, joinedRight),
+      );
+    }
     const insetA = joinedLeft ? s.x0 : s.x0 + 4;
     const insetB = joinedRight ? s.x1 : s.x1 - 4;
     g.fillStyle(paletteNumbers.flare, 0.35 + 0.4 * flare).fillRect(
@@ -1103,6 +1202,83 @@ export class PlatformerScene extends Phaser.Scene {
         g.fillStyle(orange, 0.55 + 0.4 * pulse).fillRect(gate.x - 7, y - 2, 14, 3);
       g.fillStyle(paletteNumbers.flare, 0.7).fillRect(gate.x - 1, top, 2, base - top);
       g.fillStyle(orange, 1).fillRoundedRect(gate.x - 10, base - 6, 20, 6, 2);
+    }
+  }
+
+  /**
+   * A floating slab of a calm part: the world's violet, a thick slab fading downward with
+   * nothing under it, and a faint line below it so it reads as floating.
+   */
+  #drawFloat(g: Phaser.GameObjects.Graphics, s: Solid, y: number): void {
+    const color = paletteNumbers.violet;
+    const w = s.x1 - s.x0;
+    g.fillStyle(color, 0.16).fillRoundedRect(s.x0 - 3, y - 6, w + 6, 26, 8);
+    g.fillGradientStyle(color, color, color, color, 0.34, 0.34, 0.04, 0.04);
+    g.fillRect(s.x0 + 1, y, w - 2, 18);
+    g.fillStyle(color, 1).fillRoundedRect(s.x0, y, w, 5, 2);
+    g.fillStyle(paletteNumbers.flare, 0.35).fillRect(s.x0 + 4, y + 1, w - 8, 1.5);
+    g.lineStyle(1, color, 0.22).lineBetween(s.x0 + 8, y + 26, s.x1 - 8, y + 26);
+  }
+
+  /**
+   * Every platform in view pulses on the kick (its cap glows and squashes a little) and
+   * its free edges flash on the snare, more the louder the music. Drawn over the tiles
+   * and the moving ground; nothing moves for the physics. With effects reduced the pulse
+   * is softer, without the squash, and the snare doesn't flash.
+   */
+  #drawPulse(g: Phaser.GameObjects.Graphics, t: number, x0: number, x1: number): void {
+    const music = this.#music;
+    const loud = 0.45 + 0.55 * this.#mood.intensity;
+    const period = periodAt(this.level.grid, t);
+    const k = latest(music.kicks, t);
+    const kickAge = k < 0 ? Infinity : t - music.kicks[k]!.time;
+    const kick =
+      k < 0
+        ? 0
+        : Math.max(0, 1 - kickAge / (PULSE_BEATS * period)) *
+          (0.5 + 0.5 * music.kicks[k]!.intensity) *
+          loud *
+          (this.#reduced ? 0.5 : 1);
+    const n = this.#reduced ? -1 : latest(music.snares, t);
+    const snare =
+      n < 0
+        ? 0
+        : Math.max(0, 1 - (t - music.snares[n]!.time) / FLASH_TIME) *
+          music.snares[n]!.intensity *
+          loud;
+    if (kick < 0.02 && snare < 0.02) return;
+    const squash = this.#reduced ? 0 : 2.5 * kick;
+    const solids = this.level.solids;
+    for (let i = lowerBound(solids, x0 - MAX_SOLID_WIDTH); i < solids.length; i++) {
+      const s = solids[i]!;
+      if (s.x0 > x1) break;
+      if (s.x1 < x0 || s.kind === 'bridge' || s.kind === 'overhang') continue;
+      const top = solidTop(s, t);
+      if (top === null) continue;
+      const y = sy(top);
+      const left = this.#joinedLeft[i] === 1;
+      const right = this.#joinedRight[i] === 1;
+      const color =
+        s.kind === 'step'
+          ? paletteNumbers.magenta
+          : s.kind === 'ledge'
+            ? paletteNumbers.cyan
+            : paletteNumbers.violet;
+      if (kick >= 0.02) {
+        const a = left ? s.x0 : s.x0 - 3;
+        const b = right ? s.x1 : s.x1 + 3;
+        g.fillStyle(color, 0.32 * kick).fillRect(a, y - 3 - 8 * kick, b - a, 12 + 8 * kick);
+        const inA = left ? s.x0 : s.x0 + 4;
+        const inB = right ? s.x1 : s.x1 - 4;
+        g.fillStyle(paletteNumbers.flare, 0.7 * kick);
+        g.fillRect(inA, y + 1 + squash, inB - inA, 1.5);
+      }
+      if (snare >= 0.02) {
+        const depth = s.kind === 'float' ? 18 : s.kind === 'ledge' ? 9 : 70;
+        g.lineStyle(2, paletteNumbers.magenta, 0.9 * snare);
+        if (!left) g.lineBetween(s.x0 + 1, y, s.x0 + 1, y + depth);
+        if (!right) g.lineBetween(s.x1 - 1, y, s.x1 - 1, y + depth);
+      }
     }
   }
 
