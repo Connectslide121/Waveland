@@ -270,7 +270,7 @@ export function createTitleScreen({
       zoneSub.textContent = `Pick a song of at least ${MIN_SONG_SECONDS} seconds`;
     } else if (song && problem) {
       zoneMain.textContent = `${song.file.name} couldn't be read`;
-      zoneSub.textContent = 'It may be damaged or not really audio. Pick another song';
+      zoneSub.textContent = 'It may be damaged. Pick another song';
     } else if (song && analysing) {
       zoneMain.textContent = song.title;
       zoneSub.textContent = 'Listening for the beat, the sections and the drops';

@@ -494,3 +494,16 @@
     display: none;
   }
 }
+
+/* On a phone the hint gets two lines beside Play, so "Ready to play Platformer" isn't cut. */
+@media (max-width: 560px) {
+  .play-row__hint {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    font-size: 13px;
+    line-height: 1.3;
+  }
+}
