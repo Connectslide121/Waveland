@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { beatFit, buildLevelMap, fitBeatGrid } from './level-map';
 import { beatAt, beatIndexAt, periodAt, tempoAt, timeOfBeat } from './tempo-map';
+import { analyseSamples } from './analysis/analyse';
+import { momentsSong, TEST_RATE } from './analysis/test-audio';
 import { randomAnalysis } from './test-analysis';
 
 describe('fitBeatGrid', () => {
@@ -104,10 +106,12 @@ describe('buildLevelMap', () => {
     for (const e of map.events) expect(e.beat).toBe(beatIndexAt(map, e.time));
   });
 
-  it('puts snares on the eighth-note grid', () => {
+  it('moves snares near the eighth-note grid onto it (sixteenths in fills stay)', () => {
     for (const e of map.events.filter((x) => x.kind === 'snare')) {
       const eighths = (e.time - map.beats[0]!) / (period / 2);
-      expect(Math.abs(eighths - Math.round(eighths))).toBeLessThan(1e-6);
+      const off = Math.abs(eighths - Math.round(eighths));
+      // Within 0.15 beats (0.3 eighths) of the grid, on it.
+      if (off < 0.3) expect(off).toBeLessThan(1e-6);
     }
   });
 
@@ -188,5 +192,40 @@ describe('buildLevelMap with tempo changes', () => {
       expect(inSegment.length).toBeGreaterThan(0);
       expect(map.beats.indexOf(inSegment[0]!) - first).toBeLessThan(4);
     }
+  });
+});
+
+describe('buildLevelMap: musical moments on the grid', () => {
+  const song = momentsSong();
+  const map = buildLevelMap(analyseSamples(song.samples, TEST_RATE));
+  const onGrid = (t: number, division: number) => {
+    const n = beatAt(map, t) * division;
+    return Math.abs(n - Math.round(n)) < 1e-6;
+  };
+
+  it('snaps held sounds, stops, accents and fill hits onto the grid', () => {
+    const { sustains, stops, accents, fills } = map.features;
+    expect(sustains).toHaveLength(1);
+    expect(onGrid(sustains[0]!.time, 2)).toBe(true);
+    expect(onGrid(sustains[0]!.end, 4)).toBe(true);
+    // The held chord: 1.75 beats.
+    expect(beatAt(map, sustains[0]!.end) - beatAt(map, sustains[0]!.time)).toBeCloseTo(1.75, 6);
+    expect(stops).toHaveLength(1);
+    expect(onGrid(stops[0]!.end, 2)).toBe(true);
+    for (const a of accents) expect(onGrid(a.time, 2)).toBe(true);
+    expect(fills).toHaveLength(1);
+    expect(map.downbeats).toContain(fills[0]!.end);
+    for (const t of fills[0]!.hits) expect(onGrid(t, 4)).toBe(true);
+  });
+
+  it('gives one bar per grid bar, the riff repeating its first bars', () => {
+    const { bars } = map.features;
+    expect(bars.map((b) => b.start)).toEqual(map.downbeats);
+    const index = (t: number) => map.downbeats.findIndex((d) => Math.abs(d - t) < 0.05);
+    song.riff.first.forEach((t, k) => {
+      const first = index(t);
+      expect(bars[first]!.repeats).toBe(first);
+      expect(bars[index(song.riff.again[k]!)]!.repeats).toBe(first);
+    });
   });
 });

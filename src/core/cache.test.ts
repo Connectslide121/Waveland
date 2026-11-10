@@ -16,6 +16,7 @@ const analysis: SongAnalysis = {
   bands: { low: curve(), mid: curve(), high: curve() },
   sections: [{ start: 0, end: 3, kind: 'main', energy: 0.5 }],
   drops: [],
+  features: { sustains: [], stops: [], accents: [], fills: [], syncopations: [], bars: [] },
 };
 
 /** Put a record straight into the cache's store, as an older version would have. */

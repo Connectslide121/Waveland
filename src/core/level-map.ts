@@ -1,8 +1,12 @@
+import { noFeatures } from './analysis/features';
 import { hashOf } from './random';
 import { beatAt, beatIndexAt, FALLBACK_TEMPO, periodAt, snapToGrid } from './tempo-map';
 import type {
   Band,
+  BarInfo,
   BeatFit,
+  MusicFeatures,
+  TempoGrid,
   EnergyCurve,
   LevelEvent,
   LevelEventKind,
@@ -242,6 +246,12 @@ export function buildLevelMap(analysis: SongAnalysis): LevelMap {
     analysis.drops.length,
   );
 
+  const features = gridFeatures(
+    analysis.features ?? noFeatures(),
+    { segments, beats, downbeats },
+    duration,
+  );
+
   // The tempo the song spends most of its time at.
   const main = segments.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
   return {
@@ -257,5 +267,71 @@ export function buildLevelMap(analysis: SongAnalysis): LevelMap {
     events,
     sections: analysis.sections,
     drops: analysis.drops,
+    features,
   };
+}
+
+/**
+ * The analysis' musical moments on the grid: hits snapped onto it as the events are,
+ * held sounds and stops ending on its sixteenths, fills leading into a grid bar line, and
+ * one bar per grid bar, repeating the first grid bar its analysis bar repeats.
+ */
+export function gridFeatures(
+  found: MusicFeatures,
+  grid: TempoGrid,
+  duration: number,
+): MusicFeatures {
+  const snap = (t: number, division: number, tolerance: number) =>
+    snapToGrid(grid, t, division, tolerance);
+  const inSong = (t: number) => t >= 0 && t < duration;
+  const sustains = found.sustains
+    .map((s) => {
+      const time = snap(s.time, 2, SNAP_BEATS);
+      return { ...s, time, end: Math.max(time + 0.05, snap(s.end, 4, SNAP_BEATS)) };
+    })
+    .filter((s) => inSong(s.time));
+  const stops = found.stops
+    .map((s) => {
+      // The silence starts as the last hit's ring fades: on the eighth it is nearest.
+      const time = snap(s.time, 2, 0.25);
+      return { time, end: Math.max(time + 0.05, snap(s.end, 2, SNAP_BEATS)) };
+    })
+    .filter((s) => inSong(s.time));
+  const accents = found.accents
+    .map((a) => ({ ...a, time: snap(a.time, 2, SNAP_BEATS) }))
+    .filter((a) => inSong(a.time));
+  const fills = found.fills
+    .map((f) => {
+      const hits = [...new Set(f.hits.map((t) => snap(t, 4, 0.12)))].sort((a, b) => a - b);
+      // The bar line it leads into, on the grid.
+      let end = Infinity;
+      for (const d of grid.downbeats) if (Math.abs(d - f.end) < Math.abs(end - f.end)) end = d;
+      if (!(Math.abs(end - f.end) <= periodAt(grid, f.end))) end = f.end;
+      return { time: hits[0] ?? f.time, end, hits: hits.filter((t) => t < end - 1e-6) };
+    })
+    .filter((f) => inSong(f.time) && f.hits.length > 0);
+  const syncopations = found.syncopations
+    .map((s) => ({ ...s, time: snap(s.time, 4, 0.1) }))
+    .filter((s) => inSong(s.time));
+
+  // Each grid bar takes the analysis bar starting nearest it (within two beats).
+  const groupOf = grid.downbeats.map((start) => {
+    let best: BarInfo | undefined;
+    for (const bar of found.bars)
+      if (!best || Math.abs(bar.start - start) < Math.abs(best.start - start)) best = bar;
+    return best && Math.abs(best.start - start) <= 2 * periodAt(grid, start) ? best : undefined;
+  });
+  const firstOf = new Map<number, number>();
+  const bars: BarInfo[] = grid.downbeats.map((start, i) => {
+    const end = grid.downbeats[i + 1] ?? duration;
+    const own = groupOf[i];
+    if (!own) return { start, end, repeats: i, similarity: 1 };
+    const first = firstOf.get(own.repeats);
+    if (first === undefined) {
+      firstOf.set(own.repeats, i);
+      return { start, end, repeats: i, similarity: 1 };
+    }
+    return { start, end, repeats: first, similarity: own.similarity };
+  });
+  return { sustains, stops, accents, fills, syncopations, bars };
 }

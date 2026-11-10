@@ -221,3 +221,123 @@ export function tempoChangeSong(parts: TempoPart[], start = 0.5, rate = TEST_RAT
   }
   return { samples: out, beats, changes };
 }
+
+/** A chord of sines (with a soft second harmonic) held for `seconds`, 5 ms in and 20 ms out. */
+export function chord(freqs: number[], seconds: number, gain: number, rate = TEST_RATE) {
+  return sound(seconds, rate, (t) => {
+    const envelope = Math.min(1, t / 0.005, (seconds - t) / 0.02);
+    let v = 0;
+    for (const f of freqs) v += Math.sin(2 * Math.PI * f * t) + 0.3 * Math.sin(4 * Math.PI * f * t);
+    return (v / 1.3) * gain * Math.max(0, envelope);
+  });
+}
+
+/** A crash cymbal: bright noise ringing for a while. */
+export function crash(rate = TEST_RATE) {
+  const out = noise(17, Math.round(0.9 * rate)).map(
+    (v, i) => v * Math.min(1, i / rate / 0.002) * Math.exp(-i / rate / 0.3),
+  );
+  biquad(out, 'highpass', 5000, 0.7, rate);
+  return normalise(out);
+}
+
+/** Triads for the riff, in Hz: A minor, F major, C major, G major. */
+const RIFF_CHORDS = [
+  [220, 261.63, 329.63],
+  [174.61, 220, 261.63],
+  [130.81, 164.81, 196],
+  [196, 246.94, 293.66],
+];
+
+/**
+ * A 120 BPM song with one of each musical moment, at known times (bars of 2 s from
+ * 0.5 s): a groove, crash accents (bar 4 beat 3, bar 5 beats 1 and 3), a held A minor
+ * chord (bar 6, 1.75 beats from its downbeat), a full-band stop (bar 8, after its
+ * downbeat until beat 4), a snare fill (bar 10's last beat, sixteenths into bar 11), a
+ * four-bar riff (bars 11–14, a chord and a drum pattern of its own each) played again
+ * (bars 15–18), then the groove to the end.
+ */
+export function momentsSong(rate = TEST_RATE) {
+  const kit = drumKit(rate);
+  const cymbal = crash(rate);
+  const bpm = 120;
+  const period = 60 / bpm;
+  const start = 0.5;
+  const bars = 22;
+  const out = track(start + bars * 4 * period + 1, rate);
+  const bar = (b: number) => start + b * 4 * period;
+  const at = (b: number, beat: number) => bar(b) + beat * period;
+  const hit = (s: Float32Array, b: number, beat: number, gain: number) =>
+    place(out, s, at(b, beat), gain, rate);
+  const groove = (b: number, until = 4) => {
+    for (let k = 0; k < until; k++) {
+      hit(kit.kick, b, k, k === 0 ? 0.9 : 0.6);
+      if (k % 2 === 1) hit(kit.snare, b, k, 0.5);
+      hit(kit.hat, b, k + 0.5, 0.3);
+    }
+  };
+
+  const accents: number[] = [];
+  const crashAt = (b: number, beat: number) => {
+    hit(kit.kick, b, beat, 1);
+    hit(cymbal, b, beat, 0.9);
+    accents.push(at(b, beat));
+  };
+  const riff = (b: number, which: number) => {
+    place(out, chord(RIFF_CHORDS[which]!, 4 * period - 0.01, 0.05, rate), bar(b), 1, rate);
+    for (let k = 0; k < 4; k++) {
+      if (which !== 2 || k % 2 === 0) hit(kit.kick, b, k, k === 0 ? 0.8 : 0.6);
+      if (k % 2 === 1) hit(kit.snare, b, k, 0.5);
+    }
+    // What makes each bar its own: a syncopated kick, a late snare, an eighth kick, sixteenth hats.
+    if (which === 0) hit(kit.kick, b, 1.5, 0.85);
+    if (which === 1) hit(kit.snare, b, 3.5, 0.6);
+    if (which === 2) hit(kit.kick, b, 2.5, 0.6);
+    const hats = which === 3 ? 16 : 8;
+    for (let k = 0; k < hats; k++) hit(kit.hat, b, (k * 4) / hats, 0.25);
+  };
+
+  for (let b = 0; b < 4; b++) groove(b);
+  // Bar 4: an accent on beat 3; bar 5: on beats 1 and 3.
+  groove(4);
+  crashAt(4, 2);
+  groove(5);
+  crashAt(5, 0);
+  crashAt(5, 2);
+  // Bar 6: a kick and an A minor chord held 1.75 beats, then the groove from beat 3.
+  const held = { time: bar(6), end: bar(6) + 1.75 * period };
+  hit(kit.kick, 6, 0, 0.9);
+  place(out, chord(RIFF_CHORDS[0]!, 1.75 * period, 0.3, rate), bar(6), 1, rate);
+  for (let k = 2; k < 4; k++) {
+    hit(kit.kick, 6, k, 0.6);
+    if (k % 2 === 1) hit(kit.snare, 6, k, 0.5);
+    hit(kit.hat, 6, k + 0.5, 0.3);
+  }
+  groove(7);
+  // Bar 8: the band hits the downbeat, stops, and comes back in on beat 4.
+  hit(kit.kick, 8, 0, 0.9);
+  hit(kit.snare, 8, 0, 0.5);
+  hit(kit.kick, 8, 3, 0.9);
+  hit(kit.snare, 8, 3, 0.5);
+  hit(kit.hat, 8, 3.5, 0.3);
+  const stop = { time: at(8, 0), end: at(8, 3) };
+  groove(9);
+  // Bar 10: three beats of groove, then a sixteenth-note snare fill into bar 11.
+  groove(10, 3);
+  const fill = { hits: [0, 1, 2, 3].map((k) => at(10, 3 + k / 4)), end: bar(11) };
+  fill.hits.forEach((t, k) => place(out, kit.snare, t, 0.55 + 0.05 * k, rate));
+  for (let r = 0; r < 2; r++) for (let k = 0; k < 4; k++) riff(11 + 4 * r + k, k);
+  for (let b = 19; b < bars; b++) groove(b);
+
+  return {
+    samples: out,
+    period,
+    downbeats: Array.from({ length: bars }, (_, b) => bar(b)),
+    held,
+    stop,
+    accents,
+    fill,
+    /** The riff's first bars, and the bars that play it again. */
+    riff: { first: [11, 12, 13, 14].map(bar), again: [15, 16, 17, 18].map(bar) },
+  };
+}

@@ -2,6 +2,7 @@ import { BANDS, type Band, type Onset, type SongAnalysis, type TempoSegment } fr
 import { frameTime, pickOnsets } from './onsets';
 import { beatEnvelope, beatTimes, findDownbeatPhase, tempoFromBeats, trackBeats } from './rhythm';
 import { computeFrames, type Frames } from './spectrum';
+import { findFeatures } from './features';
 import { energyCurves, findStructure } from './structure';
 import { findTempoSegments, framePeriods, refineChanges, type FrameSegment } from './tempo';
 
@@ -9,7 +10,7 @@ import { findTempoSegments, framePeriods, refineChanges, type FrameSegment } fro
  * Bumped whenever the analysis changes what it finds, so cached results from older
  * versions are ignored and the song is analysed again.
  */
-export const ANALYSIS_VERSION = 4;
+export const ANALYSIS_VERSION = 5;
 
 /** Share of the progress bar the spectrum takes; the rest is quick. */
 const SPECTRUM_SHARE = 0.85;
@@ -58,6 +59,16 @@ export function analyseSamples(
 
   const { energy, bands } = energyCurves(frames, duration);
   const { sections, drops } = findStructure({ duration, downbeats, onsets, energy, bands });
+  const features = findFeatures({
+    duration,
+    segments,
+    beats,
+    downbeats,
+    onsets,
+    energy,
+    bands,
+    chroma: (start, end) => meanChroma(frames, start, end),
+  });
   onProgress?.(1);
 
   return {
@@ -71,7 +82,19 @@ export function analyseSamples(
     bands,
     sections,
     drops,
+    features,
   };
+}
+
+/** The mean power per pitch class over [start, end). */
+function meanChroma(frames: Frames, start: number, end: number): Float32Array {
+  const out = new Float32Array(12);
+  const from = Math.max(0, Math.floor(start * frames.rate));
+  const to = Math.min(frames.count, Math.ceil(end * frames.rate));
+  for (let i = from; i < to; i++)
+    for (let c = 0; c < 12; c++) out[c] = out[c]! + frames.chroma[i * 12 + c]!;
+  if (to > from) for (let c = 0; c < 12; c++) out[c] = out[c]! / (to - from);
+  return out;
 }
 
 /**

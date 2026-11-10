@@ -27,7 +27,15 @@ export interface Frames {
   power: Record<Band | 'all', Float32Array>;
   /** Spectral flux per frame and band: how much new energy arrived, per bin. */
   flux: Record<Band, Float32Array>;
+  /**
+   * Power per pitch class (C, C♯ … B) from 110 Hz to 2 kHz, 12 values a frame: frame `i`'s
+   * are at `i * 12` to `i * 12 + 11`. For telling bars apart by their notes and chords.
+   */
+  chroma: Float32Array;
 }
+
+/** The range the chroma listens to, in Hz: bass notes up to the top of most melodies. */
+const CHROMA_RANGE = [110, 2000] as const;
 
 function nearestPowerOfTwo(n: number): number {
   return 2 ** Math.round(Math.log2(n));
@@ -64,6 +72,15 @@ export function computeFrames(
     }),
   ) as Record<Band, readonly [number, number]>;
   const allRange = [binOf(20), binOf(16000)] as const;
+  // Each chroma bin's pitch class, from its centre frequency.
+  const chromaFrom = binOf(CHROMA_RANGE[0]);
+  const chromaTo = binOf(CHROMA_RANGE[1]);
+  const pitchClass = new Uint8Array(bins);
+  for (let k = chromaFrom; k < chromaTo; k++) {
+    const midi = Math.round(69 + 12 * Math.log2((k * sampleRate) / size / 440));
+    pitchClass[k] = ((midi % 12) + 12) % 12;
+  }
+  const chroma = new Float32Array(count * 12);
 
   const power = {
     low: new Float32Array(count),
@@ -93,6 +110,8 @@ export function computeFrames(
     let all = 0;
     for (let k = allRange[0]; k < allRange[1]; k++) all += mags[k]! * mags[k]!;
     power.all[i] = all;
+    for (let k = chromaFrom; k < chromaTo; k++)
+      chroma[i * 12 + pitchClass[k]!] = chroma[i * 12 + pitchClass[k]!]! + mags[k]! * mags[k]!;
     for (const band of BANDS) {
       const [lo, hi] = ranges[band];
       let p = 0;
@@ -111,5 +130,5 @@ export function computeFrames(
   }
   onProgress?.(1);
 
-  return { rate: sampleRate / hop, count, power, flux };
+  return { rate: sampleRate / hop, count, power, flux, chroma };
 }

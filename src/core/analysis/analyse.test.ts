@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Onset } from '../types';
 import { analyseSamples, toMono } from './analyse';
-import { clickTrack, drumKit, drumPattern, place, tempoChangeSong, TEST_RATE } from './test-audio';
+import {
+  clickTrack,
+  drumKit,
+  drumPattern,
+  momentsSong,
+  place,
+  tempoChangeSong,
+  TEST_RATE,
+} from './test-audio';
 
 /** Distance from `t` to the nearest of `times`. */
 function nearest(times: number[], t: number): number {
@@ -300,5 +308,66 @@ describe('toMono', () => {
   it('averages the channels', () => {
     const mono = toMono([Float32Array.of(1, 0), Float32Array.of(0, 1)]);
     expect([...mono]).toEqual([0.5, 0.5]);
+  });
+});
+
+describe('analyseSamples: musical moments', () => {
+  const song = momentsSong();
+  const analysis = analyseSamples(song.samples, TEST_RATE);
+  const { features } = analysis;
+  /** Half an eighth at 120 BPM. */
+  const NEAR = 0.13;
+
+  it('finds the held chord, from its hit until it is let go', () => {
+    expect(features.sustains).toHaveLength(1);
+    const held = features.sustains[0]!;
+    expect(Math.abs(held.time - song.held.time)).toBeLessThan(0.03);
+    expect(Math.abs(held.end - song.held.end)).toBeLessThan(0.06);
+    expect(held.sound).toBe('chord');
+  });
+
+  it('finds the stop, from as the downbeat dies away until the band comes back', () => {
+    expect(features.stops).toHaveLength(1);
+    const stop = features.stops[0]!;
+    expect(stop.time).toBeGreaterThan(song.stop.time);
+    expect(stop.time - song.stop.time).toBeLessThan(song.period);
+    expect(Math.abs(stop.end - song.stop.end)).toBeLessThan(0.03);
+  });
+
+  it('finds the crash accents and nothing else as accents', () => {
+    expect(features.accents.map((a) => a.time)).toHaveLength(song.accents.length);
+    for (const t of song.accents) expect(nearest(times(features.accents), t)).toBeLessThan(NEAR);
+  });
+
+  it('finds the snare fill into the riff, hit by hit', () => {
+    expect(features.fills).toHaveLength(1);
+    const fill = features.fills[0]!;
+    expect(Math.abs(fill.end - song.fill.end)).toBeLessThan(0.03);
+    expect(fill.hits).toHaveLength(song.fill.hits.length);
+    fill.hits.forEach((t, i) => expect(Math.abs(t - song.fill.hits[i]!)).toBeLessThan(0.03));
+  });
+
+  it('finds the off-beat kick and snare of the riff as syncopations, and nothing in the groove', () => {
+    for (const s of features.syncopations) {
+      const inRiff = [...song.riff.first, ...song.riff.again].some(
+        (b) => s.time >= b && s.time < b + 4 * song.period,
+      );
+      expect(inRiff).toBe(true);
+    }
+    expect(features.syncopations).toHaveLength(4);
+  });
+
+  it('knows the riff repeats, bar for bar, and that its bars differ from each other', () => {
+    const barAt = (t: number) => features.bars.findIndex((b) => Math.abs(b.start - t) < 0.05);
+    const first = song.riff.first.map(barAt);
+    const again = song.riff.again.map(barAt);
+    expect(first.every((i) => i >= 0)).toBe(true);
+    first.forEach((i, k) => {
+      expect(features.bars[i]!.repeats).toBe(i);
+      expect(features.bars[again[k]!]!.repeats).toBe(i);
+    });
+    // The groove's bars repeat the first one; the moments' bars repeat nothing.
+    expect(features.bars[1]!.repeats).toBe(0);
+    expect(features.bars[barAt(song.held.time)]!.repeats).toBe(barAt(song.held.time));
   });
 });

@@ -54,6 +54,79 @@ export interface TempoSegment {
   beatPeriod: number;
 }
 
+/**
+ * A hit or chord that rings or holds: after a strong hit the loudness stays up while the
+ * hits thin out (a held note, a long chord, a crash ringing, feedback). From its hit at
+ * `time` until it fades or the next strong hit at `end`.
+ */
+export interface Sustain {
+  time: number;
+  end: number;
+  /** How strong its hit is, 0 to 1. */
+  strength: number;
+  /** What holds: one note, a chord (three pitch classes or more), or a cymbal ringing. */
+  sound: 'note' | 'chord' | 'ring';
+}
+
+/**
+ * A stop or break: the band cuts out, or nearly, for a beat or more from `time`, and
+ * comes back in at `end`.
+ */
+export interface Stop {
+  time: number;
+  end: number;
+}
+
+/**
+ * An accent: a hit in several bands at once (a crash with a kick, a band stab), clearly
+ * stronger than the beats around it.
+ */
+export interface Accent {
+  time: number;
+  /** How far it stands out, 0 to 1. */
+  strength: number;
+}
+
+/**
+ * A fill: a dense run of hits (snare, toms) in the last beat or two before a bar line or
+ * a section change. `hits` are its hits in time order; `end` the bar line it leads into.
+ */
+export interface Fill {
+  time: number;
+  end: number;
+  hits: number[];
+}
+
+/** A strong hit off the beat: a kick or a snare on an "and" or a sixteenth. */
+export interface Syncopation {
+  time: number;
+  strength: number;
+}
+
+/**
+ * A bar, and the first bar of the song that sounds like it (its pitch classes, its hits
+ * per band on a sixteenth grid, its loudness): bars that repeat a riff or a chorus have
+ * the same `repeats`.
+ */
+export interface BarInfo {
+  start: number;
+  end: number;
+  /** Index (in the same list) of the first bar that sounds like this one; its own when none. */
+  repeats: number;
+  /** How alike the two are, 0 to 1 (1 for a bar that repeats nothing). */
+  similarity: number;
+}
+
+/** The musical moments games build their obstacles from. */
+export interface MusicFeatures {
+  sustains: Sustain[];
+  stops: Stop[];
+  accents: Accent[];
+  fills: Fill[];
+  syncopations: Syncopation[];
+  bars: BarInfo[];
+}
+
 /** What the core learns from a song, once, and caches. */
 export interface SongAnalysis {
   duration: number;
@@ -73,6 +146,8 @@ export interface SongAnalysis {
   bands: Record<Band, EnergyCurve>;
   sections: Section[];
   drops: Drop[];
+  /** Held sounds, stops, accents, fills, syncopations and repeated bars. */
+  features: MusicFeatures;
 }
 
 /**
@@ -140,4 +215,10 @@ export interface LevelMap extends TempoGrid {
   events: LevelEvent[];
   sections: Section[];
   drops: Drop[];
+  /**
+   * The analysis' musical moments put on the grid: hits snapped as the events are, fills
+   * ending on a grid bar line, and `bars` one per grid bar (`downbeats`), each with the
+   * first grid bar that sounds like it.
+   */
+  features: MusicFeatures;
 }

@@ -3,6 +3,7 @@
  * and breakdowns, hits that sometimes follow the groove and sometimes don't. Seeded, so a
  * failing seed can be run again.
  */
+import { findFeatures } from './analysis/features';
 import { Random } from './random';
 import type {
   Drop,
@@ -132,6 +133,8 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
       if (rng.chance(quiet ? 0.3 : 0.75)) hit(onsets.high, t + half + jitter(), s);
   });
 
+  const bands = { low, mid, high };
+  moments(new Random(seed ^ 0x5eed), { downbeats, sections, onsets, energy, bands, periodAt });
   return {
     duration,
     tempo,
@@ -140,8 +143,78 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
     downbeats,
     onsets,
     energy,
-    bands: { low, mid, high },
+    bands,
     sections,
     drops,
+    features: findFeatures({ duration, segments, beats, downbeats, onsets, energy, bands }),
   };
+}
+
+/**
+ * Musical moments put into a random song, with their own randomness so the rest of the
+ * song stays as it was: a crash on some section starts, fills into some bar lines, now
+ * and then a held chord (the drums leave it alone) or a stop (everything cuts out).
+ */
+function moments(
+  rng: Random,
+  song: {
+    downbeats: number[];
+    sections: Section[];
+    onsets: SongAnalysis['onsets'];
+    energy: EnergyCurve;
+    bands: SongAnalysis['bands'];
+    periodAt: (t: number) => number;
+  },
+) {
+  const { downbeats, onsets, periodAt } = song;
+  const clear = (from: number, to: number, bands: (keyof typeof onsets)[]) => {
+    for (const band of bands)
+      onsets[band] = onsets[band].filter((o) => o.time < from || o.time >= to);
+  };
+  const add = (band: keyof typeof onsets, time: number, strength: number) => {
+    onsets[band].push({ time, strength });
+  };
+  for (const s of song.sections.slice(1)) {
+    if (s.kind === 'breakdown' || !rng.chance(0.6)) continue;
+    clear(s.start - 0.03, s.start + 0.03, ['low', 'mid', 'high']);
+    add('low', s.start, 1);
+    add('mid', s.start, 1);
+    add('high', s.start, 1);
+    // A crash is loud: louder than the hats and the kicks around it.
+    for (const [curve, by] of [
+      [song.bands.high, 0.4],
+      [song.bands.low, 0.2],
+    ] as const) {
+      const i0 = Math.round(s.start / curve.step);
+      for (let k = i0; k < i0 + 5 && k < curve.values.length; k++)
+        curve.values[k] = Math.min(1, curve.values[k]! + by);
+    }
+  }
+  downbeats.forEach((d, i) => {
+    if (i < 2 || i >= downbeats.length - 2) return;
+    const p = periodAt(d);
+    const roll = rng.next();
+    if (roll < 0.12) {
+      // A sixteenth-note snare fill over the beat before the bar line.
+      clear(d - p - 0.03, d - 0.03, ['low', 'mid']);
+      for (let k = 0; k < 4; k++) add('mid', d - p + (k * p) / 4, rng.range(0.5, 0.9));
+    } else if (roll < 0.2) {
+      // A held chord from the bar line: one hit, then nothing from the drums for a while.
+      const length = rng.range(1.5, 2.5) * p;
+      clear(d + 0.03, d + length, ['low', 'mid']);
+      clear(d - 0.03, d + 0.03, ['low']);
+      add('low', d, 0.95);
+    } else if (roll < 0.25) {
+      // A stop: the band cuts out from beat 2 for one or two beats.
+      const from = d + p;
+      const to = from + rng.int(1, 2) * p;
+      clear(from - 0.03, to - 0.03, ['low', 'mid', 'high']);
+      for (const curve of [song.energy, song.bands.low, song.bands.mid, song.bands.high]) {
+        const i0 = Math.ceil((from + 0.05) / curve.step);
+        const i1 = Math.floor(to / curve.step);
+        for (let k = i0; k < i1 && k < curve.values.length; k++) curve.values[k] = 0.02;
+      }
+    }
+  });
+  for (const band of ['low', 'mid', 'high'] as const) onsets[band].sort((a, b) => a.time - b.time);
 }
