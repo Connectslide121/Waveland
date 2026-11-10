@@ -1,0 +1,21 @@
+# Agent instructions: Waveland
+
+This file is the single source of instructions for every coding agent. `CLAUDE.md` only imports it (`@AGENTS.md`).
+
+## What this is
+
+A personal, just-for-fun collection of music games in the browser (see `README.md`). Every game builds its level from a song the player drops in. It starts with a platformer; a 3D tunnel game comes later, and more may follow.
+
+## Stack and structure
+
+- TypeScript + Vite, no UI framework.
+- `src/core/`: song loading, audio analysis (beats, tempo, energy, sections, drops), analysis cache, level-map generation shared by all games.
+- `src/games/<game>/`: one folder per game. The platformer uses Phaser; the tunnel will use Three.js. A game only reads the core's level map, never analyses audio itself.
+- `src/shell/`: menus (song picker, mode select, settings) in plain HTML/CSS over the canvas.
+- Timing comes from the audio clock (`AudioContext.currentTime`), never from frame time.
+
+## Rules
+
+- Look: neon geometric, drawn in code (shapes, glow, colour reacting to the music). No sprite art unless asked. Concept images in `docs/concept/`.
+- Generated levels must always be completable: check every jump is reachable.
+- Work directly on `main`; small commits with a message saying what and why. Never push unless asked.
