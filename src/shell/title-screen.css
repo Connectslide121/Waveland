@@ -10,7 +10,8 @@
   justify-items: center;
   gap: clamp(12px, 2vh, 24px);
   padding: clamp(32px, 7vh, 88px) clamp(16px, 5vw, 64px) clamp(24px, 5vh, 56px);
-  overflow: hidden;
+  /* clip, not hidden: the wide floor must never let the screen scroll sideways. */
+  overflow: clip;
   background: radial-gradient(120% 90% at 50% 110%, var(--dusk) 0%, var(--night) 60%);
 }
 
