@@ -20,6 +20,13 @@ export const MAX_FALL_SPEED = 1400;
 export const RUN_SPEED = 380;
 /** A jump still works this long after running off an edge, in seconds. */
 export const COYOTE_TIME = 0.08;
+/**
+ * Letting go of jump on the way up cuts the rise to this speed, px/s, for a lower jump.
+ * The validator always holds jump, so it only ever makes jumps shorter than it checked.
+ */
+export const JUMP_CUT_VELOCITY = 300;
+/** A jump pressed this long before landing still happens on landing, in seconds. */
+export const JUMP_BUFFER = 0.1;
 /** The player's box. */
 export const PLAYER_WIDTH = 28;
 export const PLAYER_HEIGHT = 40;
@@ -78,6 +85,8 @@ export interface PlayerInput {
   dir: -1 | 0 | 1;
   /** Jump (only starts a jump when one is possible). */
   jump: boolean;
+  /** Jump is let go: a rising jump is cut short. The validator never sets it. */
+  release?: boolean;
 }
 
 /** What the step needs to know about the level at a moment in time. */
@@ -155,6 +164,8 @@ export function stepPlayer(
     q.grounded = false;
     q.surface = -1;
     q.jumped = true;
+  } else if (input.release && q.jumped && q.vy > JUMP_CUT_VELOCITY) {
+    q.vy = JUMP_CUT_VELOCITY;
   }
 
   // Across: run, stopped by the sides of columns that reach above the feet.

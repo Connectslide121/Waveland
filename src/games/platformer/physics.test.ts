@@ -3,6 +3,7 @@ import { ground, testLevel } from './level/test-level';
 import {
   COYOTE_TIME,
   GRAVITY,
+  JUMP_CUT_VELOCITY,
   JUMP_VELOCITY,
   PHYSICS_DT,
   PLAYER_WIDTH,
@@ -56,6 +57,29 @@ describe('stepPlayer', () => {
     expect(peak).toBeLessThan(1.02 * (JUMP_VELOCITY ** 2 / (2 * GRAVITY)));
     const landed = trace.findIndex((p, i) => i > 1 && p.grounded);
     expect(landed * PHYSICS_DT).toBeCloseTo((2 * JUMP_VELOCITY) / GRAVITY, 1);
+  });
+
+  it('cuts a jump short when jump is let go on the way up, and never lengthens one', () => {
+    const { world } = testLevel([ground(0, 2000)], { speed: 0 });
+    const tap = run(world, { ...startState(300, 0), surface: 0 }, 120, (i) => ({
+      dir: 0,
+      jump: i === 1,
+      release: i > 4,
+    }));
+    const peak = Math.max(...tap.map((p) => p.y));
+    expect(peak).toBeLessThan(0.5 * (JUMP_VELOCITY ** 2 / (2 * GRAVITY)));
+    expect(peak).toBeGreaterThan(JUMP_CUT_VELOCITY ** 2 / (2 * GRAVITY));
+    // Letting go on the way down changes nothing.
+    const held = run(world, { ...startState(300, 0), surface: 0 }, 120, (i) => ({
+      dir: 0,
+      jump: i === 1,
+    }));
+    const late = run(world, { ...startState(300, 0), surface: 0 }, 120, (i) => ({
+      dir: 0,
+      jump: i === 1,
+      release: i > 30,
+    }));
+    expect(late.map((p) => p.y)).toEqual(held.map((p) => p.y));
   });
 
   it('clears a gap a running jump reaches, and falls into one it does not', () => {
