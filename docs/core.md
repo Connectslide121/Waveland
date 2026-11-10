@@ -43,3 +43,14 @@ The trade-off: Essentia's multi-feature beat tracker is more robust on music wit
 ## Timing and latency
 
 `AudioClock.time` is the song time the player hears: the context's clock since playback started, minus the output latency the browser reports (`outputLatency + baseLatency`) and the player's own offset (`settings.ts`, `getLatencyMs`, ±500 ms, 0 until calibrated). A positive offset means the sound reaches the player later than the browser thinks, as with Bluetooth headphones.
+
+## The level map
+
+`level-map.ts` turns a `SongAnalysis` into the `LevelMap` every game reads (`types.ts`): pure data, the same for the same analysis.
+
+- **Beat grid**: a straight line fitted through the tracked beats, extended to cover the whole song, so games can place things on any beat, even in silent intros. The bar phase is the one most of the analysis' downbeats agree on.
+- **Levels per beat**: bass and overall energy averaged over each beat, spread to 0–1 over the song's own range.
+- **Events**, sorted by time: kicks, snares and hats (onsets moved onto the eighth-note grid when within 0.15 beats of it), an off-beat halfway through every beat, drops moved onto the nearest bar line, and section starts with their kind.
+- **Seed**: a hash of the analysis, so games seed their randomness from the song (`random.ts` has the seeded generator).
+
+The map is cheap to build and isn't cached; each game builds its own level from it.

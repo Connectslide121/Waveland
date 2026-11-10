@@ -10,7 +10,7 @@ A personal, just-for-fun collection of music games in the browser (see `README.m
 
 - TypeScript + Vite, no UI framework.
 - `src/core/`: song loading, audio analysis (beats, tempo, energy, sections, drops), analysis cache, level-map generation shared by all games. How the analysis works, and why it is our own code rather than Essentia.js, is in `docs/core.md`; bump `ANALYSIS_VERSION` whenever it changes what it finds, so cached analyses are redone.
-- `src/games/<game>/`: one folder per game. The platformer uses Phaser; the tunnel will use Three.js. A game only reads the core's level map, never analyses audio itself.
+- `src/games/<game>/`: one folder per game. The platformer uses Phaser; the tunnel will use Three.js. A game only reads the core's level map, never analyses audio itself. The platformer's level generator, physics and validator are described in `docs/platformer.md`.
 - `src/shell/`: menus (song picker, mode select, settings) in plain HTML/CSS over the canvas.
 - `src/games/index.ts`: the game registry. A game plugs in with `{ id, name, blurb, icon, status }`; a `ready` game has `start(song, container)` (an `AnalysedSong`: the song with its `SongAnalysis`), a `soon` game a plain-words `reason`.
 - `src/theme/`: the palette, as CSS variables (`palette.css`) and TS constants for Phaser (`palette.ts`); a test keeps them identical. Use these, never hard-coded colours.
