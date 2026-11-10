@@ -20,6 +20,7 @@ import {
   startState,
   stepPlayer,
   type DeathCause,
+  type PlayerInput,
   type PlayerState,
 } from './physics';
 
@@ -303,6 +304,11 @@ export class PlatformerRun {
   /** Song time the last slam started, and landed, for its streak and shockwave. */
   slammedAt = -Infinity;
   slamLandedAt = -Infinity;
+  /**
+   * Presses to play by itself, by physics step (`solveLevel`), instead of the player's:
+   * for watching a level and timing its frames in dev.
+   */
+  autoplay: Map<number, PlayerInput> | null = null;
   /** Slam plates the player broke through, by solid index: the song time each broke. */
   readonly brokenAt = new Map<number, number>();
   /** Song time a shield last took a hit. */
@@ -531,6 +537,13 @@ export class PlatformerRun {
 
     let prev = this.player;
     const s = this.#score;
+    if (this.autoplay) {
+      const press = this.autoplay.get(stepAt(t));
+      if (press?.jump) this.#jumpUntil = t;
+      if (press?.dash) this.#dashUntil = t;
+      if (press?.slam) this.#slamUntil = t;
+      input = { ...input, jumpHeld: !press?.release };
+    }
     const jump = t <= this.#jumpUntil && canJump(prev);
     if (jump) this.#jumpUntil = -Infinity;
     let dash = t <= this.#dashUntil && canDash(prev);
@@ -581,10 +594,13 @@ export class PlatformerRun {
       this.landedAt = t;
       // The extra dash lasts until the next landing.
       s.extraDash = false;
+      // A jump's landing is where its takeoff and the ground put it: off the grid it isn't
+      // judged (a miss there would break a combo the player timed right), on it it scores.
       if (prev.slamming) {
         this.slamLandedAt = t;
         events.push(this.#judge('slam', t, p));
-      } else if (prev.jumped) events.push(this.#judge('land', t, p));
+      } else if (prev.jumped && judgeAt(this.level.grid, t) !== 'miss')
+        events.push(this.#judge('land', t, p));
     }
     this.#collect(t, p, events);
   }

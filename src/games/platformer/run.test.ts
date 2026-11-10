@@ -208,6 +208,21 @@ describe('PlatformerRun', () => {
     expect(run.results().accuracy).toBeCloseTo(2 / 3);
   });
 
+  it('leaves a landing off the grid unjudged, so it never breaks the combo', () => {
+    // A jump at 1.2 s, near the beat at 1.25 s, lands about 1.883 s: an eighth from the grid.
+    const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });
+    const run = new PlatformerRun(level, []);
+    run.update(0, NOTHING);
+    play(run, PHYSICS_DT, 1.2 - PHYSICS_DT, NOTHING);
+    const events = run.update(1.2, JUMP).events.concat(play(run, 1.2 + PHYSICS_DT, 2.2, HOLD));
+    const beats = events.filter((e) => e.type === 'beat');
+    expect(beats).toHaveLength(1);
+    expect(beats[0]).toMatchObject({ action: 'takeoff' });
+    expect(run.player.grounded).toBe(true);
+    expect(run.combo).toBe(1);
+    expect(run.results().miss).toBe(0);
+  });
+
   it('scores a slam landing on a kick as an accent', () => {
     const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });
     const run = new PlatformerRun(level, [], { kicks: [0.5], snares: [] });
