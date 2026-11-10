@@ -265,6 +265,208 @@
   box-shadow: 0 0 28px -6px var(--cyan);
 }
 
+/* Controls: action, keyboard, mouse and gamepad in fixed columns; each device's slots
+   stacked in its column, the same size whatever they say or wait for. */
+.controls {
+  padding: 16px 0 6px;
+  border-top: 1px solid var(--line);
+}
+
+.controls__top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.controls__top .settings__label {
+  margin: 0;
+  font-weight: 400;
+}
+
+.controls__reset-all {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: none;
+  color: var(--muted);
+  font-family: var(--wide);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.controls__reset-all:hover {
+  border-color: var(--cyan);
+  color: var(--ink);
+}
+
+.controls__grid {
+  display: grid;
+  gap: 4px;
+}
+
+.controls__row {
+  display: grid;
+  grid-template-columns: 64px repeat(3, minmax(0, 1fr));
+  gap: 0 8px;
+  align-items: start;
+  padding: 8px 0 0;
+  border-top: 1px solid rgb(138 92 255 / 0.12);
+}
+
+.controls__row--head {
+  padding: 0 0 4px;
+  border-top: 0;
+}
+
+.controls__head {
+  font-family: var(--wide);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.controls__action {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding-top: 6px;
+  font-family: var(--wide);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.controls__reset {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.controls__reset:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.controls__reset svg {
+  width: 16px;
+  height: 16px;
+}
+
+.controls__slots {
+  display: grid;
+  gap: 4px;
+}
+
+.controls__slot {
+  display: block;
+  width: 100%;
+  height: 30px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgb(20 16 44 / 0.9);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 28px;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.controls__slot:hover {
+  border-color: var(--cyan);
+}
+
+.controls__slot:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+.controls__slot.empty {
+  color: var(--muted);
+}
+
+/* Waiting for the input: lit in the player's cyan, same size. */
+.controls__slot.waiting {
+  border-color: var(--cyan);
+  background: rgb(46 242 255 / 0.14);
+  color: var(--cyan);
+  box-shadow: 0 0 16px -4px var(--cyan);
+}
+
+.controls__slot--fixed {
+  color: var(--muted);
+  cursor: default;
+  background: none;
+  border-style: dashed;
+}
+
+/* One line under each row, always there, so a note never moves the rows below. */
+.controls__note {
+  grid-column: 1 / -1;
+  min-height: 1.5em;
+  margin: 4px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.controls__note.waiting {
+  color: var(--cyan);
+}
+
+.controls__foot {
+  min-height: 1.5em;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 460px) {
+  .settings {
+    padding: 12px;
+  }
+
+  .settings__panel {
+    padding: 20px 18px 22px;
+  }
+
+  .controls__row {
+    grid-template-columns: 52px repeat(3, minmax(0, 1fr));
+    gap: 0 5px;
+  }
+
+  .controls__action {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+
+  .controls__head {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+
+  .controls__slot {
+    padding: 0 3px;
+    font-size: 12px;
+  }
+}
+
 @media (max-width: 460px) {
   .settings__row,
   .settings__row--wide {

@@ -16,12 +16,13 @@ import {
   type EffectsLevel,
 } from '../core';
 import { COUNT_IN_CLICKS, latencyFromTaps, Metronome, MIN_TAPS, TAP_CLICKS } from './calibration';
+import { createControlsSection } from './controls-settings';
 import './settings.css';
 
 /**
  * The Settings modal, opened from the title screen and from a game's pause menu: music
- * volume, effects intensity, the frame rate readout and audio latency, with a metronome
- * to tap along to. Changes
+ * volume, effects intensity, the frame rate readout, audio latency with a metronome to
+ * tap along to, and the controls (`controls-settings.ts`). Changes
  * apply at once. It takes the keys while open (Escape and × close it, a backdrop click
  * doesn't) and gives focus back to whatever opened it.
  */
@@ -161,10 +162,13 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
   calibrator.append(light, calText, calButton);
   latencyRow.append(latencyLabel, stepper, calibrator);
 
+  // Controls: what jump, dash and slam are bound to.
+  const controls = createControlsSection();
+
   const done = el('button', 'settings__done', 'Done');
   done.type = 'button';
 
-  panel.append(head, volumeRow, effectsRow, fpsRow, latencyRow, done);
+  panel.append(head, volumeRow, effectsRow, fpsRow, latencyRow, controls.element, done);
   element.append(panel);
   document.body.append(element);
 
@@ -280,6 +284,8 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
     minus.disabled = latency <= -MAX_LATENCY_MS;
     plus.disabled = latency >= MAX_LATENCY_MS;
 
+    controls.render();
+
     calibrator.dataset.state = metronome ? 'running' : tone;
     calButton.textContent = metronome ? 'Tap' : 'Calibrate';
     calButton.setAttribute(
@@ -299,6 +305,8 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
   const keys = (event: KeyboardEvent) => {
     // The modal takes every key while open, so the game or menu below doesn't see them.
     event.stopImmediatePropagation();
+    // A control slot waiting for a key takes it first (Escape cancels the wait, not Settings).
+    if (controls.handleKey(event)) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       close();
@@ -321,6 +329,7 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
     if (closed) return;
     closed = true;
     stopMetronome();
+    controls.stop();
     stopListening();
     window.removeEventListener('keydown', keys, true);
     element.remove();
