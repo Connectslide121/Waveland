@@ -99,6 +99,7 @@
 }
 
 .pf-hud__mult {
+  font-size: 1.3em;
   font-weight: 700;
   text-align: left;
   letter-spacing: 0.04em;

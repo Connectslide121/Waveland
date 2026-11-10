@@ -28,7 +28,7 @@ import {
   VIEW_HEIGHT,
   VIEW_WIDTH,
 } from './physics';
-import { DEATH_TIME, type PlatformerRun, type RunEvent } from './run';
+import { DEATH_TIME, MAGNET_RADIUS, type PlatformerRun, type RunEvent } from './run';
 
 /**
  * Draws the platformer in the Neon arcade look (docs/concept/look.html) from song time:
@@ -71,7 +71,22 @@ const TRAIL_CAPACITY = 128;
 /** Floating score texts rise for this long. */
 const FLOAT_TIME = 0.8;
 /** Floating texts kept for reuse; the oldest is reused when they are all showing. */
-const FLOATERS = 8;
+const FLOATERS = 10;
+/** A banner (a clean section, overdrive) shows for this long, in song seconds. */
+const BANNER_TIME = 1.6;
+/** A coin pulled by the magnet flies to the cube in this long. */
+const ZIP_TIME = 0.2;
+const ZIPS = 8;
+/** Overdrive fades in and out over this long, in song seconds. */
+const OVERDRIVE_FADE = 0.3;
+/** The shield's ring around the cube, px. */
+const SHIELD_RADIUS = 34;
+/** Each booster's colour: the shield and the extra dash the player's, the magnet the score's. */
+const BOOSTER_COLOR = {
+  shield: { fill: paletteNumbers.cyan, text: palette.cyan },
+  magnet: { fill: paletteNumbers.magenta, text: palette.magenta },
+  dash: { fill: paletteNumbers.cyan, text: palette.cyan },
+} as const;
 const SHARDS = 12;
 /** How long a speaker ring spreads out after a kick, in beats. */
 const RING_BEATS = 1.2;
@@ -251,7 +266,16 @@ export class PlatformerScene extends Phaser.Scene {
   #world!: Phaser.GameObjects.Graphics;
   #fx!: Phaser.GameObjects.Graphics;
   #player!: Phaser.GameObjects.Graphics;
+  /** The cube burning magenta in overdrive, shown over the cyan one. */
+  #hot!: Phaser.GameObjects.Graphics;
   #callout!: Phaser.GameObjects.Text;
+  /** A clean section's or an overdrive's banner, and the song time it came. */
+  #banner!: Phaser.GameObjects.Text;
+  #bannerAt = -Infinity;
+  /** Coins the magnet pulled, flying to the cube: where from, and when. */
+  readonly #zips = Array.from({ length: ZIPS }, () => ({ x: 0, y: 0, at: -Infinity }));
+  /** How strong overdrive is this frame, 0 to 1. */
+  #overdrive = 0;
   #front!: Phaser.GameObjects.Graphics;
   /** Draws a tile's ground before it is copied into the tile's texture; never shown. */
   #bake!: Phaser.GameObjects.Graphics;
@@ -349,13 +373,16 @@ export class PlatformerScene extends Phaser.Scene {
     this.#world = this.add.graphics();
     this.#fx = this.add.graphics();
     this.#player = this.add.graphics();
-    this.#drawCube(this.#player);
+    this.#drawCube(this.#player, paletteNumbers.cyan, paletteNumbers.rim);
+    this.#hot = this.add.graphics().setVisible(false);
+    this.#drawCube(this.#hot, paletteNumbers.magenta, paletteNumbers.flare);
     this.#layer = this.add.container(0, 0, [
       this.#tileLayer,
       this.#dots,
       this.#world,
       this.#fx,
       this.#player,
+      this.#hot,
     ]);
     this.#bake = this.make.graphics({}, false);
     this.#callout = this.add
@@ -369,6 +396,18 @@ export class PlatformerScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setShadow(0, 0, palette.magenta, 18, false, true)
+      .setAlpha(0);
+    this.#banner = this.add
+      .text(0, 0, '', {
+        fontFamily: FONT,
+        fontSize: '22px',
+        fontStyle: '700',
+        color: palette.flare,
+        letterSpacing: 8,
+        resolution: 2,
+      })
+      .setOrigin(0.5)
+      .setShadow(0, 0, palette.magenta, 14, false, true)
       .setAlpha(0);
     for (let i = 0; i < FLOATERS; i++)
       this.#floaters.push({
@@ -457,22 +496,44 @@ export class PlatformerScene extends Phaser.Scene {
           s.at = time;
           s.onBeat = e.quality !== 'miss';
         }
-        if (e.quality !== 'miss') {
-          // A slam on the beat is an accent; the rest say how close they were.
-          const word =
-            e.action === 'slam' ? 'ACCENT' : e.quality === 'perfect' ? 'PERFECT' : 'GOOD';
-          this.#float(
-            `${word} +${e.points}`,
-            e.x,
-            e.y + PLAYER_HEIGHT + 24,
-            time,
-            e.quality === 'perfect' || e.action === 'slam' ? palette.magenta : palette.ink,
-          );
+        // A small word at the cube: how close it was, ACCENT on an accent, magenta when perfect.
+        const y = e.y + PLAYER_HEIGHT + 24;
+        if (e.quality === 'miss') this.#float('MISS', e.x, y, time, palette.muted);
+        else {
+          const word = e.accent ? 'ACCENT' : e.quality === 'perfect' ? 'PERFECT' : 'GOOD';
+          const hot = e.quality === 'perfect' || e.accent;
+          this.#float(`${word} +${e.points}`, e.x, y, time, hot ? palette.magenta : palette.ink);
         }
       } else if (e.type === 'pickup') {
         const k = run.level.pickups[e.index]!;
-        this.#float(`+${e.points}`, k.x, k.y + 18, time, palette.magenta);
-        this.#burst('spark', k.x, k.y, time);
+        if (k.kind === 'coin' || k.kind === 'gem') {
+          this.#float(`+${e.points}`, k.x, k.y + 18, time, palette.magenta);
+          if (e.pulled) this.#zip(k.x, k.y, time);
+          else this.#burst('spark', k.x, k.y, time);
+        } else {
+          const name = { shield: 'SHIELD', magnet: 'MAGNET', dash: 'DASH +1' }[k.kind];
+          this.#float(name, k.x, k.y + 22, time, BOOSTER_COLOR[k.kind].text);
+          this.#burst('spark', k.x, k.y, time);
+        }
+      } else if (e.type === 'streak') {
+        this.#float(
+          `STREAK ${e.count} +${e.points}`,
+          e.x,
+          e.y + PLAYER_HEIGHT + 52,
+          time,
+          palette.flare,
+        );
+        this.#burst('drop', e.x, e.y + PLAYER_HEIGHT / 2, time);
+      } else if (e.type === 'overdrive') {
+        this.#showBanner('OVERDRIVE', time);
+        if (e.downbeat)
+          this.#float(`DOWNBEAT +${e.points}`, e.x, e.y + PLAYER_HEIGHT + 52, time, palette.flare);
+        this.#burst('drop', e.x, e.y + PLAYER_HEIGHT / 2, time);
+      } else if (e.type === 'clean') {
+        this.#showBanner(`CLEAN SECTION +${e.points}`, time);
+      } else if (e.type === 'shield') {
+        this.#float('SHIELD', e.x, e.y + PLAYER_HEIGHT + 24, time, palette.cyan);
+        this.#burst('land', e.x, e.y, time);
       }
     }
   }
@@ -486,6 +547,9 @@ export class PlatformerScene extends Phaser.Scene {
       f.text.setVisible(false);
     }
     this.#bursts.length = 0;
+    this.#bannerAt = -Infinity;
+    this.#banner.setAlpha(0);
+    for (const z of this.#zips) z.at = -Infinity;
     this.#trailLength = 0;
     this.#landingSeen = -Infinity;
     this.#dropBeatSeen = -1;
@@ -582,6 +646,30 @@ export class PlatformerScene extends Phaser.Scene {
     this.#bursts.push({ kind, x, y, at, seed: (at * 1000) % 997 });
   }
 
+  /** A coin pulled by the magnet: it flies from where it was to the cube. */
+  #zip(x: number, y: number, at: number): void {
+    let zip = this.#zips[0]!;
+    for (const z of this.#zips) if (z.at < zip.at) zip = z;
+    zip.x = x;
+    zip.y = y;
+    zip.at = at;
+  }
+
+  #showBanner(text: string, at: number): void {
+    this.#banner.setText(text);
+    this.#bannerAt = at;
+  }
+
+  /** How strong overdrive is at `t`: fading in as it starts and out as it ends. */
+  #overdriveAt(run: PlatformerRun, t: number): number {
+    const { from, until } = run.overdrive;
+    if (t < from || t > until + OVERDRIVE_FADE) return 0;
+    return Math.max(
+      0,
+      Math.min(1, (t - from) / OVERDRIVE_FADE, (until + OVERDRIVE_FADE - t) / OVERDRIVE_FADE),
+    );
+  }
+
   /** Show a floating text, reusing a free one, or the oldest when none is free. */
   #float(text: string, x: number, y: number, at: number, color: string): void {
     let floater = this.#floaters[0]!;
@@ -643,8 +731,9 @@ export class PlatformerScene extends Phaser.Scene {
     mood.brightness = curveAt(music.mood.brightness, beats);
     const k = Math.max(0, Math.min(music.roll.length - 2, Math.floor(beats)));
     mood.roll = music.roll[k]! + (music.roll[k + 1]! - music.roll[k]!) * Math.max(0, beats - k);
-    // The glow follows the mood: soft in calm parts, strong when it is loud.
-    if (this.#bloom) this.#bloom.blur.strength = 1.1 + 0.9 * mood.intensity;
+    // The glow follows the mood: soft in calm parts, strong when it is loud, and overdrive.
+    const od = (this.#overdrive = this.#overdriveAt(run, time));
+    if (this.#bloom) this.#bloom.blur.strength = 1.1 + 0.9 * mood.intensity + 0.4 * od;
 
     // Bursts for what happened since the last frame: a landing, a beat of the drop.
     if (run.landedAt > this.#landingSeen && run.player.alive) {
@@ -694,6 +783,7 @@ export class PlatformerScene extends Phaser.Scene {
     this.#drawTrail(fx, run, time);
     this.#drawDash(fx, run, time);
     this.#drawSlam(fx, run, time);
+    this.#drawBoosters(fx, run, time, state.beatPhase);
     this.#drawBursts(fx, time);
     if (this.#death.shown && run.phase === 'dying') this.#drawShards(fx, sinceDeath);
     this.#placePlayer(run, time, state.beatPhase);
@@ -724,6 +814,16 @@ export class PlatformerScene extends Phaser.Scene {
       .setPosition(this.#offsetX + (VIEW_WIDTH / 2) * this.#zoom, this.#offsetY + 96 * this.#zoom)
       .setScale(this.#zoom * (drop === 1 ? thump : 0.9))
       .setAlpha(Math.max(0, (drop - 0.8) * 5));
+    // A banner under it: in quickly, held, then out.
+    const bannerAge = time - this.#bannerAt;
+    const bannerAlpha =
+      bannerAge < 0 || bannerAge > BANNER_TIME
+        ? 0
+        : Math.min(1, bannerAge / 0.08, (BANNER_TIME - bannerAge) / 0.4);
+    this.#banner
+      .setPosition(this.#offsetX + (VIEW_WIDTH / 2) * this.#zoom, this.#offsetY + 150 * this.#zoom)
+      .setScale(this.#zoom * (1 + 0.15 * Math.max(0, 1 - bannerAge / 0.15)))
+      .setAlpha(bannerAlpha);
 
     // Flash on death, and darken what lies outside the 16:9 play area.
     const f = this.#front.clear();
@@ -854,13 +954,28 @@ export class PlatformerScene extends Phaser.Scene {
         .setDisplaySize(width * 1.5, height * 1.4)
         .setTint(paletteNumbers.violet)
         .setAlpha(drop * 0.18);
+    } else if (this.#overdrive > 0) {
+      // Overdrive: the world flares magenta with the beat, hardest on the bar's first
+      // (a steady glow with effects reduced).
+      const hit = this.#reduced
+        ? 0.3
+        : Math.pow(Math.max(0, 1 - beatPhase), 3) * (beatInBar === 0 ? 1 : 0.7);
+      flash
+        .setPosition(width / 2, height * 0.7)
+        .setDisplaySize(width * 1.5, height * 1.2)
+        .setTint(paletteNumbers.magenta)
+        .setAlpha(this.#overdrive * (0.06 + 0.34 * hit));
     } else flash.setAlpha(0);
 
     // The grid follows the mood: dim, thin and violet when calm; bright, thick and
     // magenta-tinged when loud.
     const loud = this.#mood.intensity;
     const grid = this.#grid;
-    grid.color = mix(paletteNumbers.violet, paletteNumbers.magenta, ((loud - 0.5) / 0.5) * 0.55);
+    grid.color = mix(
+      paletteNumbers.violet,
+      paletteNumbers.magenta,
+      ((loud - 0.5) / 0.5) * 0.55 + 0.45 * this.#overdrive,
+    );
     grid.width = 0.7 + 0.8 * loud;
     grid.alpha = 0.55 + 0.6 * loud;
 
@@ -1409,6 +1524,10 @@ export class PlatformerScene extends Phaser.Scene {
       const k = pickups[i]!;
       if (k.time > to) break;
       if (k.x < x0 || k.x > x1 || run.isCollected(i)) continue;
+      if (k.kind !== 'coin' && k.kind !== 'gem') {
+        this.#drawBooster(g, k.kind, k.x, sy(k.y) + bob, beatPhase);
+        continue;
+      }
       const r = k.kind === 'gem' ? 12 : 7;
       const x = k.x;
       const y = sy(k.y) + bob;
@@ -1422,26 +1541,63 @@ export class PlatformerScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * A booster to pick up, as its HUD slot shows it: a glowing rounded frame around its
+   * icon (a shield with a core, a horseshoe magnet, a double chevron), pulsing on the beat.
+   */
+  #drawBooster(
+    g: Phaser.GameObjects.Graphics,
+    kind: keyof typeof BOOSTER_COLOR,
+    x: number,
+    y: number,
+    beatPhase: number,
+  ): void {
+    const color = BOOSTER_COLOR[kind].fill;
+    const pulse = this.#reduced ? 0 : Math.max(0, 1 - beatPhase * 2.5);
+    g.fillStyle(color, 0.14 + 0.1 * pulse).fillCircle(x, y, 24 + 4 * pulse);
+    g.fillStyle(paletteNumbers.night, 0.75).fillRoundedRect(x - 14, y - 14, 28, 28, 7);
+    g.lineStyle(2, color, 1).strokeRoundedRect(x - 14, y - 14, 28, 28, 7);
+    g.lineStyle(2.5, color, 1);
+    if (kind === 'shield') {
+      g.beginPath();
+      g.moveTo(x, y - 9);
+      g.lineTo(x + 7.5, y - 6);
+      g.lineTo(x + 7.5, y);
+      g.lineTo(x, y + 9);
+      g.lineTo(x - 7.5, y);
+      g.lineTo(x - 7.5, y - 6);
+      g.closePath();
+      g.strokePath();
+      g.fillStyle(paletteNumbers.flare, 1).fillCircle(x, y - 1, 2.5);
+    } else if (kind === 'magnet') {
+      g.lineStyle(4, color, 1);
+      g.beginPath();
+      g.arc(x, y + 1, 6, 0, Math.PI, false);
+      g.strokePath();
+      g.lineBetween(x - 6, y + 1, x - 6, y - 7);
+      g.lineBetween(x + 6, y + 1, x + 6, y - 7);
+      g.fillStyle(paletteNumbers.flare, 1);
+      g.fillRect(x - 8, y - 9, 4, 3);
+      g.fillRect(x + 4, y - 9, 4, 3);
+    } else {
+      for (let dx = -4; dx <= 4; dx += 8) {
+        g.beginPath();
+        g.moveTo(x + dx - 4, y - 7);
+        g.lineTo(x + dx + 3, y);
+        g.lineTo(x + dx - 4, y + 7);
+        g.strokePath();
+      }
+    }
+  }
+
   /** The cube, drawn once around its centre; it is moved, turned and squashed each frame. */
-  #drawCube(g: Phaser.GameObjects.Graphics): void {
+  #drawCube(g: Phaser.GameObjects.Graphics, color: number, rim: number): void {
     const w = PLAYER_WIDTH;
     const h = PLAYER_HEIGHT;
     const r = 8;
-    g.fillStyle(paletteNumbers.cyan, 0.16).fillRoundedRect(
-      -w / 2 - 7,
-      -h / 2 - 7,
-      w + 14,
-      h + 14,
-      14,
-    );
-    g.fillStyle(paletteNumbers.cyan, 1).fillRoundedRect(-w / 2, -h / 2, w, h, r);
-    g.lineStyle(2.5, paletteNumbers.rim, 1).strokeRoundedRect(
-      -w / 2 + 2.5,
-      -h / 2 + 2.5,
-      w - 5,
-      h - 5,
-      r - 2,
-    );
+    g.fillStyle(color, 0.16).fillRoundedRect(-w / 2 - 7, -h / 2 - 7, w + 14, h + 14, 14);
+    g.fillStyle(color, 1).fillRoundedRect(-w / 2, -h / 2, w, h, r);
+    g.lineStyle(2.5, rim, 1).strokeRoundedRect(-w / 2 + 2.5, -h / 2 + 2.5, w - 5, h - 5, r - 2);
     // Eyes, looking ahead.
     g.fillStyle(paletteNumbers.night, 1);
     g.fillRoundedRect(w * 0.12, -h * 0.22, 4.5, h * 0.24, 1.5);
@@ -1488,8 +1644,9 @@ export class PlatformerScene extends Phaser.Scene {
     }
     // A dash or a slam holds the cube square to its burst.
     if (p.dashLeft > 0 || p.slamming) angle = 0;
-    // Blink with the beat while counting in.
-    const alpha = run.phase === 'countin' ? 0.55 + 0.45 * Math.max(0, 1 - beatPhase * 2) : 1;
+    // Blink with the beat while counting in, and quickly while a shield bounces it to safety.
+    let alpha = run.phase === 'countin' ? 0.55 + 0.45 * Math.max(0, 1 - beatPhase * 2) : 1;
+    if (run.rescue) alpha = (t * 12) % 1 < 0.5 ? 1 : 0.4;
     const centreY = sy(p.y + (PLAYER_HEIGHT * sY) / 2);
     cube
       .setVisible(true)
@@ -1497,6 +1654,101 @@ export class PlatformerScene extends Phaser.Scene {
       .setScale(sx, sY)
       .setAngle(angle)
       .setAlpha(alpha);
+    // Overdrive: the cube burns magenta, the hot one over the cyan one.
+    const od = this.#overdrive;
+    this.#hot.setVisible(od > 0);
+    if (od > 0)
+      this.#hot
+        .setPosition(p.x + PLAYER_WIDTH / 2, centreY)
+        .setScale(sx, sY)
+        .setAngle(angle)
+        .setAlpha(alpha * od);
+  }
+
+  /**
+   * The boosters around the cube: the shield's cyan ring (pulsing on the beat, spreading
+   * out when it takes a hit), the magnet's faint field with the coins it pulls flying in,
+   * and the extra dash as two chevrons behind. Overdrive adds flames.
+   */
+  #drawBoosters(
+    g: Phaser.GameObjects.Graphics,
+    run: PlatformerRun,
+    t: number,
+    beatPhase: number,
+  ): void {
+    const p = run.player;
+    const cx = p.x + PLAYER_WIDTH / 2;
+    const cy = sy(p.y + PLAYER_HEIGHT / 2);
+    const b = run.boosters;
+    const pulse = this.#reduced ? 0 : Math.max(0, 1 - beatPhase * 3);
+    // The hit: a ring spreading out from where the shield broke.
+    const sinceHit = t - run.shieldHitAt;
+    if (sinceHit >= 0 && sinceHit < 0.5) {
+      const k = sinceHit / 0.5;
+      g.lineStyle(4 * (1 - k) + 1, paletteNumbers.cyan, 1 - k).strokeCircle(
+        cx,
+        cy,
+        SHIELD_RADIUS + 70 * k,
+      );
+    }
+    if (!p.alive || run.phase === 'dying') return;
+    if (b.shield || run.rescue) {
+      const r = SHIELD_RADIUS + 3 * pulse;
+      g.lineStyle(9, paletteNumbers.cyan, 0.12).strokeCircle(cx, cy, r);
+      g.lineStyle(2, paletteNumbers.cyan, run.rescue ? 0.5 : 0.85).strokeCircle(cx, cy, r);
+    }
+    if (t >= b.magnetFrom && t < b.magnetUntil) {
+      // A faint field, its edge dashed and turning.
+      const turn = t * 1.5;
+      g.lineStyle(1.5, paletteNumbers.magenta, 0.35);
+      for (let i = 0; i < 12; i++) {
+        const a = turn + (i / 12) * Math.PI * 2;
+        g.beginPath();
+        g.arc(cx, cy, MAGNET_RADIUS * 0.6, a, a + 0.28);
+        g.strokePath();
+      }
+    }
+    if (b.extraDash) {
+      // Two chevrons behind the cube: a dash in reserve.
+      g.lineStyle(3, paletteNumbers.cyan, 0.85);
+      for (let i = 0; i < 2; i++) {
+        const x = cx - PLAYER_WIDTH / 2 - 10 - i * 9;
+        g.beginPath();
+        g.moveTo(x - 5, cy - 7);
+        g.lineTo(x, cy);
+        g.lineTo(x - 5, cy + 7);
+        g.strokePath();
+      }
+    }
+    // Coins the magnet pulled, flying in and shrinking.
+    for (const z of this.#zips) {
+      const age = t - z.at;
+      if (age < 0 || age > ZIP_TIME) continue;
+      const k = age / ZIP_TIME;
+      const e = k * k;
+      const x = z.x + (cx - z.x) * e;
+      const y = sy(z.y) + (cy - sy(z.y)) * e;
+      g.lineStyle(2, paletteNumbers.magenta, 0.5 * (1 - k)).lineBetween(z.x, sy(z.y), x, y);
+      g.fillStyle(paletteNumbers.magenta, 1 - 0.5 * k).fillCircle(x, y, 6 * (1 - 0.6 * k));
+    }
+    // Overdrive's flames: magenta tongues licking up from the cube, flickering on song time.
+    const od = this.#overdrive;
+    if (od > 0) {
+      for (let i = 0; i < 5; i++) {
+        const flick = hash(Math.floor(t * 20), i);
+        const x = cx - PLAYER_WIDTH / 2 + (i + 0.5) * (PLAYER_WIDTH / 5);
+        const top = sy(p.y + PLAYER_HEIGHT) - 6 - 14 * flick - 8 * pulse;
+        g.fillStyle(i % 2 ? paletteNumbers.magenta : paletteNumbers.flare, 0.55 * od);
+        g.fillTriangle(
+          x - 4,
+          sy(p.y + PLAYER_HEIGHT) + 2,
+          x,
+          top,
+          x + 4,
+          sy(p.y + PLAYER_HEIGHT) + 2,
+        );
+      }
+    }
   }
 
   /**
@@ -1631,7 +1883,7 @@ export class PlatformerScene extends Phaser.Scene {
     for (let i = 0; i < this.#trailLength - 1; i++) {
       this.#trailEdge(i + 1, t);
       const k = 1 - (t - times[this.#trailAt(i)]!) / TRAIL_TIME;
-      g.fillStyle(paletteNumbers.cyan, 0.4 * k);
+      g.fillStyle(this.#overdrive > 0.5 ? paletteNumbers.magenta : paletteNumbers.cyan, 0.4 * k);
       g.fillTriangle(ax, ay, e.ax, e.ay, e.bx, e.by);
       g.fillTriangle(ax, ay, e.bx, e.by, bx, by);
       ax = e.ax;

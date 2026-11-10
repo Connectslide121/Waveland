@@ -477,7 +477,9 @@ export function rankRules(): string {
       deaths === 0 ? ', no deaths' : Number.isFinite(deaths) ? `, at most ${deaths} deaths` : '';
     return `${rank}: timing ${t}${d}`;
   });
-  return `${parts.join(' · ')}. Timing counts a good as half a perfect.`;
+  // Each rank's rule stays on one line.
+  const whole = parts.map((p) => p.replace(/ /g, ' '));
+  return `${whole.join(' · ')}. Timing counts a good as half a perfect.`;
 }
 
 export interface ResultsScreen extends Modal {

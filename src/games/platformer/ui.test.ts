@@ -242,7 +242,9 @@ describe('createResultsScreen', () => {
       ['Pickups', '40 / 52'],
       ['Shield saves', '1'],
     ]);
-    expect(results.element.querySelector('.pf-results__ranks')!.textContent).toBe(
+    expect(
+      results.element.querySelector('.pf-results__ranks')!.textContent!.replace(/ /g, ' '),
+    ).toBe(
       'S: timing 85%+, no deaths · A: timing 70%+, at most 2 deaths · B: timing 50%+ · C: finished. Timing counts a good as half a perfect.',
     );
     const [retry, back] = [...results.element.querySelectorAll('button')];
