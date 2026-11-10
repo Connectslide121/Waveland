@@ -36,7 +36,7 @@ afterEach(() => {
 
 function mount(decode: () => Promise<AudioBuffer> = () => new Promise(() => {})) {
   const onBack = vi.fn();
-  view = createSongDetails({ song, onBack, decode });
+  view = createSongDetails({ song, onBack, decode, buildLevel: () => new Promise(() => {}) });
   document.body.append(view.element);
   const q = <T extends Element>(selector: string) => view!.element.querySelector<T>(selector)!;
   return { onBack, q };

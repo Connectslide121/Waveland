@@ -8,6 +8,8 @@ import {
   type Waveform,
 } from '../core';
 import { palette } from '../theme/palette';
+import { alpha, CANVAS_FONT, sizedCanvas } from './canvas';
+import { createLevelPreview, type LevelBuilder } from './level-preview';
 import './song-details.css';
 
 export interface SongDetailsOptions {
@@ -16,6 +18,8 @@ export interface SongDetailsOptions {
   onBack(): void;
   /** Decode the song for playback; the default decodes it with Web Audio. */
   decode?: (song: AnalysedSong) => Promise<AudioBuffer>;
+  /** Build the platformer level preview; the default builds it in a worker. */
+  buildLevel?: LevelBuilder;
 }
 
 export interface SongDetails {
@@ -55,7 +59,7 @@ const LANES: { band: Band; label: string; colour: string }[] = [
   { band: 'high', label: 'Hat', colour: palette.muted },
 ];
 
-const FONT = `'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif`;
+const FONT = CANVAS_FONT;
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -77,28 +81,6 @@ export function formatTime(seconds: number): string {
   return `${minutes}:${rest.toFixed(1).padStart(4, '0')}`;
 }
 
-function alpha(hex: string, a: number): string {
-  const n = Number.parseInt(hex.slice(1), 16);
-  return `rgb(${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255} / ${a})`;
-}
-
-/** A canvas that keeps its backing store at the device's pixel ratio. */
-function sizedCanvas(
-  canvas: HTMLCanvasElement,
-): { ctx: CanvasRenderingContext2D; w: number; h: number } | null {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  const ratio = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  if (canvas.width !== Math.round(w * ratio) || canvas.height !== Math.round(h * ratio)) {
-    canvas.width = Math.round(w * ratio);
-    canvas.height = Math.round(h * ratio);
-  }
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  return { ctx, w, h };
-}
-
 /**
  * The song details view: what the analysis found, drawn on the song's timeline and played
  * back in sync, to check the beats, hits, sections and drops by ear and eye.
@@ -107,6 +89,7 @@ export function createSongDetails({
   song,
   onBack,
   decode = decodeSong,
+  buildLevel,
 }: SongDetailsOptions): SongDetails {
   const { analysis } = song;
   let clock: AudioClock | null = null;
@@ -205,8 +188,11 @@ export function createSongDetails({
   for (const lane of LANES) legendItem(lane.label, lane.colour, 'dot');
   legendItem('Bass energy', palette.violet, 'block');
 
+  // The platformer level built from the song, following the playhead.
+  const levelPreview = createLevelPreview({ analysis, build: buildLevel });
+
   const body = el('div', 'details__body');
-  body.append(stats, transport, overviewFigure, closeFigure, legend);
+  body.append(stats, transport, overviewFigure, closeFigure, legend, levelPreview.element);
   root.append(bar, body);
 
   // ---------- playback ----------
@@ -530,6 +516,7 @@ export function createSongDetails({
       clockText.textContent = `${formatTime(time)} / ${formatTime(analysis.duration)}`;
       drawOverview(time);
       drawClose(time);
+      levelPreview.draw(time);
     }
     frame = requestAnimationFrame(tick);
   };
@@ -545,6 +532,7 @@ export function createSongDetails({
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', onKey);
       clock?.stop();
+      levelPreview.destroy();
       root.remove();
     },
   };
