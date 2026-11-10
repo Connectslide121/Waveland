@@ -403,7 +403,8 @@
 
 .pf-controls__row {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  /* Wide enough for OVERDRIVE, the longest name; every row the same, so they align. */
+  grid-template-columns: 84px minmax(0, 1fr);
   gap: 12px;
   align-items: baseline;
 }
@@ -421,6 +422,10 @@
   color: var(--ink);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.pf-controls__binding {
+  white-space: nowrap;
 }
 
 .pf-modal__note--small {

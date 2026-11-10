@@ -478,4 +478,9 @@
   .settings__note {
     grid-column: 1 / -1;
   }
+
+  /* The volume: its label on a line of its own, the slider across with its value beside. */
+  .settings__row:not(.settings__row--wide) > .settings__label {
+    grid-column: 1 / -1;
+  }
 }

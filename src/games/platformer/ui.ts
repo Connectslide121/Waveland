@@ -419,7 +419,13 @@ export function controlsList(bindings: Bindings): HTMLElement {
   const list = el('dl', 'pf-controls');
   const row = (name: string, value: string) => {
     const item = el('div', 'pf-controls__row');
-    item.append(el('dt', undefined, name), el('dd', undefined, value));
+    // Each binding stays whole: lines break only between them ("Right click", "D-pad ↓").
+    const dd = el('dd');
+    value.split(' · ').forEach((part, i) => {
+      if (i > 0) dd.append(' · ');
+      dd.append(el('span', 'pf-controls__binding', part));
+    });
+    item.append(el('dt', undefined, name), dd);
     list.append(item);
   };
   for (const action of CONTROL_ACTIONS) row(ACTION_NAMES[action], bindingsText(bindings, action));
@@ -519,7 +525,13 @@ export function createResultsScreen(
 
   const row = (name: string, value: string, kind = '') => {
     const item = el('div', `pf-results__row${kind ? ` pf-results__row--${kind}` : ''}`);
-    item.append(el('dt', undefined, name), el('dd', undefined, value));
+    // Each binding stays whole: lines break only between them ("Right click", "D-pad ↓").
+    const dd = el('dd');
+    value.split(' · ').forEach((part, i) => {
+      if (i > 0) dd.append(' · ');
+      dd.append(el('span', 'pf-controls__binding', part));
+    });
+    item.append(el('dt', undefined, name), dd);
     return item;
   };
 
