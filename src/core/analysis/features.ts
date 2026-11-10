@@ -39,6 +39,11 @@ const NEIGHBOURHOOD = 4;
 
 /** An accent is this much louder (0–1 over 40 dB, so 6 dB) than its bands' usual hits, summed. */
 const ACCENT_EXCESS = 0.15;
+/**
+ * A band's usual hits: this percentile of their loudness. Not the median, which a bass
+ * or a guitar on every eighth pulls down, so every kick over them read as an accent.
+ */
+const ACCENT_USUAL = 0.75;
 
 /** Sustains: loudness may fall this much (0–1 over 40 dB, so 8 dB) and still hold. */
 const SUSTAIN_DROP = 0.2;
@@ -148,9 +153,6 @@ function peak(curve: EnergyCurve, from: number, to: number): number {
   return best;
 }
 
-/** The median of the values, or 0. */
-const median = (values: number[]) => percentile(values, 0.5);
-
 /** Kicks and snares: the hits a fill, a syncopation or a sustain's end is made of. */
 const drumOf = (h: Hit) => Math.max(h.strength.low, h.strength.mid);
 
@@ -186,7 +188,7 @@ function findAccents(input: FeatureInput, hits: Hit[]): Accent[] {
       const usual: number[] = [];
       for (let j = from; j < to; j++)
         if (hits[j]!.strength[band] > 0) usual.push(loudness[j]![band]);
-      excess += Math.max(0, loudness[i]![band] - median(usual));
+      excess += Math.max(0, loudness[i]![band] - percentile(usual, ACCENT_USUAL));
     }
     if (excess < ACCENT_EXCESS) return;
     const accent = { time: h.time, strength: clamp01(excess / (2.5 * ACCENT_EXCESS)) };
