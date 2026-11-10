@@ -40,6 +40,7 @@ import {
   xAtTime,
   type Pickup,
   type PlatformerLevel,
+  type Solid,
 } from './level';
 import { Explorer, stepAt, validateLevel } from './validate';
 
@@ -447,7 +448,7 @@ describe('generateLevel: abilities', () => {
     expect(checked).toBeGreaterThanOrEqual(3);
   }, 60_000);
 
-  it('makes the slam lesson, a low ceiling on a heavy kick, take a jump and then a slam', () => {
+  it('makes the slam lesson, a slam plate on a heavy kick, take a jump and then a slam', () => {
     let checked = 0;
     for (const seed of songs) {
       const l = level(seed, DIFFICULTIES[seed % 3]!);
@@ -472,7 +473,7 @@ describe('generateLevel: abilities', () => {
           return p;
         };
         expect(play(null).death).toBe('wall');
-        // Slam once past the hurdle, a quarter of a second after the jump.
+        // Slam a quarter of a second after the jump: through the plate, under the ceiling.
         const slammed = [0.27, 0.3, 0.33].map((d) => play(stepAt(lesson.time + d) * PHYSICS_DT));
         expect(slammed.some((p) => p.alive)).toBe(true);
         checked++;
@@ -619,10 +620,20 @@ describe('generateLevel: obstacles from the music (a song with one of each momen
       expect(stairs.time).toBeCloseTo(fill.hits[0]!, 6);
       const hits = Number(/each of (\d+) hits/.exec(stairs.reason)![1]);
       expect(hits).toBeGreaterThanOrEqual(3);
+      // A fill ending in a slam has plates for its last steps, over the ground.
+      const plates = l.solids.filter((s) => s.kind === 'plate');
+      const under = (s: Solid) => plates.some((p) => Math.abs(p.x0 - s.x0) < 1e-6 && p !== s);
       const steps = l.solids
-        .filter((s) => s.kind === 'ground' && s.x0 >= stairs.x0 - 1e-6 && s.x1 <= stairs.x1 + 1e-6)
+        .filter(
+          (s) =>
+            (s.kind === 'ground' || s.kind === 'plate') &&
+            !(s.kind === 'ground' && under(s)) &&
+            s.x0 >= stairs.x0 - 1e-6 &&
+            s.x1 <= stairs.x1 + 1e-6,
+        )
         .slice(0, hits);
       expect(steps).toHaveLength(hits);
+      if (stairs.needs === 'slam') expect(steps[hits - 1]!.kind).toBe('plate');
       // Each step after the first starts where the player is on its hit, lower than the last.
       for (let k = 1; k < hits; k++) {
         expect(steps[k]!.top).toBeLessThan(steps[k - 1]!.top);
@@ -650,7 +661,7 @@ describe('generateLevel: obstacles from the music (a song with one of each momen
         expect(o.time - shift).toBeCloseTo(a[k]!.time, 6);
         expect(o.x1 - o.x0).toBeCloseTo(a[k]!.x1 - a[k]!.x0, 6);
         // It says which bar it repeats: the song's bar (from 1) the riff first played it in
-        // (a low ceiling's is the bar its hurdle is in).
+        // (a slam plate's is the bar its plate starts in).
         const source = map.downbeats.findIndex((t) => t > o.time - shift + 1e-6);
         expect([source, source - 1]).toContain(o.repeats);
         expect(a[k]!.repeats).toBeUndefined();

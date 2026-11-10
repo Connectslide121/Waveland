@@ -53,7 +53,7 @@ import { DECISION_STEPS, Explorer, stepAt } from './validate';
  * musical moment the core found, and the music sizes it (the grammar, `momentsOf`): a
  * pit over a held sound as long as it holds, a pit over a stop landing as the band comes
  * back, gaps on kicks, bridges on snares, dash gates on accents, spikes on syncopations,
- * low ceilings to slam under on heavy kicks, steps on a fill's hits. How many of the
+ * slam plates on heavy kicks, steps on a fill's hits. How many of the
  * common ones a bar gets follows how busy the music is; a bar the song repeats gets the
  * same obstacles as the first time. Difficulty scales the sizes, never the moments.
  *
@@ -94,11 +94,15 @@ export interface DifficultySettings {
   coinEvery: number;
   /** Bars the song plays a third time or more get one obstacle of their own as well. */
   variation: boolean;
+  /** Fills end in a slam through plates onto the bar line, once slam is taught. */
+  slamFills: boolean;
+  /** The downbeat opening each phrase of a chorus or a drop gets a slam plate too. */
+  phraseSlams: boolean;
 }
 
 export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
   easy: {
-    hazard: 0.45,
+    hazard: 0.3,
     gap: 0.35,
     held: 0.4,
     overhang: 1,
@@ -111,6 +115,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     stepRise: 40,
     coinEvery: 2,
     variation: false,
+    slamFills: false,
+    phraseSlams: false,
   },
   normal: {
     hazard: 0.7,
@@ -126,6 +132,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     stepRise: 52,
     coinEvery: 1,
     variation: false,
+    slamFills: true,
+    phraseSlams: false,
   },
   hard: {
     hazard: 0.9,
@@ -141,6 +149,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     stepRise: 64,
     coinEvery: 1,
     variation: true,
+    slamFills: true,
+    phraseSlams: true,
   },
 };
 
@@ -154,15 +164,9 @@ const DASH_MARGIN = 0.04;
 const JUMP_ONLY_AIR = JUMP_AIR * 0.95;
 /** Shorter pits than this aren't worth a jump: the moment gets none. */
 const MIN_AIR = 0.15;
-/**
- * The hurdle before an overhang: a thin low wall the front of the player meets this long
- * after the beat it is on, this long to pass and this high, so it takes a jump (a dash
- * along the ground runs into it).
- */
-const HURDLE_LEAD = 0.12;
-const HURDLE_TIME = 0.06;
-const HURDLE_RISE = 50;
-/** The overhang comes no later than this after the hurdle's beat: a full jump is still high. */
+/** A slam plate's drop is at least this much more than the ceiling's clearance, px. */
+const PLATE_MARGIN = 12;
+/** The latest the ceiling may come after the jump before it: a full jump is still high. */
 const OVERHANG_LATEST = JUMP_AIR - 0.13;
 /** Heights the ground stays between, and where it starts. */
 export const MIN_TOP = LOWEST_TOP;
@@ -207,20 +211,23 @@ const RISER_MAX = 120;
 /** The player meets a fill's first step this long before its first hit, s. */
 const RISER_LEAD = 0.25;
 /**
- * A fill ending in a slam: its last step stands this high above the ground, and ends this
- * long before the bar line, where a low ceiling comes: too high to fall under in time.
+ * A slam plate stands this high over the ground it breaks through to: a fill's last steps
+ * over the ground, a heavy kick's floor over ground this much lower.
  */
-const SLAM_DROP = 70;
-const SLAM_LEAD = 0.15;
+const SLAM_DROP = 56;
+/** A fill ending in a slam: its last steps are plates, the ceiling straight after them. */
+const PLATE_STEPS = 2;
 /** That ceiling lasts this many beats, so the bar after the fill starts free. */
 const SLAM_CEILING = 0.75;
 /**
- * A low ceiling on a heavy kick: the hurdle's jump comes this long before the kick, where
- * the ceiling starts, about a beat at 120 BPM: time to clear the hurdle and slam.
+ * A slam plate on a heavy kick starts this long before the kick, where the ceiling starts,
+ * about a beat at 120 BPM: time to jump and slam through it.
  */
 const SLAM_APPROACH = Math.min(OVERHANG_LATEST, 0.5);
 /** Kicks this much stronger than every kick in the two bars before are heavy. */
 const HEAVY_KICK = 1.15;
+/** Bars in a phrase: a loop of a bar or two repeats its obstacles a phrase at a time. */
+const PHRASE_BARS = 4;
 /** Common obstacles in a bar at full activity and hazard 1. */
 const COMMON_PER_BAR = 3.5;
 
@@ -392,17 +399,27 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
     for (let j = i - 1; j >= 0 && kicks[j]!.time >= k.time - 8 * period; j--)
       if (kicks[j]!.time < k.time - 0.1 * period) loudest = Math.max(loudest, kicks[j]!.intensity);
     if (loudest <= 0 || k.intensity < HEAVY_KICK * loudest) return;
-    const approach = SLAM_APPROACH;
-    moments.push({
+    moments.push(slamMoment(beat, period, k.intensity, 'heavy kick'));
+  });
+  // On hard, the downbeat opening each phrase of a chorus or a drop too, unless it has
+  // an accent: a crash there is a dash gate.
+  if (settings.phraseSlams)
+    for (const d of map.downbeats) {
+      const period = periodAt(map, d);
+      const accented = accents.some((a) => Math.abs(a.time - d) <= period / 4);
+      if (!accented && opensPhrase(map, d)) moments.push(slamMoment(b(d), period, 0.5, 'phrase'));
+    }
+  function slamMoment(beat: number, period: number, strength: number, what: string): Moment {
+    return {
       kind: 'slam',
       beat,
       length: 0,
-      strength: k.intensity,
-      what: 'heavy kick',
-      from: beat - approach / period - 0.25,
+      strength,
+      what,
+      from: beat - SLAM_APPROACH / period - 0.25,
       to: beat + settings.overhang + 0.5,
-    });
-  });
+    };
+  }
   for (const e of map.events) {
     if (e.kind !== 'snare' || e.intensity < 0.3) continue;
     const beat = b(e.time);
@@ -419,6 +436,18 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
   return moments;
 }
 
+/** True when `t` is on the downbeat opening a phrase of a chorus or a drop. */
+function opensPhrase(map: LevelMap, t: number): boolean {
+  const i = map.sections.findIndex((s) => t >= s.start - 1e-6 && t < s.end);
+  const feel = map.moods?.[i]?.feel;
+  if (feel !== 'chorus' && feel !== 'drop') return false;
+  const period = periodAt(map, t);
+  const bar = map.downbeats.findIndex((d) => Math.abs(d - t) <= 0.1 * period);
+  if (bar < 0) return false;
+  const first = map.downbeats.findIndex((d) => d >= map.sections[i]!.start - 0.1 * period);
+  return (bar - first) % PHRASE_BARS === 0;
+}
+
 /** Strongest first: by salience, then strength, then time. */
 const byStrength = (a: Moment, b: Moment) =>
   SALIENCE[b.kind] - SALIENCE[a.kind] || b.strength - a.strength || a.beat - b.beat;
@@ -431,7 +460,7 @@ const RECOVERY = 0.5;
 const endOf = (m: Moment) => m.to - RECOVERY;
 /**
  * The beat a moment belongs to its bar by: its own, or where its approach starts for a
- * low ceiling (the hurdle before) or a fill's steps (the riser before).
+ * slam plate (its plate before the kick) or a fill's steps (the riser before).
  */
 const ownBeat = (m: Moment) => (m.kind === 'slam' || m.kind === 'stairs' ? m.from : m.beat);
 
@@ -485,6 +514,8 @@ function planBars(
   );
   const plans: Moment[][] = [];
   const firstOf = new Map<number, number>();
+  /** Each bar's repeat group, by index. */
+  const groups: number[] = [];
   const times = new Map<number, number>();
   let carry = 0;
   bars.forEach((start, i) => {
@@ -532,10 +563,23 @@ function planBars(
       }
     };
 
-    // A bar the song played before: the same obstacles on the same moments.
+    // A bar the song played before: the same obstacles on the same moments, as that bar
+    // had a phrase back when the song played it there, else the first time, unless that
+    // is under a phrase ago (a loop of a bar or two): then the loop's first phrase is
+    // planned afresh, and repeats as a phrase.
     const g = map.downbeats.indexOf(start);
     const group = map.features.bars[g]?.repeats ?? g;
-    const source = firstOf.get(group);
+    groups.push(group);
+    const back = i - PHRASE_BARS;
+    const firstTime = firstOf.get(group);
+    const source =
+      g < 0
+        ? undefined
+        : back >= 0 && groups[back] === group
+          ? back
+          : firstTime !== undefined && i - firstTime >= PHRASE_BARS
+            ? firstTime
+            : undefined;
     if (source !== undefined) {
       const by = Math.round(first - beatAt(map, bars[source]!));
       const song = map.downbeats.indexOf(bars[source]!) + 1;
@@ -562,8 +606,8 @@ function planBars(
       plans.push(plan);
       return;
     }
-    if (g >= 0) firstOf.set(group, i);
-    times.set(group, 1);
+    if (g >= 0 && !firstOf.has(group)) firstOf.set(group, i);
+    if (!times.has(group)) times.set(group, 1);
 
     const plan: Moment[] = [];
     pick(plan, mine, common);
@@ -628,7 +672,7 @@ interface Built {
   h: number;
   /** When the player meets the obstacle needing an ability, and is past it, for a lesson. */
   focus: Partial<Record<Ability, { time: number; end: number }>>;
-  /** Ground whose height an obstacle needs (hurdles, a fill's steps): the terrain keeps it. */
+  /** Ground whose height an obstacle needs (slam plates, a fill's steps): the terrain keeps it. */
   fixed: Set<Solid>;
 }
 
@@ -920,9 +964,11 @@ function chunkKindOf(o: Obstacle): ChunkKind {
  * - snare: a bridge that comes out on it and stays a beat or two;
  * - accent: a dash gate the player meets a grace after it;
  * - syncopation: spikes the player is over on the hit (spikes are out off the beat);
- * - heavy kick: a hurdle a beat before, then a low ceiling from the kick: slam under it;
- * - fill: a raised run of steps going down one per hit, and once slam is taught a last
- *   step too high to fall from in time under a low ceiling on the bar line.
+ * - heavy kick (and on hard the downbeat opening a phrase of a chorus or a drop): a slam
+ *   plate from a beat before, over lower ground, and a low ceiling over that from the
+ *   kick: jump and slam through the plate;
+ * - fill: a raised run of steps going down one per hit, and once slam is taught (but on
+ *   easy) its last steps plates over the ground, a low ceiling from the bar line.
  */
 function compose(ctx: BuildContext, moments: Moment[]): Built {
   const { stretch, x, map, settings, ease, abilities } = ctx;
@@ -1076,29 +1122,36 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
         m,
       );
     } else if (m.kind === 'slam') {
-      if (!abilities.has('slam') || h + HURDLE_RISE > MAX_TOP) return;
-      const approach = SLAM_APPROACH;
-      const takeoff = t - approach;
-      // Made easier, the ceiling comes a little later (more time to slam).
-      const meet = Math.min(takeoff + OVERHANG_LATEST, t + (1 - ease) * 0.1);
-      const leave = Math.min(meet + Math.max(0.5, settings.overhang * ease) * period, limitTime);
-      const hurdle0 = x(takeoff + HURDLE_LEAD) + PLAYER_WIDTH;
-      const hurdle1 = x(takeoff + HURDLE_LEAD + HURDLE_TIME) + PLAYER_WIDTH;
-      if (leave - meet < period / 2 || hurdle0 < from - 1e-6 || x(leave) > limit) return;
+      // A slam plate: the floor turns to a cracked plate over ground `drop` lower, and a
+      // low ceiling over that ground starts where the plate ends, from the kick. Running
+      // on along the plate hits the ceiling; a jump and a slam anywhere on it breaks
+      // through, landing on the kick when timed to it.
+      if (!abilities.has('slam')) return;
       const clearance = Math.min(30, settings.clearance / ease);
-      const hurdle = ground(hurdle0, hurdle1, h + HURDLE_RISE);
-      fixed.add(hurdle);
-      solids.push(ground(from, hurdle0, h), hurdle, overhangAt(x, meet, leave, h, clearance));
-      from = hurdle1;
+      const drop = Math.min(SLAM_DROP, h - MIN_TOP);
+      if (drop < clearance + PLATE_MARGIN) return;
+      const takeoff = t - SLAM_APPROACH;
+      // Made easier, the ceiling comes a little later (more time to slam).
+      const meet = t + (1 - ease) * 0.1;
+      const leave = Math.min(meet + Math.max(0.5, settings.overhang * ease) * period, limitTime);
+      const plate0 = x(takeoff);
+      const ceiling = overhangAt(x, meet, leave, h - drop, clearance);
+      if (leave - meet < period / 2 || plate0 < from - 1e-6 || x(leave) > limit) return;
+      const plate: Solid = { kind: 'plate', x0: plate0, x1: ceiling.x0, top: h };
+      const below = ground(plate0, x(leave), h - drop);
+      fixed.add(plate).add(below);
+      solids.push(ground(from, plate0, h), plate, below, ceiling);
+      from = x(leave);
+      h -= drop;
       add(
         {
           kind: 'slam',
           time: t,
           end: leave,
-          x0: hurdle0,
+          x0: plate0,
           x1: x(leave),
-          label: 'Low ceiling',
-          reason: `${m.what}: jump the hurdle, slam under`,
+          label: 'Slam plate',
+          reason: `${m.what}: jump and slam through the floor, under the ceiling`,
           needs: 'slam',
         },
         m,
@@ -1107,35 +1160,59 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
     } else if (m.kind === 'stairs') {
       const line = timeOfBeat(map, m.beat + m.length);
       const leave = Math.min(line + SLAM_CEILING * period, limitTime);
-      const slam = abilities.has('slam') && leave - line >= period / 2;
-      // A step on each hit, far enough apart to see, each a few px wide at least before
-      // the drop-off.
-      const edge = slam ? x(line - SLAM_LEAD) : x(line);
-      const hits: number[] = [];
-      for (const b of m.hits ?? []) {
-        const ht = timeOfBeat(map, b);
-        const room = x(ht) + PLAYER_WIDTH / 2 < edge - 4;
-        if (room && (hits.length === 0 || ht - hits[hits.length - 1]! >= FILL_STEP_GAP))
-          hits.push(ht);
-      }
-      const steps = hits.slice(-FILL_STEPS);
-      const n = steps.length;
-      if (n < 2) return;
-      const lift = slam ? SLAM_DROP : 0;
-      const rise = Math.min((settings.stepRise * ease) / 2, (RISER_MAX - lift) / n);
-      const riser = x(steps[0]! - RISER_LEAD) + PLAYER_WIDTH;
-      if (riser < from - 1e-6 || h + lift + n * rise > MAX_TOP || (slam ? x(leave) : edge) > limit)
-        return;
+      const clearance = Math.min(30, settings.clearance / ease);
+      // The steps, ending in a slam when it can be had (the ceiling before the next
+      // obstacle), else plain. Near the top they rise from lower ground: the ground steps
+      // down to `base` first, and the level goes on from there.
+      const layout = (slam: boolean) => {
+        const lift = slam ? SLAM_DROP : 0;
+        const most = Math.min(FILL_STEPS, (m.hits ?? []).length);
+        const full = Math.min(
+          (settings.stepRise * ease) / 2,
+          (RISER_MAX - lift) / Math.max(1, most),
+        );
+        const base = Math.min(h, MAX_TOP - lift - most * full);
+        const ceiling = slam ? overhangAt(x, line, leave, base, clearance) : null;
+        // A step on each hit, far enough apart to see, each a few px wide at least before
+        // the drop-off (the ceiling, when it ends in a slam).
+        const edge = ceiling ? ceiling.x0 : x(line);
+        const hits: number[] = [];
+        for (const b of m.hits ?? []) {
+          const ht = timeOfBeat(map, b);
+          const room = x(ht) + PLAYER_WIDTH / 2 < edge - 4;
+          if (room && (hits.length === 0 || ht - hits[hits.length - 1]! >= FILL_STEP_GAP))
+            hits.push(ht);
+        }
+        const steps = hits.slice(-FILL_STEPS);
+        const n = steps.length;
+        const rise = Math.min((settings.stepRise * ease) / 2, (RISER_MAX - lift) / n);
+        const riser = n > 0 ? x(steps[0]! - RISER_LEAD) + PLAYER_WIDTH : 0;
+        const fits =
+          n >= 2 && base >= MIN_TOP && riser >= from - 1e-6 && (slam ? x(leave) : edge) <= limit;
+        return fits ? { slam, ceiling, edge, steps, n, lift, rise, riser, base } : null;
+      };
+      const want = settings.slamFills && abilities.has('slam') && leave - line >= period / 2;
+      const fill = (want ? layout(true) : null) ?? layout(false);
+      if (!fill) return;
+      const { slam, ceiling, edge, steps, n, lift, rise, riser, base } = fill;
       solids.push(ground(from, riser, h));
+      // Ending in a slam, the last steps are plates over the ground: a slam onto either
+      // breaks through, landing under the ceiling on the bar line.
+      const plates = slam ? Math.min(PLATE_STEPS, n) : 0;
       steps.forEach((_, k) => {
         const x0 = k === 0 ? riser : x(steps[k]!) + PLAYER_WIDTH / 2;
         const x1 = k === n - 1 ? edge : x(steps[k + 1]!) + PLAYER_WIDTH / 2;
-        const step = ground(x0, x1, h + lift + (n - k) * rise);
+        const step: Solid = {
+          ...ground(x0, x1, base + lift + (n - k) * rise),
+          ...(k >= n - plates ? { kind: 'plate' as const } : {}),
+        };
+        if (k === n - plates) solids.push(ground(x0, edge, base));
         fixed.add(step);
         solids.push(step);
       });
-      if (slam) solids.push(overhangAt(x, line, leave, h, Math.min(30, settings.clearance / ease)));
+      if (ceiling) solids.push(ceiling);
       from = edge;
+      h = base;
       add(
         {
           kind: 'stairs',
@@ -1174,8 +1251,8 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
 
 /**
  * The abilities taught in the first spots that need them, in order: dash on the first
- * accent, held sound or stop it takes, slam on the first heavy kick (a fill's slam ending
- * can be fallen through from a well-timed jump, so it doesn't teach it).
+ * accent, held sound or stop it takes, slam on the first heavy kick or (but on easy)
+ * fill: both end in slam plates, which nothing but a slam gets through.
  */
 const LESSONS: readonly Ability[] = ['dash', 'slam'];
 /** Spots a lesson is tried in before the song is left without it. */
@@ -1183,7 +1260,7 @@ const LESSON_TRIES = 3;
 
 /** True when the moment, at full size, needs the ability. */
 function wouldNeed(m: Moment, ability: Ability, map: LevelMap, settings: DifficultySettings) {
-  if (ability === 'slam') return m.kind === 'slam';
+  if (ability === 'slam') return m.kind === 'slam' || (m.kind === 'stairs' && settings.slamFills);
   if (m.kind === 'gate') return true;
   if (m.kind !== 'held' && m.kind !== 'stop') return false;
   const length = timeOfBeat(map, m.beat + m.length) - timeOfBeat(map, m.beat);

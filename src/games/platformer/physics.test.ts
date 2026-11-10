@@ -18,6 +18,7 @@ import {
   type PlayerInput,
   type PlayerState,
 } from './physics';
+import type { Solid } from './level';
 
 const NOTHING: PlayerInput = { jump: false };
 
@@ -177,6 +178,25 @@ describe('stepPlayer', () => {
       slam: i === 23,
     }));
     expect(slammed.every((p) => p.alive)).toBe(true);
+  });
+
+  it('stands on a slam plate, and goes through it only in a slam', () => {
+    // A plate 60 px over the ground, from the start on; a low ceiling past it.
+    const solids = (): Solid[] => [
+      ground(0, ANCHOR_X + 40, 60),
+      { kind: 'plate', x0: ANCHOR_X + 40, x1: ANCHOR_X + 200, top: 60 },
+      ground(ANCHOR_X + 40, 4000),
+      overhang(ANCHOR_X + 200, ANCHOR_X + 400, PLAYER_HEIGHT + 20),
+    ];
+    const { world } = testLevel(solids(), { speed: 200 });
+    const onTop = { ...startState(ANCHOR_X, 60), surface: 0 };
+    // Running along it, or jumping and landing on it, ends in the ceiling's face.
+    expect(run(world, onTop, 90, () => NOTHING).pop()!.death).toBe('wall');
+    expect(run(world, onTop, 90, (i) => ({ jump: i === 10 })).pop()!.death).toBe('wall');
+    // A jump and a slam break through to the ground, under the ceiling in time.
+    const slammed = run(world, onTop, 120, (i) => ({ jump: i === 10, slam: i === 20 }));
+    expect(slammed.every((p) => p.alive)).toBe(true);
+    expect(slammed.pop()!.y).toBe(0);
   });
 
   it('bumps its head under an overhang', () => {

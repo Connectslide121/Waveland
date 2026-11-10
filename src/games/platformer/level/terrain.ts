@@ -278,7 +278,7 @@ function heaving(
  * The stretch's solids in its style: plain ground between the obstacles turned into
  * floating slabs or heaving columns, and still ground ahead reshaping from the last
  * stretch's height on the downbeat of a new style. Ground under spikes, gates and
- * overhangs, hurdles and a fill's steps (`fixed`) keep their height.
+ * overhangs, slam plates and a fill's steps (`fixed`) keep their height.
  */
 export function shapeTerrain(
   ctx: TerrainContext,

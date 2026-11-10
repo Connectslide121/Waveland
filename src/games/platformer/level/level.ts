@@ -25,9 +25,11 @@ import {
  *   on, passed through from below and the sides).
  * heave: a column of a chorus's ground, heaving with the bass on every beat along with
  *   the rest of its run.
+ * plate: a cracked slab over lower ground that holds the player unless they slam onto it:
+ *   a slam goes through (it breaks), so a low ceiling past it can only be got under so.
  */
 export type SolidKind =
-  'ground' | 'step' | 'eq' | 'bridge' | 'ledge' | 'overhang' | 'float' | 'heave';
+  'ground' | 'step' | 'eq' | 'bridge' | 'ledge' | 'overhang' | 'float' | 'heave' | 'plate';
 
 /**
  * How a stretch's ground looks and moves, from the feel of its section (`SectionMood`):
@@ -437,7 +439,11 @@ export class LevelWorld implements PhysicsWorld {
 
   isSlab(solid: number): boolean {
     const kind = this.level.solids[solid]!.kind;
-    return kind === 'bridge' || kind === 'ledge' || kind === 'float';
+    return kind === 'bridge' || kind === 'ledge' || kind === 'float' || kind === 'plate';
+  }
+
+  isPlate(solid: number): boolean {
+    return this.level.solids[solid]!.kind === 'plate';
   }
 
   solidX(solid: number): { x0: number; x1: number } {

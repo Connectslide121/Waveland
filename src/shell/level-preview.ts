@@ -207,7 +207,8 @@ export function createLevelPreview({
   legendItem('Bridge (on a snare)', palette.cyan, 'line');
   legendItem('Spikes (on an off-beat hit)', palette.orange, 'block');
   legendItem('Dash gate (on an accent)', palette.orange, 'line');
-  legendItem('Low ceiling (slam under it)', palette.violet, 'line');
+  legendItem('Slam plate (slam through it)', palette.ink, 'line');
+  legendItem('Low ceiling (past a slam plate)', palette.violet, 'line');
   legendItem('Drop staircase', palette.magenta, 'block');
   legendItem('Coins and gems', palette.magenta, 'dot');
   legendItem('Numbered obstacle, explained in the list', palette.ink, 'dot');
@@ -589,6 +590,14 @@ function drawSolid(
   if (s.kind === 'ledge') {
     ctx.fillStyle = palette.violet;
     ctx.fillRect(x0, y, width, 6);
+    return;
+  }
+  if (s.kind === 'plate') {
+    // A slam plate: a slab with a dashed, cracked top, broken through by a slam.
+    ctx.fillStyle = alpha(palette.violet, 0.35);
+    ctx.fillRect(x0, y, width, 10);
+    ctx.fillStyle = palette.ink;
+    for (let x = x0 + 2; x < x0 + width - 2; x += 8) ctx.fillRect(x, y, 4, 2);
     return;
   }
   if (s.kind === 'float') {

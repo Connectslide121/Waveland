@@ -151,8 +151,8 @@ function joinsNear(solids: Solid[], i: number, step: 1 | -1): boolean {
   return false;
 }
 
-/** Solids that never move or vanish, drawn once into the tiles. */
-const isStatic = (s: Solid) => !s.keys && !s.windows;
+/** Solids that never move or vanish, drawn once into the tiles (a slam plate breaks). */
+const isStatic = (s: Solid) => !s.keys && !s.windows && s.kind !== 'plate';
 
 interface Floater {
   text: Phaser.GameObjects.Text;
@@ -195,7 +195,7 @@ const ROLL_LOUD = 1.5;
 
 /** A burst of particles in world space, drawn from its song time. */
 interface Burst {
-  kind: 'land' | 'spark' | 'drop';
+  kind: 'land' | 'spark' | 'drop' | 'shatter';
   x: number;
   y: number;
   at: number;
@@ -207,6 +207,7 @@ const BURSTS = {
   land: { life: 0.35, count: 10, speed: 140 },
   spark: { life: 0.45, count: 12, speed: 220 },
   drop: { life: 0.7, count: 28, speed: 420 },
+  shatter: { life: 0.5, count: 14, speed: 260 },
 } as const;
 const DROP_COLORS = [paletteNumbers.cyan, paletteNumbers.magenta, paletteNumbers.violet];
 
@@ -504,6 +505,8 @@ export class PlatformerScene extends Phaser.Scene {
           const hot = e.quality === 'perfect' || e.accent;
           this.#float(`${word} +${e.points}`, e.x, y, time, hot ? palette.magenta : palette.ink);
         }
+      } else if (e.type === 'plate') {
+        this.#burst('shatter', e.x, e.y, time);
       } else if (e.type === 'pickup') {
         const k = run.level.pickups[e.index]!;
         if (k.kind === 'coin' || k.kind === 'gem') {
@@ -768,6 +771,7 @@ export class PlatformerScene extends Phaser.Scene {
       if (solid.kind === 'bridge') this.#placeBridge(solid, time);
       // What moves (equalisers, heaving and floating ground, ground reshaping) every frame.
       else if (solid.keys) this.#drawSolid(g, i, time, state.beatPhase, drop);
+      else if (solid.kind === 'plate') this.#drawPlate(g, i, run, time);
       else if (solid.kind === 'step') this.#drawStepFlare(g, i, state.beatPhase, drop);
       // Still ground and ledges are in the tiles.
     }
@@ -1324,6 +1328,36 @@ export class PlatformerScene extends Phaser.Scene {
    * A floating slab of a calm part: the world's violet, a thick slab fading downward with
    * nothing under it, and a faint line below it so it reads as floating.
    */
+  /**
+   * A slam plate: a slab of the world's violet with a cracked, bright top, so it reads as
+   * something to break. Gone once the player has slammed through it.
+   */
+  #drawPlate(g: Phaser.GameObjects.Graphics, index: number, run: PlatformerRun, t: number): void {
+    const broken = run.brokenAt.get(index);
+    if (broken !== undefined && broken <= t) return;
+    const s = this.level.solids[index]!;
+    const color = paletteNumbers.violet;
+    const y = sy(s.top);
+    const w = s.x1 - s.x0;
+    g.fillStyle(color, 0.18).fillRect(s.x0, y - 6, w, 26);
+    g.fillGradientStyle(color, color, color, color, 0.4, 0.4, 0.08, 0.08);
+    g.fillRect(s.x0 + 1, y, w - 2, 16);
+    g.fillStyle(color, 1).fillRect(s.x0, y, w, 4);
+    // Cracks: zigzags down from the top, about one every 22 px, the same every frame.
+    g.lineStyle(1.5, paletteNumbers.flare, 0.75);
+    for (let x = s.x0 + 9; x < s.x1 - 6; x += 22) {
+      const r = hash(index, Math.round(x));
+      const lean = (r - 0.5) * 8;
+      g.beginPath();
+      g.moveTo(x, y + 1);
+      g.lineTo(x + lean, y + 6);
+      g.lineTo(x - lean * 0.6, y + 11);
+      g.lineTo(x + lean * 0.4, y + 15);
+      g.strokePath();
+    }
+    g.lineStyle(1, color, 0.5).lineBetween(s.x0 + 2, y + 16, s.x1 - 2, y + 16);
+  }
+
   #drawFloat(g: Phaser.GameObjects.Graphics, s: Solid, y: number): void {
     const color = paletteNumbers.violet;
     const w = s.x1 - s.x0;
@@ -1367,7 +1401,7 @@ export class PlatformerScene extends Phaser.Scene {
     for (let i = lowerBound(solids, x0 - MAX_SOLID_WIDTH); i < solids.length; i++) {
       const s = solids[i]!;
       if (s.x0 > x1) break;
-      if (s.x1 < x0 || s.kind === 'bridge' || s.kind === 'overhang') continue;
+      if (s.x1 < x0 || s.kind === 'bridge' || s.kind === 'overhang' || s.kind === 'plate') continue;
       const top = solidTop(s, t);
       if (top === null) continue;
       const y = sy(top);
@@ -1922,11 +1956,15 @@ export class PlatformerScene extends Phaser.Scene {
         const color =
           b.kind === 'land'
             ? paletteNumbers.cyan
-            : b.kind === 'spark'
+            : b.kind === 'shatter'
               ? i % 3 === 0
                 ? paletteNumbers.flare
-                : paletteNumbers.magenta
-              : DROP_COLORS[i % 3]!;
+                : paletteNumbers.violet
+              : b.kind === 'spark'
+                ? i % 3 === 0
+                  ? paletteNumbers.flare
+                  : paletteNumbers.magenta
+                : DROP_COLORS[i % 3]!;
         g.fillStyle(color, 0.25 * fade).fillRect(x - size, sy(y) - size, size * 2, size * 2);
         g.fillStyle(color, fade).fillRect(x - size / 2, sy(y) - size / 2, size, size);
       }

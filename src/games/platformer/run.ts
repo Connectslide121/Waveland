@@ -123,6 +123,8 @@ export type RunEvent =
   | { type: 'overdrive'; downbeat: boolean; points: number; x: number; y: number }
   | { type: 'clean'; points: number }
   | { type: 'shield'; x: number; y: number }
+  /** A slam broke through a plate, here. */
+  | { type: 'plate'; x: number; y: number }
   | { type: 'death'; cause: DeathCause; x: number; y: number };
 
 /**
@@ -301,6 +303,8 @@ export class PlatformerRun {
   /** Song time the last slam started, and landed, for its streak and shockwave. */
   slammedAt = -Infinity;
   slamLandedAt = -Infinity;
+  /** Slam plates the player broke through, by solid index: the song time each broke. */
+  readonly brokenAt = new Map<number, number>();
   /** Song time a shield last took a hit. */
   shieldHitAt = -Infinity;
   /** What the last death was. */
@@ -458,6 +462,8 @@ export class PlatformerRun {
   respawn(): number {
     this.player = this.#spawn(this.checkpoint);
     this.resumeAt = this.checkpoint.time;
+    // Plates broken since the checkpoint are whole again.
+    for (const [i, at] of this.brokenAt) if (at >= this.checkpoint.time) this.brokenAt.delete(i);
     this.#countIn = BAR_BEATS;
     this.#clearPresses();
     this.landedAt = -Infinity;
@@ -570,6 +576,7 @@ export class PlatformerRun {
       events.push(this.#judge('dash', t, p));
     }
     if (slam && p.slamming) this.slammedAt = t;
+    if (prev.slamming) this.#breakPlates(t, prev, p, events);
     if (!prev.grounded && p.grounded) {
       this.landedAt = t;
       // The extra dash lasts until the next landing.
@@ -580,6 +587,17 @@ export class PlatformerRun {
       } else if (prev.jumped) events.push(this.#judge('land', t, p));
     }
     this.#collect(t, p, events);
+  }
+
+  /** A slam going through a plate's top breaks it. */
+  #breakPlates(t: number, prev: PlayerState, p: PlayerState, events: RunEvent[]): void {
+    const solids = this.level.solids;
+    for (const i of this.world.solidsBetween(p.x, p.x + PLAYER_WIDTH)) {
+      const s = solids[i]!;
+      if (s.kind !== 'plate' || this.brokenAt.has(i) || prev.y < s.top || p.y >= s.top) continue;
+      this.brokenAt.set(i, t);
+      events.push({ type: 'plate', x: p.x + PLAYER_WIDTH / 2, y: s.top });
+    }
   }
 
   /**

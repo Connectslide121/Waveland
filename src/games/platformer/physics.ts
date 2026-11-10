@@ -123,6 +123,8 @@ export interface PhysicsWorld {
   bottomOf(solid: number): number;
   /** True for a solid the player can stand on but pass through from below and the sides. */
   isSlab(solid: number): boolean;
+  /** True for a slam plate: a slab a slam goes through (it breaks), as nothing else does. */
+  isPlate(solid: number): boolean;
   solidX(solid: number): { x0: number; x1: number };
   /** True when a spike strip overlaps the box and its spikes are out at `t`. */
   spikesHit(x0: number, x1: number, y0: number, y1: number, t: number): boolean;
@@ -274,7 +276,7 @@ export function stepPlayer(
     if (q.vy <= 0) {
       for (const s of solids) {
         const top = world.topAt(s, t);
-        if (top === null) continue;
+        if (top === null || (q.slamming && world.isPlate(s))) continue;
         const was = world.topAt(s, before) ?? top;
         // Feet were on or above the surface (columns forgive a step's height) and now reach it.
         const slack = world.isSlab(s) ? 1e-6 : STEP_UP;
