@@ -174,7 +174,10 @@ describe('the grammar', () => {
 
   it('slides a block a lane across on a syncopation, on hard only', () => {
     const map = quiet();
-    const syncopations = [3, 7, 11].map((bar) => ({ time: at(map, bar, 1.5), strength: 0.8 }));
+    const syncopations = [3, 4, 5, 6, 7, 8, 9, 10, 11].map((bar) => ({
+      time: at(map, bar, 1.5),
+      strength: 0.8,
+    }));
     const hard = generateLevel(withMoments({ syncopations }), 'hard');
     const slides = ofKind(hard, 'slide');
     expect(slides.length).toBeGreaterThan(0);
