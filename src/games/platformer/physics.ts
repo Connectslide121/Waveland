@@ -38,6 +38,11 @@ export const VIEW_WIDTH = 960;
 export const VIEW_HEIGHT = 540;
 /** Where in the view the player stands when exactly in time with the music, px from its left. */
 export const ANCHOR_X = 288;
+/**
+ * The player can run no closer than this to the view's right edge, px, so there is always
+ * about a second of the level to see coming.
+ */
+export const LOOKAHEAD = 280;
 /** Feet below this height mean the player fell into a pit. */
 export const DEATH_Y = -160;
 /** How far spikes stick out of the surface, px. */

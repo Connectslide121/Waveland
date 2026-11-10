@@ -4,7 +4,7 @@
 
 ## The design
 
-The camera scrolls with song time, at a speed from the tempo (`scrollSpeed` in `physics.ts`: the tempo folded into 80–160 BPM, 110 px per folded beat, so 147–293 px/s, always slower than the player runs). A player standing at the anchor (`ANCHOR_X` into the view) is exactly in time with the music: everything is placed at `xAtTime(t)`, so they reach each thing on its beat. The player runs and jumps freely inside the view; falling behind its left edge, into a pit or onto spikes that are out is a death. Surviving until the song ends finishes the level.
+The camera scrolls with song time, at a speed from the tempo (`scrollSpeed` in `physics.ts`: the tempo folded into 80–160 BPM, 110 px per folded beat, so 147–293 px/s, always slower than the player runs). A player standing at the anchor (`ANCHOR_X` into the view) is exactly in time with the music: everything is placed at `xAtTime(t)`, so they reach each thing on its beat. The player runs and jumps freely inside the view, but no closer than `LOOKAHEAD` (280 px) to its right edge, so there is always about a second of level to see coming; falling behind its left edge, into a pit or onto spikes that are out is a death. Surviving until the song ends finishes the level.
 
 | Element | From the music | In the level |
 |---|---|---|

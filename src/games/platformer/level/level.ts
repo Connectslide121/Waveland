@@ -2,6 +2,7 @@ import type { Difficulty, SectionKind } from '../../../core';
 import {
   ANCHOR_X,
   EQ_EASE,
+  LOOKAHEAD,
   SPIKE_HEIGHT,
   SPIKE_MERCY,
   VIEW_WIDTH,
@@ -216,6 +217,6 @@ export class LevelWorld implements PhysicsWorld {
   }
 
   rightEdge(t: number): number {
-    return this.level.speed * t + VIEW_WIDTH;
+    return this.level.speed * t + VIEW_WIDTH - LOOKAHEAD;
   }
 }
