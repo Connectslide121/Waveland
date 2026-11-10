@@ -12,6 +12,7 @@ import {
   onSettingsChange,
   setEffectsLowered,
   shortBinding,
+  tempoAt,
   type AnalysedSong,
   type LevelMap,
 } from '../../core';
@@ -164,6 +165,7 @@ class PlatformerSession {
         : null;
     this.hud.update({
       time,
+      tempo: tempoAt(grid, time),
       beatInBar,
       score: this.run.score,
       combo: this.run.combo,

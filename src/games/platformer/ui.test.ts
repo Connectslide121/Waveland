@@ -34,6 +34,15 @@ describe('createHud', () => {
     expect(marks.map((m) => m.style.left)).toEqual(['30%', '70%']);
   });
 
+  it('shows the tempo of the moment when the song changes tempo', () => {
+    const song = () => hud.element.querySelector('.pf-hud__song')!.textContent;
+    const state = { time: 10, beatInBar: 0, score: 0, combo: 0, multiplier: 1, countIn: null };
+    hud.update({ ...state, perf: null, hint: null, tempo: 150.2 });
+    expect(song()).toBe('Midnight Drive · 150 BPM');
+    hud.update({ ...state, perf: null, hint: null });
+    expect(song()).toBe('Midnight Drive · 120 BPM');
+  });
+
   it('lights the beat, counts the score and combo, and fills the progress', () => {
     hud.update({
       time: 50,

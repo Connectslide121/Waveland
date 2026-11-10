@@ -50,6 +50,8 @@ export interface HudOptions {
 
 export interface HudState {
   time: number;
+  /** The tempo at `time`, following the song's tempo map; the song's main tempo when left out. */
+  tempo?: number;
   /** Which beat of the bar is playing, 0–3, or -1 before the first. */
   beatInBar: number;
   score: number;
@@ -79,7 +81,8 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
   const top = el('div', 'pf-hud__top');
 
   const song = el('div', 'pf-hud__song');
-  song.append(el('b', undefined, title), ` · ${Math.round(tempo)} BPM`);
+  const bpm = document.createTextNode(` · ${Math.round(tempo)} BPM`);
+  song.append(el('b', undefined, title), bpm);
 
   const beats = el('div', 'pf-hud__beats');
   beats.setAttribute('aria-hidden', 'true');
@@ -129,10 +132,16 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
     percent: -1,
     perf: '',
     hint: null as string | null,
+    tempo: Math.round(tempo),
   };
   return {
     element,
     update(state) {
+      const now = Math.round(state.tempo ?? tempo);
+      if (now !== shown.tempo) {
+        bpm.textContent = ` · ${now} BPM`;
+        shown.tempo = now;
+      }
       if (state.beatInBar !== shown.beat)
         dots.forEach((dot, i) => dot.classList.toggle('on', i === state.beatInBar));
       if (state.score !== shown.score) score.textContent = formatScore(state.score);
