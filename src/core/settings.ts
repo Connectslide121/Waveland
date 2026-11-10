@@ -110,6 +110,264 @@ export function setShowFps(show: boolean): void {
   write(SHOW_FPS_KEY, show ? 'on' : null);
 }
 
+// Controls: which keys, mouse buttons and gamepad buttons do what.
+
+const BINDINGS_KEY = 'waveland.controls';
+
+/** What the player can bind. Pause is fixed: Escape and a gamepad's Start. */
+export type ControlAction = 'jump' | 'dash' | 'slam';
+export const CONTROL_ACTIONS: readonly ControlAction[] = ['jump', 'dash', 'slam'];
+
+export type MouseButton = 'left' | 'right' | 'middle' | 'back' | 'forward';
+/** `MouseEvent.button` numbers, by name. */
+export const MOUSE_BUTTONS: Record<MouseButton, number> = {
+  left: 0,
+  middle: 1,
+  right: 2,
+  back: 3,
+  forward: 4,
+};
+
+export type ControlDevice = 'keys' | 'mouse' | 'pad';
+export const CONTROL_DEVICES: readonly ControlDevice[] = ['keys', 'mouse', 'pad'];
+
+/**
+ * What one action is bound to. Keys are `KeyboardEvent.code`s, with the two Shift, Control,
+ * Alt and Meta keys as one (`Shift`); pad buttons are standard-mapping button numbers.
+ * Keys have three slots, so the arrows fit next to letters; mouse and gamepad two.
+ */
+export interface ActionBindings {
+  keys: (string | null)[];
+  mouse: (MouseButton | null)[];
+  pad: (number | null)[];
+}
+
+export type Bindings = Record<ControlAction, ActionBindings>;
+
+export const BINDING_SLOTS: Record<ControlDevice, number> = { keys: 3, mouse: 2, pad: 2 };
+
+/** Standard gamepad buttons the defaults use. */
+export const PAD_BUTTONS = { a: 0, b: 1, x: 2, rb: 5, start: 9, up: 12, down: 13 } as const;
+
+/** What can't be bound: they always pause. */
+export const PAUSE_KEY = 'Escape';
+export const PAUSE_PAD_BUTTON = PAD_BUTTONS.start;
+
+export const DEFAULT_BINDINGS: Bindings = {
+  jump: { keys: ['Space', 'KeyW', 'ArrowUp'], mouse: [null, null], pad: [PAD_BUTTONS.a, null] },
+  dash: {
+    keys: ['Shift', 'KeyJ', 'KeyX'],
+    mouse: ['right', null],
+    pad: [PAD_BUTTONS.x, PAD_BUTTONS.rb],
+  },
+  slam: {
+    keys: ['KeyS', 'ArrowDown', null],
+    mouse: ['left', null],
+    pad: [PAD_BUTTONS.b, PAD_BUTTONS.down],
+  },
+};
+
+/** A key's code as bindings keep it: either Shift (Control, Alt, Meta) is just `Shift`. */
+export function bindingKey(code: string): string {
+  const side = /^(Shift|Control|Alt|Meta)(Left|Right)$/.exec(code);
+  return side ? side[1]! : code;
+}
+
+const copyBindings = (b: Bindings): Bindings =>
+  Object.fromEntries(
+    CONTROL_ACTIONS.map((a) => [
+      a,
+      { keys: [...b[a].keys], mouse: [...b[a].mouse], pad: [...b[a].pad] },
+    ]),
+  ) as Bindings;
+
+const validSlot: Record<ControlDevice, (v: unknown) => boolean> = {
+  keys: (v) => typeof v === 'string' && v.length > 0 && v !== PAUSE_KEY,
+  mouse: (v) => typeof v === 'string' && v in MOUSE_BUTTONS,
+  pad: (v) => Number.isInteger(v) && (v as number) >= 0 && v !== PAUSE_PAD_BUTTON,
+};
+
+/** The player's bindings; each action's device falls back to the defaults when unreadable. */
+export function getBindings(): Bindings {
+  const out = copyBindings(DEFAULT_BINDINGS);
+  let stored: unknown;
+  try {
+    stored = JSON.parse(get(BINDINGS_KEY) ?? 'null');
+  } catch {
+    stored = null;
+  }
+  if (!stored || typeof stored !== 'object') return out;
+  for (const action of CONTROL_ACTIONS) {
+    const saved = (stored as Record<string, unknown>)[action];
+    if (!saved || typeof saved !== 'object') continue;
+    for (const device of CONTROL_DEVICES) {
+      const slots = (saved as Record<string, unknown>)[device];
+      if (!Array.isArray(slots)) continue;
+      const n = BINDING_SLOTS[device];
+      const clean = Array.from({ length: n }, (_, i) =>
+        validSlot[device](slots[i]) ? slots[i] : null,
+      );
+      Object.assign(out[action], { [device]: clean });
+    }
+  }
+  return out;
+}
+
+export function setBindings(bindings: Bindings): void {
+  write(BINDINGS_KEY, JSON.stringify(bindings));
+}
+
+/** Put one action (or all, with no action) back to the defaults. */
+export function resetBindings(action?: ControlAction): void {
+  if (!action) {
+    write(BINDINGS_KEY, null);
+    return;
+  }
+  const bindings = getBindings();
+  const defaults = copyBindings(DEFAULT_BINDINGS)[action];
+  // The defaults win over whatever another action took of them meanwhile.
+  for (const device of CONTROL_DEVICES)
+    for (const value of defaults[device])
+      if (value !== null) unbind(bindings, device, value as never, action);
+  bindings[action] = defaults;
+  setBindings(bindings);
+}
+
+/** Take `value` off every action but `except`; returns the actions it was taken from. */
+function unbind<D extends ControlDevice>(
+  bindings: Bindings,
+  device: D,
+  value: ActionBindings[D][number],
+  except?: ControlAction,
+): ControlAction[] {
+  const from: ControlAction[] = [];
+  for (const action of CONTROL_ACTIONS) {
+    if (action === except) continue;
+    const slots = bindings[action][device];
+    slots.forEach((v, i) => {
+      if (v === value) {
+        slots[i] = null;
+        if (!from.includes(action)) from.push(action);
+      }
+    });
+  }
+  return from;
+}
+
+export type BindResult =
+  | { ok: true; bindings: Bindings; movedFrom: ControlAction | null }
+  | { ok: false; reason: 'pause' };
+
+/**
+ * Bind `value` to slot `slot` of `action`'s `device`. An input bound to another action
+ * moves here (`movedFrom` says which), one in another slot of this action moves to this
+ * slot, and the pause inputs can't be bound. Pure: returns the new bindings.
+ */
+export function bindInput<D extends ControlDevice>(
+  bindings: Bindings,
+  action: ControlAction,
+  device: D,
+  slot: number,
+  value: ActionBindings[D][number],
+): BindResult {
+  if (
+    (device === 'keys' && value === PAUSE_KEY) ||
+    (device === 'pad' && value === PAUSE_PAD_BUTTON)
+  )
+    return { ok: false, reason: 'pause' };
+  const next = copyBindings(bindings);
+  const movedFrom = value === null ? [] : unbind(next, device, value, action);
+  const slots = next[action][device];
+  if (value !== null) slots.forEach((v, i) => v === value && (slots[i] = null));
+  slots[slot] = value;
+  return { ok: true, bindings: next, movedFrom: movedFrom[0] ?? null };
+}
+
+const KEY_NAMES: Record<string, string> = {
+  Space: 'Space',
+  Escape: 'Esc',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  Enter: 'Enter',
+  Backspace: 'Backspace',
+  Tab: 'Tab',
+  CapsLock: 'Caps Lock',
+  Control: 'Ctrl',
+  Meta: 'Meta',
+};
+
+/** A bound key as the player reads it: `KeyW` is W, `Digit1` is 1, `ArrowUp` is ↑. */
+export function keyLabel(code: string): string {
+  if (KEY_NAMES[code]) return KEY_NAMES[code];
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter) return letter[1]!;
+  const digit = /^(?:Digit|Numpad)(\d)$/.exec(code);
+  if (digit) return digit[1]!;
+  return code.replace(/^Numpad/, 'Num ');
+}
+
+const MOUSE_NAMES: Record<MouseButton, string> = {
+  left: 'Left click',
+  right: 'Right click',
+  middle: 'Middle click',
+  back: 'Back button',
+  forward: 'Forward button',
+};
+
+export function mouseLabel(button: MouseButton): string {
+  return MOUSE_NAMES[button];
+}
+
+/** Standard-mapping gamepad buttons, Xbox names. */
+const PAD_NAMES = [
+  'A',
+  'B',
+  'X',
+  'Y',
+  'LB',
+  'RB',
+  'LT',
+  'RT',
+  'View',
+  'Start',
+  'L stick',
+  'R stick',
+  'D-pad ↑',
+  'D-pad ↓',
+  'D-pad ←',
+  'D-pad →',
+];
+
+export function padLabel(button: number): string {
+  return PAD_NAMES[button] ?? `Button ${button}`;
+}
+
+/** A binding as the player reads it. */
+export function bindingLabel<D extends ControlDevice>(
+  device: D,
+  value: NonNullable<ActionBindings[D][number]>,
+): string {
+  if (device === 'keys') return keyLabel(value as string);
+  if (device === 'mouse') return mouseLabel(value as MouseButton);
+  return padLabel(value as number);
+}
+
+/** The first bound mouse button and key of an action, for a hint: "Right click / Shift". */
+export function shortBinding(bindings: ActionBindings): string {
+  const parts: string[] = [];
+  const mouse = bindings.mouse.find((b) => b !== null);
+  const key = bindings.keys.find((b) => b !== null);
+  if (mouse) parts.push(mouseLabel(mouse));
+  if (key) parts.push(keyLabel(key));
+  if (parts.length === 0) {
+    const pad = bindings.pad.find((b) => b !== null);
+    if (pad !== undefined && pad !== null) parts.push(padLabel(pad));
+  }
+  return parts.length > 0 ? parts.join(' / ') : 'Unbound';
+}
+
 /** True while a running game has lowered its effects on its own to keep frames smooth. */
 let effectsLowered = false;
 
