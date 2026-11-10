@@ -10,7 +10,7 @@ import {
   type PlayerInput,
   type PlayerState,
 } from '../physics';
-import { LevelWorld, type PlatformerLevel } from './level';
+import { LevelWorld, type Ability, type PlatformerLevel } from './level';
 
 /**
  * Proves a level can be finished by finding a way through it: a search over the player's
@@ -37,13 +37,16 @@ const RELEASE: PlayerInput = { jump: false, release: true };
 const DASH: PlayerInput = { jump: false, dash: true };
 const SLAM: PlayerInput = { jump: false, slam: true };
 
-/** What a candidate can do at a decision: only what changes something. */
-function choices(p: PlayerState): PlayerInput[] {
+/**
+ * What a candidate can do at a decision: only what changes something. Without slam, it
+ * doesn't let go of jump early either: a short hop gets under an overhang as a slam does.
+ */
+function choices(p: PlayerState, without?: Ability): PlayerInput[] {
   const out = [NOTHING];
   if (canJump(p)) out.push(JUMP);
-  if (p.jumped && p.vy > JUMP_CUT_VELOCITY) out.push(RELEASE);
-  if (canDash(p)) out.push(DASH);
-  if (canSlam(p)) out.push(SLAM);
+  if (p.jumped && p.vy > JUMP_CUT_VELOCITY && without !== 'slam') out.push(RELEASE);
+  if (canDash(p) && without !== 'dash') out.push(DASH);
+  if (canSlam(p) && without !== 'slam') out.push(SLAM);
   return out;
 }
 
@@ -83,17 +86,19 @@ export class Explorer {
     public step: number,
     /** Where the last surviving candidates got. */
     public furthest = { x: 0, time: 0 },
+    /** An ability the search never uses: to check an obstacle really needs it. */
+    readonly without?: Ability,
   ) {}
 
-  static start(world: LevelWorld): Explorer {
+  static start(world: LevelWorld, without?: Ability): Explorer {
     const { x, y } = world.level.start;
     const first = startState(x, y);
     const support = world.solidsBetween(x, x + 1)[0];
-    return new Explorer(world, [{ ...first, surface: support ?? -1 }], 0, { x, time: 0 });
+    return new Explorer(world, [{ ...first, surface: support ?? -1 }], 0, { x, time: 0 }, without);
   }
 
   clone(): Explorer {
-    return new Explorer(this.world, this.states, this.step, { ...this.furthest });
+    return new Explorer(this.world, this.states, this.step, { ...this.furthest }, this.without);
   }
 
   get alive(): boolean {
@@ -111,7 +116,7 @@ export class Explorer {
       const seen = new Map<string, PlayerState>();
       const floor = this.world.lowestTop - STEP_UP - 1;
       for (const state of this.states) {
-        for (const input of choices(state)) {
+        for (const input of choices(state, this.without)) {
           let p = state;
           // The press is on the first step only.
           for (let i = 1; i <= steps && p.alive; i++)
@@ -149,9 +154,12 @@ export interface Validation {
   furthestX: number;
 }
 
-/** Whether a finished level can be survived from its start to the end of the song. */
-export function validateLevel(level: PlatformerLevel): Validation {
-  const explorer = Explorer.start(new LevelWorld(level));
+/**
+ * Whether a finished level can be survived from its start to the end of the song;
+ * `without` an ability, to check where it is needed.
+ */
+export function validateLevel(level: PlatformerLevel, without?: Ability): Validation {
+  const explorer = Explorer.start(new LevelWorld(level), without);
   const ok = explorer.run(stepAt(level.duration));
   return {
     ok,

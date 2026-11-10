@@ -106,10 +106,10 @@ describe('controlsList', () => {
       (r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent],
     );
     expect(rows).toEqual([
-      ['Jump', 'Space · W · ↑ · A'],
-      ['Dash', 'Shift · J · X · Right click · X · RB'],
-      ['Slam', 'S · ↓ · Left click · B · D-pad ↓'],
-      ['Pause', 'Esc · Start'],
+      ['Jump', 'Space · W · ↑ · Pad A'],
+      ['Dash', 'Shift · J · X · Right click · Pad X · Pad RB'],
+      ['Slam', 'S · ↓ · Left click · Pad B · D-pad ↓'],
+      ['Pause', 'Esc · Pad Start'],
     ]);
   });
 });

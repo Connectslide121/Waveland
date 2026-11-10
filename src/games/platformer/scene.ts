@@ -1081,10 +1081,8 @@ export class PlatformerScene extends Phaser.Scene {
       if (gate.x > x1) break;
       const base = sy(gate.top);
       const stopped =
-        run.phase === 'dying' &&
-        run.deathCause === 'gate' &&
-        Math.abs(run.diedAt - gate.time) < 0.1;
-      const age = time - gate.time;
+        run.phase === 'dying' && run.deathCause === 'gate' && Math.abs(run.diedAt - gate.at) < 0.05;
+      const age = time - gate.at;
       if (age >= 0 && !stopped) {
         if (age > SMASH_TIME) continue;
         // Smashed: bars flying forward and up, fading.

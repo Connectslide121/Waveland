@@ -7,7 +7,7 @@ import {
   type LevelMap,
 } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
-import { PLAYER_WIDTH } from '../physics';
+import { PHYSICS_DT, PLAYER_WIDTH, stepPlayer } from '../physics';
 import {
   bridgeWindows,
   DASH_REACH,
@@ -17,8 +17,8 @@ import {
   MAX_TOP,
   MIN_TOP,
 } from './generate';
-import { solidTop, type PlatformerLevel } from './level';
-import { validateLevel } from './validate';
+import { GATE_GRACE, LevelWorld, solidTop, type PlatformerLevel } from './level';
+import { Explorer, stepAt, validateLevel } from './validate';
 
 const maps = new Map<number, LevelMap>();
 /** A random song of 30 to 45 s (short, to keep the search quick), cached per seed. */
@@ -342,6 +342,53 @@ describe('generateLevel: abilities', () => {
     expect(taught).toBeGreaterThanOrEqual(songs.length);
   });
 
+  it('makes the dash lesson need a dash: without one, the way through stops there', () => {
+    let checked = 0;
+    for (const seed of [1, 2, 3, 4]) {
+      const l = level(seed, DIFFICULTIES[seed % 3]!);
+      for (const lesson of l.lessons.filter((x) => x.action === 'dash')) {
+        const check = validateLevel(l, 'dash');
+        expect(check.ok, `dash at ${lesson.time.toFixed(2)} s`).toBe(false);
+        expect(check.reached).toBeGreaterThan(lesson.time - 0.5);
+        expect(check.reached).toBeLessThan(lesson.end + 0.5);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(3);
+  }, 30_000);
+
+  it('makes the slam lesson need a slam after a jump on its beat', () => {
+    let checked = 0;
+    for (const seed of [1, 2, 3, 4]) {
+      const l = level(seed, DIFFICULTIES[seed % 3]!);
+      const world = new LevelWorld(l);
+      for (const lesson of l.lessons.filter((x) => x.action === 'slam')) {
+        // On the ground a moment before, as the search gets there.
+        const before = Math.floor(stepAt(lesson.time - 0.3) / 3) * 3;
+        const explorer = Explorer.start(world);
+        explorer.run(before);
+        const start = explorer.states.find((s) => s.grounded)!;
+        expect(start).toBeDefined();
+        const play = (slamAt: number | null) => {
+          let p = start;
+          for (let step = before + 1; step < stepAt(lesson.end + 0.3) && p.alive; step++) {
+            const t = step * PHYSICS_DT;
+            const jump = Math.abs(t - lesson.time) < PHYSICS_DT / 2;
+            const slam = slamAt !== null && Math.abs(t - slamAt) < PHYSICS_DT / 2;
+            p = stepPlayer(p, { jump, slam }, world, t);
+          }
+          return p;
+        };
+        expect(play(null).death).toBe('wall');
+        // Slam once past the hurdle, a quarter of a second after the jump.
+        const slammed = [0.27, 0.3, 0.33].map((d) => play(stepAt(lesson.time + d) * PHYSICS_DT));
+        expect(slammed.some((p) => p.alive)).toBe(true);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(3);
+  }, 30_000);
+
   it('puts every dash gate on a snare, an accent or a beat, on its ground', () => {
     let gates = 0;
     for (const seed of songs) {
@@ -351,7 +398,9 @@ describe('generateLevel: abilities', () => {
       for (const g of l.gates) {
         gates++;
         expect(moments.has(g.time)).toBe(true);
-        expect(g.x).toBeCloseTo(l.speed * g.time + l.start.x + PLAYER_WIDTH, 6);
+        // Met a grace after the beat, so a dash pressed on it is in time.
+        expect(g.at).toBeCloseTo(g.time + GATE_GRACE, 9);
+        expect(g.x).toBeCloseTo(l.speed * g.at + l.start.x + PLAYER_WIDTH, 6);
       }
     }
     expect(gates).toBeGreaterThan(0);

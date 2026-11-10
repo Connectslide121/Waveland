@@ -189,7 +189,7 @@ describe('stepPlayer', () => {
   });
 
   it('dies at a dash gate unless dashing through it', () => {
-    const gate = { x: ANCHOR_X + PLAYER_WIDTH + 100, time: 0.5, top: 0 };
+    const gate = { x: ANCHOR_X + PLAYER_WIDTH + 100, time: 0.5, at: 0.5, top: 0 };
     const { world } = testLevel([ground(0, 4000)], { speed: 200, gates: [gate] });
     const walked = run(world, standing(), 60, () => NOTHING).pop()!;
     expect(walked.death).toBe('gate');

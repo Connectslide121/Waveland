@@ -55,16 +55,23 @@ export interface Pickup {
 }
 
 /**
- * A dash gate: an orange barrier from its surface up into the sky, standing where the
- * front of the anchored player is at `time` (a snare or an accent). Passing it without
- * dashing is a death; dashing smashes through.
+ * A dash gate: an orange barrier from its surface up into the sky, on a snare or an
+ * accent (`time`). The player meets it `GATE_GRACE` later (`at`), so a dash pressed right
+ * on the beat, or a little either side of it, gets through. Passing it without dashing
+ * is a death; dashing smashes through.
  */
 export interface Gate {
   x: number;
+  /** The musical moment it stands for. */
   time: number;
+  /** When the front of the player meets it. */
+  at: number;
   /** The surface it stands on. */
   top: number;
 }
+
+/** How long after its beat the player meets a gate, in seconds. */
+export const GATE_GRACE = 0.1;
 
 /** An ability the player needs, taught in an easy spot: the first obstacle that needs it. */
 export interface Lesson {

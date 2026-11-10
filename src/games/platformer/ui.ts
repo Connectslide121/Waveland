@@ -257,12 +257,18 @@ const ACTION_NAMES: Record<ControlAction, string> = {
   slam: 'Slam',
 };
 
-/** Everything an action is bound to, as the player reads it: "Space · W · ↑ · A". */
+/** A gamepad button in a list next to keys: "Pad X", so it isn't read as the X key. */
+const padName = (label: string) => (label.startsWith('D-pad') ? label : `Pad ${label}`);
+
+/** Everything an action is bound to, as the player reads it: "Space · W · ↑ · Pad A". */
 export function bindingsText(bindings: Bindings, action: ControlAction): string {
   const parts: string[] = [];
   for (const device of CONTROL_DEVICES)
-    for (const value of bindings[action][device])
-      if (value !== null) parts.push(bindingLabel(device, value as never));
+    for (const value of bindings[action][device]) {
+      if (value === null) continue;
+      const label = bindingLabel(device, value as never);
+      parts.push(device === 'pad' ? padName(label) : label);
+    }
   return parts.length > 0 ? parts.join(' · ') : 'Not bound';
 }
 
@@ -275,7 +281,7 @@ export function controlsList(bindings: Bindings): HTMLElement {
     list.append(item);
   };
   for (const action of CONTROL_ACTIONS) row(ACTION_NAMES[action], bindingsText(bindings, action));
-  row('Pause', `${keyLabel(PAUSE_KEY)} · ${padLabel(PAUSE_PAD_BUTTON)}`);
+  row('Pause', `${keyLabel(PAUSE_KEY)} · ${padName(padLabel(PAUSE_PAD_BUTTON))}`);
   return list;
 }
 

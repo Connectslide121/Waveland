@@ -20,6 +20,7 @@ import {
 } from '../physics';
 import {
   CHUNK_NEEDS,
+  GATE_GRACE,
   LevelWorld,
   LOWEST_TOP,
   solidTop,
@@ -135,8 +136,16 @@ export const JUMP_REACH = JUMP_AIR + COYOTE_TIME;
 export const DASH_REACH = JUMP_REACH + DASH_TIME;
 /** A dash pit needs at least this much more air than a jump gives, so it takes a dash. */
 const DASH_MARGIN = 0.04;
-/** Air over the small pit before an overhang: too long to fall across, short to hop. */
-const HURDLE_AIR = 0.2;
+/**
+ * The hurdle before an overhang: a thin low wall the front of the player meets this long
+ * after the beat it is on, this long to pass and this high, so it takes a jump (a dash
+ * along the ground runs into it).
+ */
+const HURDLE_LEAD = 0.12;
+const HURDLE_TIME = 0.06;
+const HURDLE_RISE = 50;
+/** The overhang comes no later than this after the hurdle's beat: a full jump is still high. */
+const OVERHANG_LATEST = JUMP_AIR - 0.13;
 /** Heights the ground stays between, and where it starts. */
 export const MIN_TOP = LOWEST_TOP;
 export const MAX_TOP = 320;
@@ -306,9 +315,13 @@ function dashGap(ctx: BuildContext): Built {
   return pits(ctx, 'dash-gap', [takeoff], [air], [ctx.h]);
 }
 
-/** A dash gate the front of the player meets at song time `time`, on ground at `top`. */
+/**
+ * A dash gate for the beat at song time `time`, on ground at `top`: the front of the
+ * player meets it a grace after, so a dash pressed on the beat is in time.
+ */
 export function gateAt(x: (t: number) => number, time: number, top: number): Gate {
-  return { x: x(time) + PLAYER_WIDTH, time, top };
+  const at = time + GATE_GRACE;
+  return { x: x(at) + PLAYER_WIDTH, time, at, top };
 }
 
 /** Dash gates on the snares (or accents, or the beats), on plain ground. */
@@ -354,32 +367,34 @@ export function overhangAt(
 }
 
 /**
- * A small pit to hop on a beat, and soon after it an overhang to get under: a full jump
- * is still too high when it comes, so slam down (or hop low).
+ * A low hurdle to jump on a beat, and right after it an overhang to get under: a full
+ * jump is still too high when it comes, so slam down after the hurdle (landing about on
+ * the next beat at most tempos).
  */
 function overhang(ctx: BuildContext): Built {
   const { stretch, x, settings, ease, map, h } = ctx;
   const period = map.beatPeriod;
-  const takeoff = stretch.steps[1];
-  if (takeoff === undefined) return flat(ctx);
-  // Meet it on a half beat soon after the hop, later when made easier.
-  const soonest = takeoff + HURDLE_AIR + 0.2 + (1 - ease) * 0.35;
   const half = period / 2;
-  const onHalf = Math.ceil((soonest - stretch.start) / half - 1e-6) * half + stretch.start;
-  const meet = onHalf <= soonest + 0.15 ? onHalf : soonest;
+  const takeoff = stretch.steps[1];
+  if (takeoff === undefined || h + HURDLE_RISE > MAX_TOP) return flat(ctx);
+  // Made easier, it comes a little later (more time to slam) and hangs a little higher,
+  // but never so late that a full jump has come down by itself.
+  const meet = takeoff + Math.min(OVERHANG_LATEST, 0.5 + (1 - ease) * 0.15);
   // As long as asked, as far as the stretch has room for (ending on plain ground).
   const leave = Math.min(
     meet + Math.max(0.5, settings.overhang * ease) * period,
     stretch.end - half,
   );
   if (leave - meet < half) return gap(ctx);
-  const pit = pitAt(x, takeoff, HURDLE_AIR);
-  const clearance = Math.min(80, settings.clearance / ease);
+  const hurdle0 = x(takeoff + HURDLE_LEAD) + PLAYER_WIDTH;
+  const hurdle1 = x(takeoff + HURDLE_LEAD + HURDLE_TIME) + PLAYER_WIDTH;
+  const clearance = Math.min(30, settings.clearance / ease);
   return built(
     'overhang',
     [
-      ground(x(stretch.start), pit.x0, h),
-      ground(pit.x1, x(stretch.end), h),
+      ground(x(stretch.start), hurdle0, h),
+      ground(hurdle0, hurdle1, h + HURDLE_RISE),
+      ground(hurdle1, x(stretch.end), h),
       overhangAt(x, meet, leave, h, clearance),
     ],
     h,

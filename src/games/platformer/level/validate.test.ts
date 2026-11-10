@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ANCHOR_X, PLAYER_HEIGHT, PLAYER_WIDTH } from '../physics';
-import { dashPitAir, DASH_REACH, JUMP_REACH, pitAt } from './generate';
+import { dashPitAir, DASH_REACH, gateAt, JUMP_REACH, pitAt } from './generate';
 import { xAtTime } from './level';
 import { ground, overhang, testLevel } from './test-level';
 import { validateLevel } from './validate';
@@ -42,7 +42,7 @@ describe('validateLevel', () => {
   });
 
   it('dashes through gates, one after another', () => {
-    const gates = [1, 1.5, 2.5].map((t) => ({ x: x(t) + PLAYER_WIDTH, time: t, top: 0 }));
+    const gates = [1, 1.5, 2.5].map((t) => gateAt(x, t, 0));
     expect(validateLevel(testLevel([ground(-40, 4000)], { speed: SPEED, gates }).level).ok).toBe(
       true,
     );
