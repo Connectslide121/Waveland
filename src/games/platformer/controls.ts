@@ -16,7 +16,8 @@ import type { RunInput } from './run';
 /**
  * The platformer's controls, from the player's bindings (Settings, `getBindings`): by
  * default Space, W or ↑ to jump, Shift, J, X or right click to dash, S, ↓ or left click
- * to slam; on a gamepad A to jump, X or RB to dash, B or down to slam. Escape and Start
+ * to slam, E or L for overdrive; on a gamepad A to jump, X or RB to dash, B or down to
+ * slam, Y for overdrive. Escape and Start
  * always pause. The left stick counts as the d-pad. The scene reads them once a frame
  * with `read()`, so a press from any device goes the same way into the run's fixed steps.
  */
@@ -26,7 +27,7 @@ const DEAD_ZONE = 0.5;
 /** Clicks on these are the menus', not the game's. */
 const NOT_GAME = 'button, a, input, select, textarea, label, [role="dialog"], .pf-modal';
 
-export interface ControlsFrame extends RunInput {
+export interface ControlsFrame extends Required<RunInput> {
   /** Pause was pressed since the last read. */
   pausePressed: boolean;
 }
@@ -38,7 +39,7 @@ const browserPads: GamepadSource = () =>
   typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
 
 type Flags = Record<ControlAction, boolean>;
-const none = (): Flags => ({ jump: false, dash: false, slam: false });
+const none = (): Flags => ({ jump: false, dash: false, slam: false, overdrive: false });
 
 export class Controls {
   /** Keys (as bindings name them) and mouse buttons held down. */
@@ -177,6 +178,7 @@ export class Controls {
       jumpPressed: false,
       dashPressed: false,
       slamPressed: false,
+      overdrivePressed: false,
       pausePressed,
     };
     if (this.#enabled) {
@@ -185,6 +187,7 @@ export class Controls {
       frame.jumpPressed = fresh('jump');
       frame.dashPressed = fresh('dash');
       frame.slamPressed = fresh('slam');
+      frame.overdrivePressed = fresh('overdrive');
     }
     this.#padHeld = padHeld;
     this.#padPause = padPause;

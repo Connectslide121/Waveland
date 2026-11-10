@@ -90,10 +90,29 @@ describe('control bindings', () => {
     expect(b.jump.pad).toEqual([0, null]);
     expect(b.dash.pad).toEqual([2, 5]);
     expect(b.slam.pad).toEqual([1, 13]);
+    // Overdrive: E or L, gamepad Y, no mouse button.
+    expect(b.overdrive).toEqual({
+      keys: ['KeyE', 'KeyL', null],
+      mouse: [null, null],
+      pad: [3, null],
+    });
     // Each slot count per device.
     for (const action of CONTROL_ACTIONS)
       for (const device of CONTROL_DEVICES)
         expect(b[action][device]).toHaveLength(BINDING_SLOTS[device]);
+  });
+
+  it('gives overdrive its defaults in bindings saved before it, less what another action took', () => {
+    const saved = {
+      jump: { ...DEFAULT_BINDINGS.jump, keys: ['Space', 'KeyE', null] },
+      dash: DEFAULT_BINDINGS.dash,
+      slam: DEFAULT_BINDINGS.slam,
+    };
+    localStorage.setItem('waveland.controls', JSON.stringify(saved));
+    const b = getBindings();
+    expect(b.jump.keys).toEqual(['Space', 'KeyE', null]);
+    expect(b.overdrive.keys).toEqual([null, 'KeyL', null]);
+    expect(b.overdrive.pad).toEqual([3, null]);
   });
 
   it('moves an input bound to another action, and says which', () => {

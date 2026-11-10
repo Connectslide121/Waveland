@@ -26,6 +26,7 @@ const IDLE = {
   jumpPressed: false,
   dashPressed: false,
   slamPressed: false,
+  overdrivePressed: false,
   pausePressed: false,
 };
 
@@ -62,6 +63,11 @@ describe('Controls', () => {
     for (const code of ['KeyS', 'ArrowDown']) {
       key('keydown', code);
       expect(controls.read()).toMatchObject({ slamPressed: true });
+      key('keyup', code);
+    }
+    for (const code of ['KeyE', 'KeyL']) {
+      key('keydown', code);
+      expect(controls.read()).toEqual({ ...IDLE, overdrivePressed: true });
       key('keyup', code);
     }
     // Left and right do nothing any more.
@@ -144,7 +150,7 @@ describe('Controls', () => {
     controls.destroy();
   });
 
-  it('reads a gamepad: A to jump, X or RB to dash, B or down to slam, Start to pause', () => {
+  it('reads a gamepad: A to jump, X or RB to dash, B or down to slam, Y for overdrive, Start to pause', () => {
     let pads = [pad([0, 9])];
     const controls = new Controls(window, () => pads);
     expect(controls.read()).toEqual({
@@ -167,6 +173,8 @@ describe('Controls', () => {
     controls.read();
     pads = [pad([], 0.9)];
     expect(controls.read()).toMatchObject({ slamPressed: true });
+    pads = [pad([3])];
+    expect(controls.read()).toEqual({ ...IDLE, overdrivePressed: true });
     controls.destroy();
   });
 });

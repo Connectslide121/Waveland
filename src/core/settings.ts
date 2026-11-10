@@ -115,8 +115,8 @@ export function setShowFps(show: boolean): void {
 const BINDINGS_KEY = 'waveland.controls';
 
 /** What the player can bind. Pause is fixed: Escape and a gamepad's Start. */
-export type ControlAction = 'jump' | 'dash' | 'slam';
-export const CONTROL_ACTIONS: readonly ControlAction[] = ['jump', 'dash', 'slam'];
+export type ControlAction = 'jump' | 'dash' | 'slam' | 'overdrive';
+export const CONTROL_ACTIONS: readonly ControlAction[] = ['jump', 'dash', 'slam', 'overdrive'];
 
 export type MouseButton = 'left' | 'right' | 'middle' | 'back' | 'forward';
 /** `MouseEvent.button` numbers, by name. */
@@ -147,7 +147,7 @@ export type Bindings = Record<ControlAction, ActionBindings>;
 export const BINDING_SLOTS: Record<ControlDevice, number> = { keys: 3, mouse: 2, pad: 2 };
 
 /** Standard gamepad buttons the defaults use. */
-export const PAD_BUTTONS = { a: 0, b: 1, x: 2, rb: 5, start: 9, up: 12, down: 13 } as const;
+export const PAD_BUTTONS = { a: 0, b: 1, x: 2, y: 3, rb: 5, start: 9, up: 12, down: 13 } as const;
 
 /** What can't be bound: they always pause. */
 export const PAUSE_KEY = 'Escape';
@@ -165,6 +165,7 @@ export const DEFAULT_BINDINGS: Bindings = {
     mouse: ['left', null],
     pad: [PAD_BUTTONS.b, PAD_BUTTONS.down],
   },
+  overdrive: { keys: ['KeyE', 'KeyL', null], mouse: [null, null], pad: [PAD_BUTTONS.y, null] },
 };
 
 /** A key's code as bindings keep it: either Shift (Control, Alt, Meta) is just `Shift`. */
@@ -197,9 +198,13 @@ export function getBindings(): Bindings {
     stored = null;
   }
   if (!stored || typeof stored !== 'object') return out;
+  const fresh: ControlAction[] = [];
   for (const action of CONTROL_ACTIONS) {
     const saved = (stored as Record<string, unknown>)[action];
-    if (!saved || typeof saved !== 'object') continue;
+    if (!saved || typeof saved !== 'object') {
+      fresh.push(action);
+      continue;
+    }
     for (const device of CONTROL_DEVICES) {
       const slots = (saved as Record<string, unknown>)[device];
       if (!Array.isArray(slots)) continue;
@@ -210,6 +215,18 @@ export function getBindings(): Bindings {
       Object.assign(out[action], { [device]: clean });
     }
   }
+  // An action added since the bindings were saved (overdrive) gets its defaults, less any
+  // the player already gave another action.
+  for (const action of fresh)
+    for (const device of CONTROL_DEVICES) {
+      const slots = out[action][device] as unknown[];
+      slots.forEach((v, i) => {
+        const taken = CONTROL_ACTIONS.some(
+          (a) => a !== action && !fresh.includes(a) && (out[a][device] as unknown[]).includes(v),
+        );
+        if (v !== null && taken) slots[i] = null;
+      });
+    }
   return out;
 }
 

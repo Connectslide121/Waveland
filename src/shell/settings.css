@@ -310,7 +310,8 @@
 
 .controls__row {
   display: grid;
-  grid-template-columns: 64px repeat(3, minmax(0, 1fr));
+  /* Wide enough for the longest action, Overdrive. */
+  grid-template-columns: 96px repeat(3, minmax(0, 1fr));
   gap: 0 8px;
   align-items: start;
   padding: 8px 0 0;
@@ -447,13 +448,13 @@
   }
 
   .controls__row {
-    grid-template-columns: 52px repeat(3, minmax(0, 1fr));
+    grid-template-columns: 68px repeat(3, minmax(0, 1fr));
     gap: 0 5px;
   }
 
   .controls__action {
-    font-size: 11px;
-    letter-spacing: 0.1em;
+    font-size: 10px;
+    letter-spacing: 0.04em;
   }
 
   .controls__head {

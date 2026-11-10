@@ -118,6 +118,7 @@ describe('controlsList', () => {
       ['Jump', 'Space · W · ↑ · Pad A'],
       ['Dash', 'Shift · J · X · Right click · Pad X · Pad RB'],
       ['Slam', 'S · ↓ · Left click · Pad B · D-pad ↓'],
+      ['Overdrive', 'E · L · Pad Y'],
       ['Pause', 'Esc · Pad Start'],
     ]);
   });

@@ -20,7 +20,7 @@ import {
 } from '../core';
 
 /**
- * The Settings modal's Controls section: jump, dash and slam, each with its key, mouse
+ * The Settings modal's Controls section: jump, dash, slam and overdrive, each with its key, mouse
  * and gamepad slots in aligned columns. Click a slot, then press what to use; Escape
  * cancels, Backspace clears. An input another action had moves here, and the row says
  * so. Pause is fixed (Escape and Start) and says so.
@@ -36,7 +36,12 @@ export interface ControlsSection {
   stop(): void;
 }
 
-const ACTION_NAMES: Record<ControlAction, string> = { jump: 'Jump', dash: 'Dash', slam: 'Slam' };
+const ACTION_NAMES: Record<ControlAction, string> = {
+  jump: 'Jump',
+  dash: 'Dash',
+  slam: 'Slam',
+  overdrive: 'Overdrive',
+};
 const DEVICE_NAMES: Record<ControlDevice, string> = {
   keys: 'Keyboard',
   mouse: 'Mouse',

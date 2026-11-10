@@ -264,6 +264,7 @@ const ACTION_NAMES: Record<ControlAction, string> = {
   jump: 'Jump',
   dash: 'Dash',
   slam: 'Slam',
+  overdrive: 'Overdrive',
 };
 
 /** A gamepad button in a list next to keys: "Pad X", so it isn't read as the X key. */

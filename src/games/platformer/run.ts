@@ -51,6 +51,8 @@ export interface RunInput {
   dashPressed: boolean;
   /** Slam was pressed since the last update. */
   slamPressed: boolean;
+  /** Overdrive was pressed since the last update. */
+  overdrivePressed?: boolean;
 }
 
 export type BeatQuality = 'perfect' | 'good' | 'miss';
