@@ -3,6 +3,7 @@ import {
   createHud as createSharedHud,
   createPauseMenu as createSharedPauseMenu,
   createResultsScreen as createSharedResultsScreen,
+  describeRanks,
   formatAccuracy,
   type Hud,
   type HudState,
@@ -132,23 +133,12 @@ export function createPauseMenu(handlers: {
   return createSharedPauseMenu({ ...handlers, actions: PLATFORMER_ACTIONS });
 }
 
-const NBSP = String.fromCharCode(160);
-
 /**
- * The ranks' thresholds in words, from `RANKS`: "S: timing 85%+, no deaths · A: 70%+, at
- * most 2 deaths · B: 50%+ · C: finished". Timing counts a good as half a perfect.
+ * The ranks' thresholds in words, from `RANKS`: "S: timing 85%+, no deaths · A: timing
+ * 70%+, at most 2 deaths · B: timing 50%+ · C: finished". Timing counts a good as half a perfect.
  */
 export function rankRules(): string {
-  const parts = RANKS.map(({ rank, timing, deaths }) => {
-    if (timing === 0) return `${rank}: finished`;
-    const t = `${Math.round(timing * 100)}%+`;
-    const d =
-      deaths === 0 ? ', no deaths' : Number.isFinite(deaths) ? `, at most ${deaths} deaths` : '';
-    return `${rank}: timing ${t}${d}`;
-  });
-  // Each rank's rule stays on one line.
-  const whole = parts.map((p) => p.replace(/ /g, NBSP));
-  return `${whole.join(' · ')}. Timing counts a good as half a perfect.`;
+  return describeRanks(RANKS, 'deaths');
 }
 
 /** The shared results screen with the platformer's breakdown and rank rules. */

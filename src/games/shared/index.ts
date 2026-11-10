@@ -1,4 +1,5 @@
-/** What every game's HTML over the canvas shares: the HUD, the menus and their number formats. */
+/** What every game shares over its canvas (the HUD, the menus, their number formats) and in its scoring. */
 export * from './format';
 export * from './hud';
 export * from './menus';
+export * from './scoring';

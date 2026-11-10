@@ -1,12 +1,20 @@
+import { beatAt, timeOfBeat, type LevelEvent, type Section } from '../../core';
 import {
-  beatAt,
-  lastAtOrBefore,
-  periodAt,
-  timeOfBeat,
-  type LevelEvent,
-  type Section,
-  type TempoGrid,
-} from '../../core';
+  BAR_BEATS,
+  DOWNBEAT_BONUS,
+  GOOD_WINDOW,
+  judgeAt,
+  multiplierOf,
+  nearest,
+  OVERDRIVE_BEATS,
+  OVERDRIVE_FACTOR,
+  rankAgainst,
+  RESUME_BEATS,
+  timingOf,
+  type BeatQuality,
+  type Rank,
+  type RankRule,
+} from '../shared/scoring';
 import { stepAt } from './level/validate';
 import { LevelWorld, xAtTime, type BoosterKind, type PlatformerLevel } from './level';
 import {
@@ -35,35 +43,39 @@ import {
  */
 
 /**
- * A takeoff, landing, dash or slam landing within this many seconds of a beat, or of the
- * eighth between two beats, is perfect, or good. On fast songs the windows shrink to a
- * share of the eighth (`PERFECT_SHARE`, `GOOD_SHARE`), so not everything is on the grid.
+ * Takeoffs, landings, dashes and slam landings are judged against the beat or eighth by
+ * the shared scoring (`src/games/shared/scoring.ts`), which also has the multiplier,
+ * overdrive and count-ins; re-exported here for the platformer's scene, UI and tests.
  */
-export const PERFECT_WINDOW = 0.05;
-export const GOOD_WINDOW = 0.1;
-export const PERFECT_SHARE = 0.18;
-export const GOOD_SHARE = 0.36;
-/** Beats of count-in after a pause: the music rewinds this far and the player waits. */
-export const RESUME_BEATS = 2;
-/** Beats of count-in before every (re)start from a checkpoint: a bar. */
-export const BAR_BEATS = 4;
+export {
+  BAR_BEATS,
+  COMBO_STEP,
+  DOWNBEAT_BONUS,
+  GOOD_SHARE,
+  GOOD_WINDOW,
+  judgeAt,
+  MAX_MULTIPLIER,
+  multiplierOf,
+  offBeat,
+  offGrid,
+  OVERDRIVE_BEATS,
+  OVERDRIVE_FACTOR,
+  PERFECT_SHARE,
+  PERFECT_WINDOW,
+  RESUME_BEATS,
+  type BeatQuality,
+  type Rank,
+} from '../shared/scoring';
+
 /** How long the death effect plays, in song time, before the music rewinds. */
 export const DEATH_TIME = 0.7;
 /** Points, before the combo multiplier and overdrive. */
 export const POINTS = { coin: 100, gem: 500, booster: 250, perfect: 300, good: 100 } as const;
 /** A dash on a snare, or a slam landing on a kick or a downbeat, is an accent: doubled. */
 export const ACCENT_FACTOR = 2;
-/** Every this many in a row raises the multiplier by one, up to `MAX_MULTIPLIER`. */
-export const COMBO_STEP = 8;
-export const MAX_MULTIPLIER = 4;
-/** Overdrive: lasts this many beats (4 bars), and doubles the score on top of the combo. */
-export const OVERDRIVE_BEATS = 16;
-export const OVERDRIVE_FACTOR = 2;
 /** How much of the overdrive meter a perfect and a gem fill. */
 export const METER_PERFECT = 1 / 12;
 export const METER_GEM = 1 / 4;
-/** Activating overdrive within `GOOD_WINDOW` of a downbeat scores this, times the multiplier. */
-export const DOWNBEAT_BONUS = 1000;
 /** This many perfects in a row bursts for a bonus (times the multiplier and overdrive). */
 export const STREAK_PERFECTS = 10;
 export const STREAK_BONUS = 1000;
@@ -101,8 +113,6 @@ export interface RunInput {
   /** Overdrive was pressed since the last update. */
   overdrivePressed?: boolean;
 }
-
-export type BeatQuality = 'perfect' | 'good' | 'miss';
 
 /** What the player did that is judged against the beat. */
 export type BeatAction = 'takeoff' | 'land' | 'dash' | 'slam';
@@ -178,17 +188,15 @@ export interface Rescue {
   surface: number;
 }
 
-export type Rank = 'S' | 'A' | 'B' | 'C';
-
 /**
  * The ranks, best first: the least timing ((perfects + half the goods) / judged actions)
- * and the most deaths each allows. C is finishing.
+ * and the most deaths (`faults`) each allows. C is finishing.
  */
-export const RANKS: readonly { rank: Rank; timing: number; deaths: number }[] = [
-  { rank: 'S', timing: 0.85, deaths: 0 },
-  { rank: 'A', timing: 0.7, deaths: 2 },
-  { rank: 'B', timing: 0.5, deaths: Infinity },
-  { rank: 'C', timing: 0, deaths: Infinity },
+export const RANKS: readonly RankRule[] = [
+  { rank: 'S', timing: 0.85, faults: 0 },
+  { rank: 'A', timing: 0.7, faults: 2 },
+  { rank: 'B', timing: 0.5, faults: Infinity },
+  { rank: 'C', timing: 0, faults: Infinity },
 ];
 
 export interface RunResults {
@@ -213,8 +221,7 @@ export interface RunResults {
 }
 
 export function rankOf(timing: number | null, deaths: number): Rank {
-  const t = timing ?? 0;
-  return RANKS.find((r) => t >= r.timing && deaths <= r.deaths)?.rank ?? 'C';
+  return rankAgainst(RANKS, timing, deaths);
 }
 
 /**
@@ -240,39 +247,6 @@ export function checkpointsOf(level: PlatformerLevel, sections: Section[]): Chec
     if (best) points.push({ time, x, y: best.top, surface: best.surface });
   }
   return points.sort((a, b) => a.time - b.time);
-}
-
-/** Seconds from `t` to the nearest beat of the level's grid, at the tempo there. */
-export function offBeat(grid: Pick<TempoGrid, 'beats' | 'segments'>, t: number) {
-  const beats = beatAt(grid, t);
-  return Math.abs(beats - Math.round(beats)) * periodAt(grid, t);
-}
-
-/** Seconds from `t` to the nearest beat or eighth between beats, at the tempo there. */
-export function offGrid(grid: Pick<TempoGrid, 'beats' | 'segments'>, t: number) {
-  const eighths = beatAt(grid, t) * 2;
-  return (Math.abs(eighths - Math.round(eighths)) * periodAt(grid, t)) / 2;
-}
-
-/** How an action at `t` is judged: against the nearest beat or eighth. */
-export function judgeAt(grid: Pick<TempoGrid, 'beats' | 'segments'>, t: number): BeatQuality {
-  const eighth = periodAt(grid, t) / 2;
-  const off = offGrid(grid, t);
-  if (off <= Math.min(PERFECT_WINDOW, PERFECT_SHARE * eighth)) return 'perfect';
-  if (off <= Math.min(GOOD_WINDOW, GOOD_SHARE * eighth)) return 'good';
-  return 'miss';
-}
-
-/** Seconds from `t` to the nearest of the sorted `times`, or Infinity when there are none. */
-function nearest(times: readonly number[], t: number): number {
-  const i = lastAtOrBefore(times, t);
-  const before = i >= 0 ? t - times[i]! : Infinity;
-  const after = i + 1 < times.length ? times[i + 1]! - t : Infinity;
-  return Math.min(before, after);
-}
-
-export function multiplierOf(combo: number): number {
-  return Math.min(MAX_MULTIPLIER, 1 + Math.floor(combo / COMBO_STEP));
 }
 
 /** The kicks and snares strong enough to make accents, from the level map's events. */
@@ -502,7 +476,7 @@ export class PlatformerRun {
     for (const c of this.#score.collected) pickups += c;
     const { perfect, good, miss, overdrives, saves } = this.#counts;
     const judged = perfect + good + miss;
-    const timing = judged > 0 ? (perfect + good / 2) / judged : null;
+    const timing = timingOf(perfect, good, miss);
     return {
       score: this.#score.score,
       rank: rankOf(timing, this.deaths),
