@@ -39,6 +39,7 @@ export function testLevel(
     gates: [],
     pickups: [],
     chunks: [],
+    obstacles: [],
     lessons: [],
     start,
     finishX: speed * duration + ANCHOR_X,

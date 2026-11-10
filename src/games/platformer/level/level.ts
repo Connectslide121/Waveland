@@ -91,15 +91,47 @@ export type ChunkKind =
   | 'calm'
   | 'gap'
   | 'dash-gap'
+  | 'stop'
   | 'gate'
   | 'overhang'
+  | 'stairs'
   | 'eq'
   | 'bridge'
   | 'spikes'
   | 'drop'
   | 'run-out';
 
-/** What each chunk kind needs beyond a jump. */
+/**
+ * What an obstacle is, by the musical moment it comes from (the grammar in
+ * `generate.ts`): a pit over a held sound, a pit over a stop, a gap on a kick, a bridge
+ * on a snare, a dash gate on an accent, spikes on a syncopation, a low ceiling to slam
+ * under on a heavy kick, steps on a fill, equalisers on the bass, a drop's staircase.
+ */
+export type ObstacleKind =
+  'held' | 'stop' | 'kick' | 'bridge' | 'gate' | 'spikes' | 'slam' | 'stairs' | 'eq' | 'drop';
+
+/** One obstacle and why it is there. */
+export interface Obstacle {
+  kind: ObstacleKind;
+  /** Its musical moment: the hit, the held sound's start, the stop, the fill's first hit. */
+  time: number;
+  /** When the player is past it. */
+  end: number;
+  x0: number;
+  x1: number;
+  /** What it is, in words: "Dash pit". */
+  label: string;
+  /** Its musical reason, in words: "held chord, 1.8 beats". */
+  reason: string;
+  /** Seconds in the air over it, for pits. */
+  air?: number;
+  /** The ability it takes beyond a jump. */
+  needs?: Ability;
+  /** The song's bar (from 1) it repeats, when the song plays that bar again here. */
+  repeats?: number;
+}
+
+/** What each chunk kind needs beyond a jump, at most. */
 export const CHUNK_NEEDS: Partial<Record<ChunkKind, Ability>> = {
   'dash-gap': 'dash',
   gate: 'dash',
@@ -151,6 +183,8 @@ export interface PlatformerLevel {
   gates: Gate[];
   pickups: Pickup[];
   chunks: Chunk[];
+  /** Every obstacle with its musical reason, sorted by time. */
+  obstacles: Obstacle[];
   /** The first obstacle needing each ability, for the HUD's one-line hint. */
   lessons: Lesson[];
   /** Where the player starts, at song time 0. */

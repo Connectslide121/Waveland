@@ -59,6 +59,8 @@ const CHUNK_NAMES: Record<ChunkKind, string> = {
   calm: 'Calm',
   gap: 'Gaps',
   'dash-gap': 'Dash gap',
+  stop: 'Stop',
+  stairs: 'Steps',
   gate: 'Gates',
   overhang: 'Overhang',
   eq: 'Equaliser',

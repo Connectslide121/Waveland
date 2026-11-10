@@ -167,6 +167,8 @@ function moments(
   },
 ) {
   const { downbeats, onsets, periodAt } = song;
+  /** Where something holds the loudness up between hits: the held chords. */
+  const holds: [number, number][] = [];
   const clear = (from: number, to: number, bands: (keyof typeof onsets)[]) => {
     for (const band of bands)
       onsets[band] = onsets[band].filter((o) => o.time < from || o.time >= to);
@@ -201,6 +203,7 @@ function moments(
     } else if (roll < 0.2) {
       // A held chord from the bar line: one hit, then nothing from the drums for a while.
       const length = rng.range(1.5, 2.5) * p;
+      holds.push([d, d + length]);
       clear(d + 0.03, d + length, ['low', 'mid']);
       clear(d - 0.03, d + 0.03, ['low']);
       add('low', d, 0.95);
@@ -217,4 +220,19 @@ function moments(
     }
   });
   for (const band of ['low', 'mid', 'high'] as const) onsets[band].sort((a, b) => a.time - b.time);
+
+  // Loudness dips between the hits, as drums die away, but for where a chord holds it.
+  const hits = [...onsets.low, ...onsets.mid, ...onsets.high]
+    .filter((o) => o.strength >= 0.3)
+    .map((o) => o.time)
+    .sort((a, b) => a - b);
+  const curve = song.energy;
+  let h = 0;
+  for (let k = 0; k < curve.values.length; k++) {
+    const t = k * curve.step;
+    while (h + 1 < hits.length && hits[h + 1]! <= t) h++;
+    if (holds.some(([from, to]) => t >= from && t < to)) continue;
+    const since = hits[h] !== undefined && hits[h]! <= t ? t - hits[h]! : Infinity;
+    curve.values[k] = curve.values[k]! * (0.5 + 0.5 * Math.exp(-since / 0.1));
+  }
 }
