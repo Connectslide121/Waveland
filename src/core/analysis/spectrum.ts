@@ -8,9 +8,13 @@ export const BAND_RANGES: Record<Band, readonly [number, number]> = {
   high: [6000, 16000],
 };
 
-/** About 46 ms per frame and 11.6 ms between frames, whatever the sample rate. */
+/**
+ * About 46 ms per frame (the power of two nearest it) and 11.6 ms between frames, whatever
+ * the sample rate: at 22.05 and 44.1 kHz a quarter of the frame, at 48 kHz (the browser's
+ * usual rate) 557 samples of a 2048-sample frame.
+ */
 const FRAME_SECONDS = 0.046;
-const HOPS_PER_FRAME = 4;
+const HOP_SECONDS = 256 / 22050;
 /** Log compression of magnitudes before the flux, so quiet hits still count. */
 const COMPRESSION = 1000;
 
@@ -25,8 +29,8 @@ export interface Frames {
   flux: Record<Band, Float32Array>;
 }
 
-function nextPowerOfTwo(n: number): number {
-  return 2 ** Math.ceil(Math.log2(n));
+function nearestPowerOfTwo(n: number): number {
+  return 2 ** Math.round(Math.log2(n));
 }
 
 /**
@@ -38,8 +42,8 @@ export function computeFrames(
   sampleRate: number,
   onProgress?: (done: number) => void,
 ): Frames {
-  const size = nextPowerOfTwo(sampleRate * FRAME_SECONDS);
-  const hop = size / HOPS_PER_FRAME;
+  const size = nearestPowerOfTwo(sampleRate * FRAME_SECONDS);
+  const hop = Math.max(1, Math.round(sampleRate * HOP_SECONDS));
   const count = Math.max(1, Math.ceil(samples.length / hop));
   const fft = new Fft(size);
   const window = hann(size);

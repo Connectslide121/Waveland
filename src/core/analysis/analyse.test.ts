@@ -135,6 +135,24 @@ describe('analyseSamples: tempo map', () => {
     expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
   });
 
+  it("reads the same at the browser's usual 48 kHz as at 22.05 kHz", () => {
+    const rate = 48000;
+    const song = tempoChangeSong(
+      [
+        { bpm: 120, bars: 12 },
+        { bpm: 150, bars: 16 },
+      ],
+      0.5,
+      rate,
+    );
+    const analysis = analyseSamples(song.samples, rate);
+
+    expect(analysis.segments.map((s) => Math.round(s.tempo))).toEqual([120, 150]);
+    expect(Math.abs(analysis.segments[1]!.start - song.changes[0]!)).toBeLessThanOrEqual(0.4);
+    for (const t of analysis.beats) expect(nearest(song.beats, t)).toBeLessThanOrEqual(TOLERANCE);
+    expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
+  });
+
   it('keeps a half-time feel at the same tempo as one segment', () => {
     const song = tempoChangeSong([
       { bpm: 150, bars: 12 },
