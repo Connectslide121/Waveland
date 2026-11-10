@@ -3,10 +3,12 @@ import {
   AudioClock,
   buildLevelMap,
   decodeSong,
+  getBindings,
   getLatencyMs,
   getShowFps,
   onSettingsChange,
   setEffectsLowered,
+  shortBinding,
   type AnalysedSong,
   type LevelMap,
 } from '../../core';
@@ -29,7 +31,7 @@ const DIFFICULTY = 'normal';
  */
 class PlatformerSession {
   readonly clock: AudioClock;
-  readonly controls = new Controls();
+  readonly controls: Controls;
   readonly overlay = document.createElement('div');
   readonly hud;
   readonly pause;
@@ -42,9 +44,16 @@ class PlatformerSession {
   #paused = false;
   /** Bumped by every seek, so a slow one finishing late doesn't clear a newer one. */
   #seekId = 0;
-  /** Settings: show the frame rate in the HUD. */
+  /** Settings: show the frame rate in the HUD, and the controls for the hints. */
   #showFps = getShowFps();
-  readonly #stopSettings = onSettingsChange(() => (this.#showFps = getShowFps()));
+  #bindings = getBindings();
+  readonly #stopSettings = onSettingsChange(() => {
+    this.#showFps = getShowFps();
+    this.#bindings = getBindings();
+    this.pause.refresh();
+  });
+  /** Abilities whose first obstacle the player has got past: their hint is done. */
+  readonly #learnt = new Set<string>();
   /** What the scene draws, filled in again every frame. */
   readonly #state: FrameState;
 
@@ -53,8 +62,11 @@ class PlatformerSession {
     readonly map: LevelMap,
     readonly level: PlatformerLevel,
     buffer: AudioBuffer,
+    /** Where the game is: mouse buttons play on it. */
+    surface: HTMLElement,
     private readonly exit: () => void,
   ) {
+    this.controls = new Controls(window, undefined, surface);
     this.clock = new AudioClock(buffer);
     this.clock.onEnded = () => this.run.finish();
     this.hud = createHud({
@@ -72,6 +84,7 @@ class PlatformerSession {
           onClose: () => (this.clock.latencyMs = getLatencyMs()),
         }),
       onQuit: () => this.exit(),
+      bindings: () => this.#bindings,
     });
     this.results = createResultsScreen(song.title, {
       onRetry: () => this.restart(),
@@ -158,6 +171,7 @@ class PlatformerSession {
       multiplier: this.run.multiplier,
       countIn,
       perf: this.#showFps && this.scene ? this.scene.monitor : null,
+      hint: this.#hint(time),
     });
     const state = this.#state;
     state.time = time;
@@ -177,6 +191,24 @@ class PlatformerSession {
     this.#stopSettings();
     setEffectsLowered(false);
     document.removeEventListener('visibilitychange', this.#hidden);
+  }
+
+  /**
+   * The one-line hint for an ability, from a bar before its first obstacle until the
+   * player is past it; once past it alive, never again this session.
+   */
+  #hint(time: number): string | null {
+    const bar = 4 * this.level.beatPeriod;
+    for (const lesson of this.level.lessons) {
+      if (this.#learnt.has(lesson.action)) continue;
+      if (this.run.phase === 'playing' && time > lesson.end) {
+        this.#learnt.add(lesson.action);
+        continue;
+      }
+      if (time >= lesson.time - bar && time <= lesson.end)
+        return `${shortBinding(this.#bindings[lesson.action])}: ${lesson.action}`;
+    }
+    return null;
   }
 
   #finish(): void {
@@ -217,7 +249,7 @@ export async function startPlatformer(
     generateLevelInWorker(map, DIFFICULTY),
     decodeSong(song),
   ]);
-  const session = new PlatformerSession(song, map, level, buffer, exit);
+  const session = new PlatformerSession(song, map, level, buffer, container, exit);
   // Effects lowered to keep frames smooth are said in Settings while the game runs.
   const scene = new PlatformerScene(level, map, session.frame, () => setEffectsLowered(true));
   session.scene = scene;

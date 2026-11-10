@@ -2,7 +2,6 @@ import type { Difficulty, SectionKind } from '../../../core';
 import {
   ANCHOR_X,
   EQ_EASE,
-  LOOKAHEAD,
   SPIKE_HEIGHT,
   SPIKE_MERCY,
   VIEW_WIDTH,
@@ -20,8 +19,9 @@ import {
  * eq: an equaliser column whose height follows the bass.
  * bridge: a thin slab over a pit, there only after snare hits.
  * ledge: a thin slab added to make a jump possible.
+ * overhang: a wall hanging from the sky down to `bottom`, to slam (or hop low) under.
  */
-export type SolidKind = 'ground' | 'step' | 'eq' | 'bridge' | 'ledge';
+export type SolidKind = 'ground' | 'step' | 'eq' | 'bridge' | 'ledge' | 'overhang';
 
 export interface Solid {
   kind: SolidKind;
@@ -29,6 +29,8 @@ export interface Solid {
   x1: number;
   /** Height of the top. For an equaliser, its height before its first key. */
   top: number;
+  /** Overhangs: the underside. Other solids reach down into the pit. */
+  bottom?: number;
   /** Equalisers: from each time on, the top eases to the matching height. */
   keys?: { times: number[]; tops: number[] };
   /** Bridges: the spans of song time they are there, [from, to]. */
@@ -52,8 +54,49 @@ export interface Pickup {
   time: number;
 }
 
+/**
+ * A dash gate: an orange barrier from its surface up into the sky, standing where the
+ * front of the anchored player is at `time` (a snare or an accent). Passing it without
+ * dashing is a death; dashing smashes through.
+ */
+export interface Gate {
+  x: number;
+  time: number;
+  /** The surface it stands on. */
+  top: number;
+}
+
+/** An ability the player needs, taught in an easy spot: the first obstacle that needs it. */
+export interface Lesson {
+  action: 'dash' | 'slam';
+  /** When the anchored player meets the obstacle, and when it is behind them. */
+  time: number;
+  end: number;
+}
+
+/** Abilities beyond jumping that an obstacle needs. */
+export type Ability = Lesson['action'];
+
 export type ChunkKind =
-  'run-in' | 'flat' | 'calm' | 'gap' | 'eq' | 'bridge' | 'spikes' | 'drop' | 'run-out';
+  | 'run-in'
+  | 'flat'
+  | 'calm'
+  | 'gap'
+  | 'dash-gap'
+  | 'gate'
+  | 'overhang'
+  | 'eq'
+  | 'bridge'
+  | 'spikes'
+  | 'drop'
+  | 'run-out';
+
+/** What each chunk kind needs beyond a jump. */
+export const CHUNK_NEEDS: Partial<Record<ChunkKind, Ability>> = {
+  'dash-gap': 'dash',
+  gate: 'dash',
+  overhang: 'slam',
+};
 
 /** A stretch of the level, a bar or two long, built from one idea. */
 export interface Chunk {
@@ -83,17 +126,31 @@ export interface PlatformerLevel {
   solids: Solid[];
   /** Sorted by `x0`. */
   spikes: SpikeStrip[];
+  /** Sorted by `x`. */
+  gates: Gate[];
   pickups: Pickup[];
   chunks: Chunk[];
+  /** The first obstacle needing each ability, for the HUD's one-line hint. */
+  lessons: Lesson[];
   /** Where the player starts, at song time 0. */
   start: { x: number; y: number };
   /** Surviving until the song ends finishes the level; this is where the player is then. */
   finishX: number;
 }
 
-/** Where a player exactly in time with the music is at song time `t`. */
+/**
+ * Where the player is at song time `t`: the left edge of their box, always at the view's
+ * anchor. Everything in the level is placed with it, and the physics takes the player's
+ * x from it, so nothing else works out positions from the speed. A steady scroll today;
+ * a function of the level so it can follow the tempo later.
+ */
 export function xAtTime(level: Pick<PlatformerLevel, 'speed'>, t: number): number {
   return level.speed * t + ANCHOR_X;
+}
+
+/** The camera's left edge at song time `t`. */
+export function cameraAt(level: Pick<PlatformerLevel, 'speed'>, t: number): number {
+  return xAtTime(level, t) - ANCHOR_X;
 }
 
 /** Top of a solid at time `t`, or null when it isn't there. */
@@ -136,40 +193,70 @@ export function lowerBound(items: { x0: number }[], x: number): number {
   return lo;
 }
 
+/** No surface of a generated level is lower than this. */
+export const LOWEST_TOP = 0;
+
 /** The longest a solid gets: longer ground is split, so lookups stay local. */
 export const MAX_SOLID_WIDTH = 480;
 
 /** The level as the physics sees it. The generator grows it a chunk at a time. */
 export class LevelWorld implements PhysicsWorld {
-  constructor(readonly level: PlatformerLevel) {}
+  #lowest = Infinity;
 
-  /** Add solids and spikes past everything already there, splitting long ground. */
-  add(solids: Solid[], spikes: SpikeStrip[] = []): void {
-    for (const s of [...solids].sort((a, b) => a.x0 - b.x0)) {
-      if (s.x1 - s.x0 <= MAX_SOLID_WIDTH) {
-        this.level.solids.push(s);
+  constructor(readonly level: PlatformerLevel) {
+    for (const s of level.solids)
+      this.#lowest = Math.min(this.#lowest, s.top, ...(s.keys ? s.keys.tops : []));
+  }
+
+  /**
+   * The lowest any surface's top ever is: `LOWEST_TOP`, or lower in a hand-built level.
+   * Feet more than a step below it can never land again, so the validator stops
+   * following them. Never higher than `LOWEST_TOP`, so a level being built a stretch at a
+   * time is searched just as the finished one is.
+   */
+  get lowestTop(): number {
+    return Math.min(LOWEST_TOP, this.#lowest);
+  }
+
+  /** Add solids, spikes and gates past everything already there, splitting long ground. */
+  add(solids: Solid[], spikes: SpikeStrip[] = [], gates: Gate[] = []): void {
+    // Split first, then sort: an overhang overlaps the ground under it.
+    const pieces: Solid[] = [];
+    for (const s of solids) {
+      const count = Math.ceil((s.x1 - s.x0) / MAX_SOLID_WIDTH);
+      if (count <= 1) {
+        pieces.push(s);
         continue;
       }
-      const pieces = Math.ceil((s.x1 - s.x0) / MAX_SOLID_WIDTH);
-      const width = (s.x1 - s.x0) / pieces;
-      for (let i = 0; i < pieces; i++)
-        this.level.solids.push({
+      const width = (s.x1 - s.x0) / count;
+      for (let i = 0; i < count; i++)
+        pieces.push({
           ...s,
           x0: s.x0 + i * width,
-          x1: i === pieces - 1 ? s.x1 : s.x0 + (i + 1) * width,
+          x1: i === count - 1 ? s.x1 : s.x0 + (i + 1) * width,
         });
     }
+    this.level.solids.push(...pieces.sort((a, b) => a.x0 - b.x0));
+    for (const s of pieces)
+      this.#lowest = Math.min(this.#lowest, s.top, ...(s.keys ? s.keys.tops : []));
     this.level.spikes.push(...[...spikes].sort((a, b) => a.x0 - b.x0));
+    this.level.gates.push(...[...gates].sort((a, b) => a.x - b.x));
   }
 
   /** How much is there, to take a tentative chunk away again with `truncate`. */
-  mark(): { solids: number; spikes: number } {
-    return { solids: this.level.solids.length, spikes: this.level.spikes.length };
+  mark(): { solids: number; spikes: number; gates: number } {
+    const { solids, spikes, gates } = this.level;
+    return { solids: solids.length, spikes: spikes.length, gates: gates.length };
   }
 
-  truncate(mark: { solids: number; spikes: number }): void {
+  truncate(mark: { solids: number; spikes: number; gates: number }): void {
     this.level.solids.length = mark.solids;
     this.level.spikes.length = mark.spikes;
+    this.level.gates.length = mark.gates;
+  }
+
+  xAt(t: number): number {
+    return xAtTime(this.level, t);
   }
 
   /** Reused by `solidsBetween`, which runs several times every physics step. */
@@ -189,6 +276,10 @@ export class LevelWorld implements PhysicsWorld {
 
   topAt(solid: number, t: number): number | null {
     return solidTop(this.level.solids[solid]!, t);
+  }
+
+  bottomOf(solid: number): number {
+    return this.level.solids[solid]!.bottom ?? -Infinity;
   }
 
   isSlab(solid: number): boolean {
@@ -212,11 +303,16 @@ export class LevelWorld implements PhysicsWorld {
     return false;
   }
 
-  leftEdge(t: number): number {
-    return this.level.speed * t;
-  }
-
-  rightEdge(t: number): number {
-    return this.level.speed * t + VIEW_WIDTH - LOOKAHEAD;
+  gateBetween(x0: number, x1: number): boolean {
+    const gates = this.level.gates;
+    // The first gate past x0.
+    let lo = 0;
+    let hi = gates.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (gates[mid]!.x <= x0) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < gates.length && gates[lo]!.x <= x1;
   }
 }

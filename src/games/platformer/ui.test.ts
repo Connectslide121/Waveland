@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createHud, createPauseMenu, createResultsScreen, formatAccuracy, formatScore } from './ui';
+import { DEFAULT_BINDINGS } from '../../core';
+import {
+  controlsList,
+  createHud,
+  createPauseMenu,
+  createResultsScreen,
+  formatAccuracy,
+  formatScore,
+} from './ui';
 
 describe('formatting', () => {
   it('shows the score as six digits in two groups, and grows past them', () => {
@@ -35,6 +43,7 @@ describe('createHud', () => {
       multiplier: 2,
       countIn: null,
       perf: null,
+      hint: null,
     });
     const dots = [...hud.element.querySelectorAll('.pf-hud__beats i')];
     expect(dots.map((d) => d.classList.contains('on'))).toEqual([false, false, true, false]);
@@ -53,6 +62,7 @@ describe('createHud', () => {
       multiplier: 1,
       countIn: 3,
       perf: null,
+      hint: null,
     });
     const count = hud.element.querySelector('.pf-hud__count')!;
     expect(count.textContent).toBe('3');
@@ -62,12 +72,45 @@ describe('createHud', () => {
   it('shows the frame rate only when asked', () => {
     const perf = hud.element.querySelector<HTMLElement>('.pf-hud__perf')!;
     expect(perf.hidden).toBe(true);
-    const state = { time: 1, beatInBar: 0, score: 0, combo: 0, multiplier: 1, countIn: null };
+    const state = {
+      time: 1,
+      beatInBar: 0,
+      score: 0,
+      combo: 0,
+      multiplier: 1,
+      countIn: null,
+      hint: null,
+    };
     hud.update({ ...state, perf: { fps: 59.6, cpuMs: 4.24 } });
     expect(perf.hidden).toBe(false);
     expect(perf.textContent).toBe('60 FPS · 4.2 MS');
     hud.update({ ...state, perf: null });
     expect(perf.hidden).toBe(true);
+  });
+
+  it('shows a first-time hint, keeping its text while it fades', () => {
+    const hint = hud.element.querySelector<HTMLElement>('.pf-hud__hint')!;
+    const state = { time: 1, beatInBar: 0, score: 0, combo: 0, multiplier: 1, countIn: null };
+    hud.update({ ...state, perf: null, hint: 'Right click / Shift: dash' });
+    expect(hint.textContent).toBe('Right click / Shift: dash');
+    expect(hint.classList.contains('on')).toBe(true);
+    hud.update({ ...state, perf: null, hint: null });
+    expect(hint.classList.contains('on')).toBe(false);
+    expect(hint.textContent).toBe('Right click / Shift: dash');
+  });
+});
+
+describe('controlsList', () => {
+  it('lists every action with its bindings, and the fixed pause', () => {
+    const rows = [...controlsList(DEFAULT_BINDINGS).querySelectorAll('.pf-controls__row')].map(
+      (r) => [r.querySelector('dt')!.textContent, r.querySelector('dd')!.textContent],
+    );
+    expect(rows).toEqual([
+      ['Jump', 'Space · W · ↑ · A'],
+      ['Dash', 'Shift · J · X · Right click · X · RB'],
+      ['Slam', 'S · ↓ · Left click · B · D-pad ↓'],
+      ['Pause', 'Esc · Start'],
+    ]);
   });
 });
 
@@ -78,8 +121,10 @@ describe('createPauseMenu', () => {
       onRestart: vi.fn(),
       onSettings: vi.fn(),
       onQuit: vi.fn(),
+      bindings: () => DEFAULT_BINDINGS,
     };
     const menu = createPauseMenu(handlers);
+    expect(menu.element.querySelector('.pf-controls')!.textContent).toContain('Right click');
     document.body.append(menu.element);
     expect(menu.open).toBe(false);
     menu.show();

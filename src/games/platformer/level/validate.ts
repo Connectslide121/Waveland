@@ -1,8 +1,11 @@
 import {
+  canDash,
   canJump,
+  canSlam,
+  JUMP_CUT_VELOCITY,
   PHYSICS_DT,
-  PLAYER_WIDTH,
   startState,
+  STEP_UP,
   stepPlayer,
   type PlayerInput,
   type PlayerState,
@@ -14,21 +17,35 @@ import { LevelWorld, type PlatformerLevel } from './level';
  * inputs, run through the same `stepPlayer` the game uses, against the level's moving
  * parts at the song time they happen.
  *
- * Every few physics steps each candidate player tries running left, standing and running
- * right, each with and without a jump. Candidates that end up in the same place are
- * merged, and the rest are thinned evenly by position, so the search stays small. That
- * only ever misses ways through, never invents one: a level it passes is finishable, and
- * one it fails is made easier.
+ * The player's x comes from song time, so every candidate at a moment is at the same x:
+ * a candidate is only its height, speed, ground, dash and slam. Every few physics steps
+ * each one tries doing nothing, jumping, letting go of jump (a lower jump), dashing and
+ * slamming. Candidates in the same state are merged and the rest thinned evenly by
+ * height, so the search stays small. That only ever misses ways through, never invents
+ * one: a level it passes is finishable, and one it fails is made easier.
  */
 
 /** Physics steps between decisions: the player changes input up to 20 times a second. */
 export const DECISION_STEPS = 3;
-/** Candidates kept on the ground, and in the air. */
-const KEEP_GROUNDED = 24;
-const KEEP_AIRBORNE = 24;
+/** Candidates kept on the ground, and in each kind of being in the air. */
+const KEEP_GROUNDED = 16;
+const KEEP_AIRBORNE = 12;
 
-const INPUTS: PlayerInput[] = [];
-for (const dir of [1, 0, -1] as const) for (const jump of [false, true]) INPUTS.push({ dir, jump });
+const NOTHING: PlayerInput = { jump: false };
+const JUMP: PlayerInput = { jump: true };
+const RELEASE: PlayerInput = { jump: false, release: true };
+const DASH: PlayerInput = { jump: false, dash: true };
+const SLAM: PlayerInput = { jump: false, slam: true };
+
+/** What a candidate can do at a decision: only what changes something. */
+function choices(p: PlayerState): PlayerInput[] {
+  const out = [NOTHING];
+  if (canJump(p)) out.push(JUMP);
+  if (p.jumped && p.vy > JUMP_CUT_VELOCITY) out.push(RELEASE);
+  if (canDash(p)) out.push(DASH);
+  if (canSlam(p)) out.push(SLAM);
+  return out;
+}
 
 /** The step a song time falls on. */
 export function stepAt(time: number): number {
@@ -36,15 +53,23 @@ export function stepAt(time: number): number {
 }
 
 function keyOf(p: PlayerState): string {
-  const x = Math.round(p.x / 6);
-  if (p.grounded) return `g${p.surface}:${x}`;
-  return `a${x}:${Math.round(p.y / 12)}:${Math.round(p.vy / 150)}:${canJump(p) ? 1 : 0}`;
+  const dash = `${p.dashReady ? 1 : 0}${Math.round(p.dashLeft / PHYSICS_DT)}`;
+  if (p.grounded) return `g${p.surface}:${dash}`;
+  const flags = `${canJump(p) ? 1 : 0}${p.jumped ? 1 : 0}${p.slamming ? 1 : 0}`;
+  return `a${Math.round(p.y / 4)}:${Math.round(p.vy / 80)}:${flags}:${dash}`;
 }
 
-/** Up to `n` of the states, evenly spread from left to right. */
+/** On the ground, or in the air with a dash ready, dashing, spent, or slamming. */
+function groupOf(p: PlayerState): string {
+  if (p.grounded) return 'ground';
+  if (p.slamming) return 'slam';
+  return p.dashLeft > 0 ? 'dashing' : p.dashReady ? 'ready' : 'spent';
+}
+
+/** Up to `n` of the states, evenly spread from low to high. */
 function spread(states: PlayerState[], n: number): PlayerState[] {
   if (states.length <= n) return states;
-  states.sort((a, b) => a.x - b.x || a.y - b.y);
+  states.sort((a, b) => a.y - b.y || a.vy - b.vy);
   const out: PlayerState[] = [];
   for (let i = 0; i < n; i++) out.push(states[Math.floor(((i + 0.5) * states.length) / n)]!);
   return out;
@@ -56,7 +81,7 @@ export class Explorer {
     readonly world: LevelWorld,
     public states: PlayerState[],
     public step: number,
-    /** Where the furthest candidate got, and how the last ones died. */
+    /** Where the last surviving candidates got. */
     public furthest = { x: 0, time: 0 },
   ) {}
 
@@ -64,7 +89,7 @@ export class Explorer {
     const { x, y } = world.level.start;
     const first = startState(x, y);
     const support = world.solidsBetween(x, x + 1)[0];
-    return new Explorer(world, [{ ...first, surface: support ?? -1 }], 0);
+    return new Explorer(world, [{ ...first, surface: support ?? -1 }], 0, { x, time: 0 });
   }
 
   clone(): Explorer {
@@ -79,45 +104,38 @@ export class Explorer {
     return this.states.some((s) => s.grounded);
   }
 
-  /**
-   * Search on until `untilStep` (or until no candidate is left). True when one survives.
-   * Candidates that reach past `limitX`, where the level isn't built yet, are dropped:
-   * so every candidate kept is one the finished level really allows.
-   */
-  run(untilStep: number, limitX = Infinity): boolean {
+  /** Search on until `untilStep` (or until no candidate is left). True when one survives. */
+  run(untilStep: number): boolean {
     while (this.step < untilStep && this.states.length > 0) {
       const steps = Math.min(DECISION_STEPS, untilStep - this.step);
       const seen = new Map<string, PlayerState>();
+      const floor = this.world.lowestTop - STEP_UP - 1;
       for (const state of this.states) {
-        for (const input of INPUTS) {
-          if (input.jump && !canJump(state)) continue;
-          // Standing still covers waiting on the ground; running back only helps in the air.
-          if (input.dir < 0 && state.grounded) continue;
+        for (const input of choices(state)) {
           let p = state;
-          for (let i = 1; i <= steps && p.alive; i++) {
-            // The jump is pressed on the first step only.
-            const held = i === 1 ? input : { dir: input.dir, jump: false };
-            p = stepPlayer(p, held, this.world, (this.step + i) * PHYSICS_DT);
-          }
-          if (!p.alive || p.x + PLAYER_WIDTH > limitX) continue;
+          // The press is on the first step only.
+          for (let i = 1; i <= steps && p.alive; i++)
+            p = stepPlayer(p, i === 1 ? input : NOTHING, this.world, (this.step + i) * PHYSICS_DT);
+          if (!p.alive || p.y < floor) continue;
           const key = keyOf(p);
           if (!seen.has(key)) seen.set(key, p);
         }
       }
       this.step += steps;
-      const next = [...seen.values()];
-      this.states = [
-        ...spread(
-          next.filter((s) => s.grounded),
-          KEEP_GROUNDED,
-        ),
-        ...spread(
-          next.filter((s) => !s.grounded),
-          KEEP_AIRBORNE,
-        ),
-      ];
-      for (const s of this.states)
-        if (s.x > this.furthest.x) this.furthest = { x: s.x, time: this.step * PHYSICS_DT };
+      // Thinned per kind of candidate, so the ones with a dash still to use aren't crowded
+      // out by the many that have spent theirs.
+      const groups = new Map<string, PlayerState[]>();
+      for (const p of seen.values()) {
+        const kind = groupOf(p);
+        const group = groups.get(kind);
+        if (group) group.push(p);
+        else groups.set(kind, [p]);
+      }
+      this.states = [];
+      for (const [kind, group] of groups)
+        this.states.push(...spread(group, kind === 'ground' ? KEEP_GROUNDED : KEEP_AIRBORNE));
+      if (this.states.length > 0)
+        this.furthest = { x: this.states[0]!.x, time: this.step * PHYSICS_DT };
     }
     return this.states.length > 0;
   }
@@ -137,7 +155,7 @@ export function validateLevel(level: PlatformerLevel): Validation {
   const ok = explorer.run(stepAt(level.duration));
   return {
     ok,
-    reached: ok ? level.duration : explorer.step * PHYSICS_DT,
+    reached: ok ? level.duration : explorer.furthest.time,
     furthestX: explorer.furthest.x,
   };
 }

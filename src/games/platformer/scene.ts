@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { getEffects, onSettingsChange, type LevelMap } from '../../core';
 import { palette, paletteNumbers } from '../../theme/palette';
 import {
+  cameraAt,
   lowerBound,
   MAX_SOLID_WIDTH,
   solidTop,
@@ -12,6 +13,7 @@ import {
 import { FrameMonitor, QUALITY, type Quality } from './perf';
 import {
   ANCHOR_X,
+  DASH_TIME,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
   SPIKE_HEIGHT,
@@ -86,6 +88,12 @@ const BLOOM_THRESHOLD = 'WaveBloomThreshold';
 const BLOOM_RADIUS = 3;
 /** Pickups are found by song time; this much room either way covers the gems' offsets. */
 const PICKUP_MARGIN = 200;
+/** A dash leaves this many afterimages, and speed lines behind the cube. */
+const AFTERIMAGES = 4;
+const SPEED_LINES = 6;
+/** A smashed gate's pieces fly for this long, and a slam's shockwave spreads this long. */
+const SMASH_TIME = 0.4;
+const SHOCK_TIME = 0.45;
 
 /** Turns world heights (up from the base line) into the view's y (down from its top). */
 const sy = (y: number) => WORLD_TOP - y;
@@ -104,8 +112,15 @@ function joins(a: Solid, b: Solid | undefined): boolean {
     !b.keys &&
     !a.keys &&
     b.top === a.top &&
+    b.bottom === a.bottom &&
     (Math.abs(b.x1 - a.x0) < 0.5 || Math.abs(b.x0 - a.x1) < 0.5)
   );
+}
+
+/** True when any of the few solids before (`step` -1) or after (+1) `i` joins it: an overhang can sit between two pieces of ground. */
+function joinsNear(solids: Solid[], i: number, step: 1 | -1): boolean {
+  for (let k = 1; k <= 3; k++) if (joins(solids[i]!, solids[i + step * k])) return true;
+  return false;
 }
 
 /** Solids that never move or vanish, drawn once into the tiles. */
@@ -216,6 +231,8 @@ export class PlatformerScene extends Phaser.Scene {
   #offsetY = 0;
   /** Where the player died, for the shards. */
   #death = { x: 0, y: 0, shown: false };
+  /** The last slam's shockwave: where, when, and whether it landed on the beat. */
+  #shock = { x: 0, y: 0, at: -Infinity, onBeat: false };
   /** The last landing and drop beat seen, to burst once for each. */
   #landingSeen = -Infinity;
   #dropBeatSeen = -1;
@@ -252,8 +269,8 @@ export class PlatformerScene extends Phaser.Scene {
     this.#joinedLeft = new Uint8Array(solids.length);
     this.#joinedRight = new Uint8Array(solids.length);
     for (let i = 0; i < solids.length; i++) {
-      this.#joinedLeft[i] = joins(solids[i]!, solids[i - 1]) ? 1 : 0;
-      this.#joinedRight[i] = joins(solids[i]!, solids[i + 1]) ? 1 : 0;
+      this.#joinedLeft[i] = joinsNear(solids, i, -1) ? 1 : 0;
+      this.#joinedRight[i] = joinsNear(solids, i, 1) ? 1 : 0;
     }
     this.monitor = new FrameMonitor((level) => {
       this.#setQuality(QUALITY[level]!);
@@ -372,15 +389,27 @@ export class PlatformerScene extends Phaser.Scene {
         this.#death.x = e.x + PLAYER_WIDTH / 2;
         this.#death.y = e.y + PLAYER_HEIGHT / 2;
         this.#death.shown = true;
-      } else if (e.type === 'land' && e.quality !== 'miss')
-        this.#float(
-          `${e.quality === 'perfect' ? 'PERFECT' : 'GOOD'} +${e.points}`,
-          e.x,
-          e.y + PLAYER_HEIGHT + 24,
-          time,
-          e.quality === 'perfect' ? palette.magenta : palette.ink,
-        );
-      else if (e.type === 'pickup') {
+      } else if (e.type === 'beat') {
+        if (e.action === 'slam') {
+          const s = this.#shock;
+          s.x = e.x;
+          s.y = e.y;
+          s.at = time;
+          s.onBeat = e.quality !== 'miss';
+        }
+        if (e.quality !== 'miss') {
+          // A slam on the beat is an accent; the rest say how close they were.
+          const word =
+            e.action === 'slam' ? 'ACCENT' : e.quality === 'perfect' ? 'PERFECT' : 'GOOD';
+          this.#float(
+            `${word} +${e.points}`,
+            e.x,
+            e.y + PLAYER_HEIGHT + 24,
+            time,
+            e.quality === 'perfect' || e.action === 'slam' ? palette.magenta : palette.ink,
+          );
+        }
+      } else if (e.type === 'pickup') {
         const k = run.level.pickups[e.index]!;
         this.#float(`+${e.points}`, k.x, k.y + 18, time, palette.magenta);
         this.#burst('spark', k.x, k.y, time);
@@ -391,6 +420,7 @@ export class PlatformerScene extends Phaser.Scene {
   /** Forget effects tied to song times that are being played again. */
   reset(): void {
     this.#death.shown = false;
+    this.#shock.at = -Infinity;
     for (const f of this.#floaters) {
       f.at = -Infinity;
       f.text.setVisible(false);
@@ -536,7 +566,7 @@ export class PlatformerScene extends Phaser.Scene {
     const { time, run } = state;
     const level = this.level;
     // The camera's left edge, shaken for a moment after a death.
-    let camera = level.speed * time;
+    let camera = cameraAt(level, time);
     let shakeY = 0;
     const sinceDeath = run.phase === 'dying' ? time - run.diedAt : Infinity;
     if (sinceDeath < 0.3 && !this.#reduced) {
@@ -586,10 +616,13 @@ export class PlatformerScene extends Phaser.Scene {
     for (let i = this.#dotsShown; i < dots.length && dots[i]!.visible; i++)
       dots[i]!.setVisible(false);
     this.#drawSpikes(g, time, x0, x1);
+    this.#drawGates(g, run, state, x0, x1);
     this.#drawPickups(g, run, state, x0, x1);
 
     const fx = this.#fx.clear();
     this.#drawTrail(fx, run, time);
+    this.#drawDash(fx, run, time);
+    this.#drawSlam(fx, run, time);
     this.#drawBursts(fx, time);
     if (this.#death.shown && run.phase === 'dying') this.#drawShards(fx, sinceDeath);
     this.#placePlayer(run, time, state.beatPhase);
@@ -914,6 +947,10 @@ export class PlatformerScene extends Phaser.Scene {
     }
     const joinedLeft = this.#joinedLeft[index] === 1;
     const joinedRight = this.#joinedRight[index] === 1;
+    if (s.bottom !== undefined) {
+      this.#drawOverhang(g, s, joinedLeft, joinedRight);
+      return;
+    }
     // The drop's staircase in the drop colour; the rest is the world's violet.
     const color = s.kind === 'step' ? paletteNumbers.magenta : paletteNumbers.violet;
     const y = sy(top);
@@ -961,6 +998,113 @@ export class PlatformerScene extends Phaser.Scene {
       insetB - insetA,
       1.5,
     );
+  }
+
+  /**
+   * An overhang: the world's violet hanging from the sky, fading upward, with its bright
+   * edge underneath (where the cube passes) and an orange face where it would hit.
+   */
+  #drawOverhang(
+    g: Phaser.GameObjects.Graphics,
+    s: Solid,
+    joinedLeft: boolean,
+    joinedRight: boolean,
+  ): void {
+    const color = paletteNumbers.violet;
+    const top = sy(WORLD_TOP);
+    const y = sy(s.bottom!);
+    const a = joinedLeft ? s.x0 : s.x0 + 1;
+    const b = joinedRight ? s.x1 : s.x1 - 1;
+    g.fillGradientStyle(color, color, color, color, 0, 0, 0.32, 0.32).fillRect(
+      a,
+      top,
+      b - a,
+      y - top,
+    );
+    g.fillStyle(color, 0.22).fillRoundedRect(
+      joinedLeft ? s.x0 : s.x0 - 2,
+      y - 9,
+      (joinedRight ? s.x1 : s.x1 + 2) - (joinedLeft ? s.x0 : s.x0 - 2),
+      16,
+      this.#cornersFor(5, joinedLeft, joinedRight),
+    );
+    g.fillStyle(color, 1).fillRoundedRect(
+      a,
+      y - 6,
+      b - a,
+      6,
+      this.#cornersFor(2, joinedLeft, joinedRight),
+    );
+    g.fillStyle(paletteNumbers.flare, 0.35).fillRect(
+      joinedLeft ? s.x0 : s.x0 + 4,
+      y - 2.5,
+      (joinedRight ? s.x1 : s.x1 - 4) - (joinedLeft ? s.x0 : s.x0 + 4),
+      1.5,
+    );
+    if (!joinedLeft) {
+      // The face that kills: orange, brightest at the bottom where a jump would meet it.
+      const face = paletteNumbers.orange;
+      g.fillGradientStyle(face, face, face, face, 0, 0.25, 0, 0.25).fillRect(
+        s.x0 - 3,
+        top,
+        6,
+        y - top,
+      );
+      g.lineStyle(2, face, 0.9).lineBetween(s.x0 + 1, y - 80, s.x0 + 1, y);
+    }
+  }
+
+  /**
+   * Dash gates: orange barriers from their ground into the sky, humming on the beat. Once
+   * the player has dashed through one, its pieces fly on ahead for a moment, then it is
+   * gone; a death at it leaves it standing.
+   */
+  #drawGates(
+    g: Phaser.GameObjects.Graphics,
+    run: PlatformerRun,
+    { time, beatPhase }: FrameState,
+    x0: number,
+    x1: number,
+  ): void {
+    const gates = this.level.gates;
+    const orange = paletteNumbers.orange;
+    const pulse = Math.max(0, 1 - beatPhase * 2.5);
+    const top = sy(WORLD_TOP);
+    let lo = 0;
+    for (let hi = gates.length; lo < hi;) {
+      const mid = (lo + hi) >> 1;
+      if (gates[mid]!.x < x0) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let i = lo; i < gates.length; i++) {
+      const gate = gates[i]!;
+      if (gate.x > x1) break;
+      const base = sy(gate.top);
+      const stopped =
+        run.phase === 'dying' &&
+        run.deathCause === 'gate' &&
+        Math.abs(run.diedAt - gate.time) < 0.1;
+      const age = time - gate.time;
+      if (age >= 0 && !stopped) {
+        if (age > SMASH_TIME) continue;
+        // Smashed: bars flying forward and up, fading.
+        const k = age / SMASH_TIME;
+        for (let p = 0; p < 9; p++) {
+          const r = hash(gate.time * 100, p);
+          const px = gate.x + (120 + 260 * r) * age;
+          const py = base - 20 - p * 22 - (80 * r - 40) * age * 4 + 300 * age * age;
+          g.fillStyle(orange, 1 - k).fillRect(px - 2, py - 7, 4, 14);
+        }
+        continue;
+      }
+      g.fillStyle(orange, 0.14 + 0.12 * pulse).fillRect(gate.x - 9, top, 18, base - top);
+      g.fillStyle(orange, 0.35).fillRect(gate.x - 4, top, 8, base - top);
+      // Bars across, like a force field.
+      for (let y = base - 10; y > top; y -= 18)
+        g.fillStyle(orange, 0.55 + 0.4 * pulse).fillRect(gate.x - 7, y - 2, 14, 3);
+      g.fillStyle(paletteNumbers.flare, 0.7).fillRect(gate.x - 1, top, 2, base - top);
+      g.fillStyle(orange, 1).fillRoundedRect(gate.x - 10, base - 6, 20, 6, 2);
+    }
   }
 
   /** A step's beat flare, over its cap drawn at rest in the tiles. */
@@ -1146,6 +1290,13 @@ export class PlatformerScene extends Phaser.Scene {
       const k = 1 - sinceLanding / SQUASH_TIME;
       sx = 1 + 0.3 * k;
       sY = 1 - 0.25 * k;
+    } else if (p.dashLeft > 0) {
+      // Dashing: long and flat, a burst forward.
+      sx = 1.28;
+      sY = 0.82;
+    } else if (p.slamming) {
+      sx = 0.78;
+      sY = 1.26;
     } else if (!p.grounded && p.vy > 0) {
       const k = Math.min(1, p.vy / 820);
       sx = 1 - 0.14 * k;
@@ -1161,16 +1312,90 @@ export class PlatformerScene extends Phaser.Scene {
       angle = from + (360 - from) * Math.min(1, sinceLanding / SQUASH_TIME);
       if (angle >= 359.5) angle = 0;
     }
-    const facing = p.vx < 0 ? -1 : 1;
+    // A dash or a slam holds the cube square to its burst.
+    if (p.dashLeft > 0 || p.slamming) angle = 0;
     // Blink with the beat while counting in.
     const alpha = run.phase === 'countin' ? 0.55 + 0.45 * Math.max(0, 1 - beatPhase * 2) : 1;
     const centreY = sy(p.y + (PLAYER_HEIGHT * sY) / 2);
     cube
       .setVisible(true)
       .setPosition(p.x + PLAYER_WIDTH / 2, centreY)
-      .setScale(sx * facing, sY)
-      .setAngle(angle * facing)
+      .setScale(sx, sY)
+      .setAngle(angle)
       .setAlpha(alpha);
+  }
+
+  /**
+   * A dash: afterimages of the cube trailing behind it and speed lines streaking back, so
+   * it reads as a burst forward though the cube stays at the anchor. Fades as it runs out.
+   */
+  #drawDash(g: Phaser.GameObjects.Graphics, run: PlatformerRun, t: number): void {
+    const p = run.player;
+    const age = t - run.dashedAt;
+    if (!p.alive || age < 0 || age > DASH_TIME + 0.12) return;
+    // Cut short by a jump or a slam.
+    if (age < DASH_TIME - 0.02 && p.dashLeft === 0) return;
+    const fade = age < DASH_TIME ? 1 : 1 - (age - DASH_TIME) / 0.12;
+    const cx = p.x + PLAYER_WIDTH / 2;
+    const cy = sy(p.y + PLAYER_HEIGHT * 0.41);
+    const w = PLAYER_WIDTH * 1.28;
+    const h = PLAYER_HEIGHT * 0.82;
+    // Spread out over the first moment of the burst, then hold.
+    const spread = Math.min(1, age / 0.06);
+    for (let i = AFTERIMAGES; i >= 1; i--) {
+      const ox = cx - i * 15 * spread;
+      g.fillStyle(paletteNumbers.cyan, (0.42 - i * 0.08) * fade).fillRoundedRect(
+        ox - w / 2,
+        cy - h / 2,
+        w,
+        h,
+        7,
+      );
+    }
+    const lines = Math.max(3, Math.round(SPEED_LINES * this.#quality.particles));
+    for (let i = 0; i < lines; i++) {
+      const r = hash(run.dashedAt * 100, i);
+      const length = 40 + 70 * r;
+      // Streaming back from the cube: each line slides away and comes round again.
+      const slide = ((age * 900 + r * 140) % 140) / 140;
+      const x1 = cx - w / 2 - 6 - slide * 90;
+      const y = cy - h / 2 + 4 + ((h - 8) * (i + 0.5)) / lines + (r - 0.5) * 6;
+      g.fillStyle(
+        i % 3 === 0 ? paletteNumbers.flare : paletteNumbers.cyan,
+        (1 - slide) * 0.8 * fade,
+      );
+      g.fillRect(x1 - length, y - 1, length, 2);
+    }
+  }
+
+  /**
+   * A slam: a streak above the cube while it drops; on landing, a shockwave along the
+   * ground, in the beat's magenta when it landed on one and the player's cyan when not.
+   */
+  #drawSlam(g: Phaser.GameObjects.Graphics, run: PlatformerRun, t: number): void {
+    const p = run.player;
+    const cx = p.x + PLAYER_WIDTH / 2;
+    if (p.alive && p.slamming) {
+      const top = sy(p.y + PLAYER_HEIGHT * 1.26);
+      for (let i = -2; i <= 2; i++) {
+        const length = 70 - Math.abs(i) * 16;
+        g.fillStyle(i === 0 ? paletteNumbers.flare : paletteNumbers.cyan, 0.6 - Math.abs(i) * 0.15);
+        g.fillRect(cx + i * 6 - 1, top - length, 2, length);
+      }
+    }
+    const s = this.#shock;
+    const age = t - s.at;
+    if (age < 0 || age > SHOCK_TIME) return;
+    const k = age / SHOCK_TIME;
+    const color = s.onBeat ? paletteNumbers.magenta : paletteNumbers.cyan;
+    const reach = 26 + 150 * (1 - (1 - k) * (1 - k));
+    const y = sy(s.y);
+    g.fillStyle(color, 0.25 * (1 - k)).fillEllipse(s.x, y, reach * 2, 22 * (1 - k) + 6);
+    g.lineStyle(3, color, 0.9 * (1 - k)).strokeEllipse(s.x, y, reach * 2, 16 * (1 - k) + 4);
+    // Sparks thrown up at both ends of the wave.
+    for (const side of [-1, 1]) {
+      g.fillStyle(color, 1 - k).fillRect(s.x + side * reach - 3, y - 10 - 30 * k, 6, 10);
+    }
   }
 
   /** Trail point `i` (0 the oldest), as an index into the ring. */

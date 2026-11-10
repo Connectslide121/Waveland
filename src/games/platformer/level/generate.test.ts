@@ -7,7 +7,16 @@ import {
   type LevelMap,
 } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
-import { bridgeWindows, DIFFICULTY, generateLevel, MAX_JUMP, MAX_TOP, MIN_TOP } from './generate';
+import { PLAYER_WIDTH } from '../physics';
+import {
+  bridgeWindows,
+  DASH_REACH,
+  DIFFICULTY,
+  generateLevel,
+  JUMP_REACH,
+  MAX_TOP,
+  MIN_TOP,
+} from './generate';
 import { solidTop, type PlatformerLevel } from './level';
 import { validateLevel } from './validate';
 
@@ -33,22 +42,22 @@ function level(seed: number, difficulty: Difficulty): PlatformerLevel {
   return found;
 }
 
-/** Widths of the pits in a level's gap stretches. */
-function pitWidths(l: PlatformerLevel): number[] {
-  const widths: number[] = [];
-  for (const c of l.chunks.filter((x) => x.kind === 'gap')) {
+/** Seconds in the air the pits of a level's gap stretches (of `kind`) take to cross. */
+function pitAirs(l: PlatformerLevel, kind: 'gap' | 'dash-gap' = 'gap'): number[] {
+  const airs: number[] = [];
+  for (const c of l.chunks.filter((x) => x.kind === kind)) {
     const inside = l.solids.filter((s) => s.x0 >= c.x0 - 1e-6 && s.x1 <= c.x1 + 1e-6);
     for (let i = 1; i < inside.length; i++) {
       const pit = inside[i]!.x0 - inside[i - 1]!.x1;
       if (pit > 1 && inside[i]!.kind !== 'ledge' && inside[i - 1]!.kind !== 'ledge')
-        widths.push(pit);
+        airs.push((pit - PLAYER_WIDTH) / l.speed);
     }
   }
-  return widths;
+  return airs;
 }
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
-const HAZARDS = new Set(['gap', 'eq', 'bridge', 'spikes', 'drop']);
+const HAZARDS = new Set(['gap', 'dash-gap', 'gate', 'overhang', 'eq', 'bridge', 'spikes', 'drop']);
 
 describe('generateLevel: always completable', () => {
   // Random songs at every tempo and shape; each difficulty in turn.
@@ -68,7 +77,7 @@ describe('generateLevel: always completable', () => {
         expect(l.solids[i]!.x0).toBeGreaterThanOrEqual(l.solids[i - 1]!.x0);
       for (const s of l.solids) {
         expect(s.x1).toBeGreaterThan(s.x0);
-        if (s.kind !== 'eq') {
+        if (s.kind !== 'eq' && s.kind !== 'overhang') {
           expect(s.top).toBeGreaterThanOrEqual(MIN_TOP);
           expect(s.top).toBeLessThanOrEqual(MAX_TOP);
         }
@@ -128,8 +137,12 @@ describe('generateLevel: the music', () => {
   it('keeps breakdowns calm: no spikes, equalisers or bridges', () => {
     for (let seed = 1; seed <= 12; seed++) {
       const l = level(seed, DIFFICULTIES[seed % 3]!);
-      for (const c of l.chunks.filter((x) => x.section === 'breakdown'))
+      // A lesson (a gate or an overhang, taught in an easy spot) may come in one.
+      const lessons = l.lessons.map((x) => x.time);
+      for (const c of l.chunks.filter((x) => x.section === 'breakdown')) {
+        if (lessons.some((t) => t >= c.start && t < c.end)) continue;
         expect(['calm', 'flat', 'gap', 'drop']).toContain(c.kind);
+      }
     }
   });
 
@@ -265,7 +278,7 @@ describe('generateLevel: seeds and difficulty', () => {
       const chunks = ls.flatMap((l) => l.chunks);
       return {
         hazards: chunks.filter((c) => HAZARDS.has(c.kind)).length / chunks.length,
-        gap: mean(ls.flatMap(pitWidths)),
+        gap: mean(ls.flatMap((l) => pitAirs(l))),
         spikes: mean(ls.flatMap((l) => l.spikes.map((s) => (s.x1 - s.x0) / l.speed))),
       };
     };
@@ -282,11 +295,65 @@ describe('generateLevel: repairs', () => {
   afterEach(() => Object.assign(DIFFICULTY.hard, saved));
 
   it('makes impossible gaps and steps passable', () => {
-    // Gaps far wider than any jump and towering staircase steps.
-    Object.assign(DIFFICULTY.hard, { hazard: 1, gap: 1.6, stepRise: 200, rise: 300 });
-    const l = generateLevel(song(5), 'hard');
+    // Gaps wider than a jump and a dash reach, level on both sides.
+    Object.assign(DIFFICULTY.hard, { hazard: 1, gap: 1.75, rise: 0 });
+    const l = generateLevel(buildLevelMap(randomAnalysis(5, { duration: 80, tempo: 100 })), 'hard');
     expect(validateLevel(l).ok).toBe(true);
     expect(l.chunks.reduce((n, c) => n + c.repairs, 0)).toBeGreaterThan(0);
-    for (const width of pitWidths(l)) expect(width).toBeLessThan(MAX_JUMP);
+    // A little past the reach at most: the far edge forgives a step's height.
+    for (const air of pitAirs(l)) expect(air).toBeLessThan(DASH_REACH + 0.05);
+  });
+});
+
+describe('generateLevel: abilities', () => {
+  const songs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+  it('sizes dash pits between what a jump and a jump and dash reach', () => {
+    let pits = 0;
+    for (const seed of songs)
+      for (const air of pitAirs(level(seed, DIFFICULTIES[seed % 3]!), 'dash-gap')) {
+        pits++;
+        expect(air).toBeGreaterThan(JUMP_REACH);
+        expect(air).toBeLessThan(DASH_REACH);
+      }
+    expect(pits).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('teaches dash and slam in an easy spot before any other obstacle needs them', () => {
+    let taught = 0;
+    for (const seed of songs) {
+      const l = level(seed, DIFFICULTIES[seed % 3]!);
+      for (const lesson of l.lessons) {
+        taught++;
+        const chunk = l.chunks.find((c) => lesson.time >= c.start && lesson.time < c.end)!;
+        const kinds = lesson.action === 'dash' ? ['gate', 'dash-gap'] : ['overhang'];
+        // The lesson is the first of its kind.
+        const first = l.chunks.find((c) => kinds.includes(c.kind));
+        expect(first).toBe(chunk);
+        expect(chunk.kind).toBe(lesson.action === 'dash' ? 'gate' : 'overhang');
+      }
+      // Nothing needing an ability before its lesson.
+      for (const c of l.chunks) {
+        const need =
+          c.kind === 'overhang' ? 'slam' : ['gate', 'dash-gap'].includes(c.kind) ? 'dash' : null;
+        if (need) expect(l.lessons.some((x) => x.action === need && x.time <= c.end)).toBe(true);
+      }
+    }
+    expect(taught).toBeGreaterThanOrEqual(songs.length);
+  });
+
+  it('puts every dash gate on a snare, an accent or a beat, on its ground', () => {
+    let gates = 0;
+    for (const seed of songs) {
+      const map = song(seed);
+      const l = level(seed, DIFFICULTIES[seed % 3]!);
+      const moments = new Set([...map.events.map((e) => e.time), ...map.beats]);
+      for (const g of l.gates) {
+        gates++;
+        expect(moments.has(g.time)).toBe(true);
+        expect(g.x).toBeCloseTo(l.speed * g.time + l.start.x + PLAYER_WIDTH, 6);
+      }
+    }
+    expect(gates).toBeGreaterThan(0);
   });
 });

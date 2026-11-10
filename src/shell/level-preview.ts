@@ -6,6 +6,7 @@ import {
   type SongAnalysis,
 } from '../core';
 import {
+  cameraAt,
   generateLevelInWorker,
   solidTop,
   spikesOut,
@@ -14,13 +15,7 @@ import {
   type PlatformerLevel,
   type Solid,
 } from '../games/platformer/level';
-import {
-  ANCHOR_X,
-  PLAYER_HEIGHT,
-  PLAYER_WIDTH,
-  SPIKE_HEIGHT,
-  VIEW_WIDTH,
-} from '../games/platformer/physics';
+import { PLAYER_HEIGHT, PLAYER_WIDTH, SPIKE_HEIGHT, VIEW_WIDTH } from '../games/platformer/physics';
 import { palette } from '../theme/palette';
 import { alpha, CANVAS_FONT, sizedCanvas } from './canvas';
 import './level-preview.css';
@@ -60,6 +55,9 @@ const CHUNK_NAMES: Record<ChunkKind, string> = {
   flat: 'Run',
   calm: 'Calm',
   gap: 'Gaps',
+  'dash-gap': 'Dash gap',
+  gate: 'Gates',
+  overhang: 'Overhang',
   eq: 'Equaliser',
   bridge: 'Bridges',
   spikes: 'Spikes',
@@ -226,7 +224,7 @@ export function createLevelPreview({
     if (!level) return;
     const l = level;
     const scale = (h - STRIP) / (WORLD_TOP - WORLD_BOTTOM);
-    const camera = l.speed * time;
+    const camera = cameraAt(l, time);
     const from = camera - BEHIND;
     const to = from + w / scale;
     const px = (x: number) => (x - from) * scale;
@@ -308,6 +306,13 @@ export function createLevelPreview({
       ctx.fill();
     }
 
+    // Dash gates: orange bars from their ground up.
+    ctx.fillStyle = palette.orange;
+    for (const g of l.gates) {
+      if (g.x < from || g.x > to) continue;
+      ctx.fillRect(px(g.x) - 1.5, STRIP, 3, py(g.top) - STRIP);
+    }
+
     // Coins and gems.
     ctx.fillStyle = palette.magenta;
     for (const p of l.pickups) {
@@ -326,10 +331,10 @@ export function createLevelPreview({
     }
 
     // Where a player in time with the music is: on the highest surface under the anchor.
-    const left = camera + ANCHOR_X;
+    const left = xAtTime(l, time);
     let feet: number | null = null;
     for (const s of l.solids) {
-      if (s.x1 <= left || s.x0 >= left + PLAYER_WIDTH) continue;
+      if (s.x1 <= left || s.x0 >= left + PLAYER_WIDTH || s.bottom !== undefined) continue;
       const top = solidTop(s, time);
       if (top !== null) feet = Math.max(feet ?? -Infinity, top);
     }
@@ -388,6 +393,17 @@ function drawSolid(
     return;
   }
   if (top === null) return;
+  if (s.bottom !== undefined) {
+    // An overhang, hanging from the sky down to its underside.
+    const y = py(s.bottom);
+    ctx.fillStyle = alpha(palette.violet, 0.3);
+    ctx.fillRect(x0, STRIP, width, y - STRIP);
+    ctx.fillStyle = palette.violet;
+    ctx.fillRect(x0, y - 2, width, 2);
+    ctx.fillStyle = palette.orange;
+    ctx.fillRect(x0, STRIP, 1.5, y - STRIP);
+    return;
+  }
   const y = py(top);
   if (s.kind === 'ledge') {
     ctx.fillStyle = palette.violet;

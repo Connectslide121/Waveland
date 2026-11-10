@@ -1,3 +1,14 @@
+import {
+  bindingLabel,
+  CONTROL_ACTIONS,
+  CONTROL_DEVICES,
+  keyLabel,
+  padLabel,
+  PAUSE_KEY,
+  PAUSE_PAD_BUTTON,
+  type Bindings,
+  type ControlAction,
+} from '../../core';
 import type { RunResults } from './run';
 import './ui.css';
 
@@ -48,6 +59,8 @@ export interface HudState {
   countIn: number | null;
   /** Frames per second and CPU ms per frame, or null when the readout is off. */
   perf: { fps: number; cpuMs: number } | null;
+  /** A one-line hint for an ability met for the first time ("Right click / Shift: dash"), or null. */
+  hint: string | null;
 }
 
 /** The frame rate readout: 60 FPS · 4.2 MS, or dashes before the first half second. */
@@ -101,7 +114,11 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
   const perf = el('div', 'pf-hud__perf');
   perf.hidden = true;
 
-  element.append(top, progress, count, perf);
+  // The first-time hint: placed on its own, so it never moves anything when it shows.
+  const hint = el('div', 'pf-hud__hint');
+  hint.setAttribute('aria-live', 'polite');
+
+  element.append(top, progress, count, perf, hint);
 
   // What is on screen, so each frame only touches what changed.
   const shown = {
@@ -111,6 +128,7 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
     count: -2 as number | null,
     percent: -1,
     perf: '',
+    hint: null as string | null,
   };
   return {
     element,
@@ -134,6 +152,12 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
         perf.textContent = perfText;
         perf.hidden = perfText === '';
       }
+      if (state.hint !== shown.hint) {
+        // The last text stays while it fades out.
+        if (state.hint !== null) hint.textContent = state.hint;
+        hint.classList.toggle('on', state.hint !== null);
+      }
+      shown.hint = state.hint;
       shown.beat = state.beatInBar;
       shown.score = state.score;
       shown.combo = state.combo;
@@ -223,6 +247,36 @@ function modal(
 
 export interface PauseMenu extends Modal {
   show(): void;
+  /** Show the controls as they are bound now (after a change in Settings). */
+  refresh(): void;
+}
+
+const ACTION_NAMES: Record<ControlAction, string> = {
+  jump: 'Jump',
+  dash: 'Dash',
+  slam: 'Slam',
+};
+
+/** Everything an action is bound to, as the player reads it: "Space · W · ↑ · A". */
+export function bindingsText(bindings: Bindings, action: ControlAction): string {
+  const parts: string[] = [];
+  for (const device of CONTROL_DEVICES)
+    for (const value of bindings[action][device])
+      if (value !== null) parts.push(bindingLabel(device, value as never));
+  return parts.length > 0 ? parts.join(' · ') : 'Not bound';
+}
+
+/** The controls as a list: each action with what it is bound to, and pause. */
+export function controlsList(bindings: Bindings): HTMLElement {
+  const list = el('dl', 'pf-controls');
+  const row = (name: string, value: string) => {
+    const item = el('div', 'pf-controls__row');
+    item.append(el('dt', undefined, name), el('dd', undefined, value));
+    list.append(item);
+  };
+  for (const action of CONTROL_ACTIONS) row(ACTION_NAMES[action], bindingsText(bindings, action));
+  row('Pause', `${keyLabel(PAUSE_KEY)} · ${padLabel(PAUSE_PAD_BUTTON)}`);
+  return list;
 }
 
 export function createPauseMenu(handlers: {
@@ -230,6 +284,8 @@ export function createPauseMenu(handlers: {
   onRestart: () => void;
   onSettings: () => void;
   onQuit: () => void;
+  /** The controls as bound now, shown on the menu. */
+  bindings: () => Bindings;
 }): PauseMenu {
   const menu = modal(
     'Paused',
@@ -241,8 +297,27 @@ export function createPauseMenu(handlers: {
     ],
     handlers.onResume,
   );
-  menu.body.append(el('p', 'pf-modal__note', 'The music waits for you.'));
-  return menu;
+  const controls = el('div');
+  const refresh = () => controls.replaceChildren(controlsList(handlers.bindings()));
+  menu.body.append(
+    el('p', 'pf-modal__note', 'The music waits for you.'),
+    controls,
+    el('p', 'pf-modal__note pf-modal__note--small', 'Change the controls in Settings.'),
+  );
+  refresh();
+  return {
+    element: menu.element,
+    get open() {
+      return menu.open;
+    },
+    close: () => menu.close(),
+    destroy: () => menu.destroy(),
+    show() {
+      refresh();
+      menu.show();
+    },
+    refresh,
+  };
 }
 
 export interface ResultsScreen extends Modal {
