@@ -1,5 +1,5 @@
 /**
- * Two whole songs for playtesting the games and checking the analysis end to end, built
+ * Whole songs for playtesting the games and checking the analysis end to end, built
  * from the synthetic sounds in `test-audio.ts`, so they are the same on every run:
  *
  * - `rockSong`: a fast rock song in the spirit of the reference song the platformer is
@@ -7,8 +7,10 @@
  *   150 BPM, a build and a last chorus at 180 BPM, a full-band stop and loud choruses.
  * - `electroSong`: a steady 128 BPM electronic track, 2:30 of intro, builds, drops and a
  *   breakdown.
+ * - `melodySong`: a short 120 BPM groove with a lead that climbs, holds and falls, for
+ *   the melody contour.
  *
- * Both return the samples, the true beats and where each part starts, and `wavFile`
+ * Each returns the samples, the true beats and where each part starts, and `wavFile`
  * turns samples into a WAV the browser can play (`npm run dev`, then
  * `await import('/src/core/analysis/test-songs.ts')` in the console).
  */
@@ -391,6 +393,100 @@ export function electroSong(rate = TEST_RATE): TestSong {
     },
   ];
   return render(parts, 1, rate);
+}
+
+/** A synth lead: a saw-like tone (four harmonics, each weaker), held for `seconds`. */
+function lead(freq: number, seconds: number, rate: number): Float32Array {
+  const w = 2 * Math.PI * freq;
+  return tone(seconds, rate, (t) => {
+    let v = 0;
+    for (let h = 1; h <= 4; h++) v += Math.sin(h * w * t) / h;
+    return v * 0.5;
+  });
+}
+
+/** A note of the melody song: from `time` to `end`, as a MIDI note number. */
+export interface MelodyNote {
+  time: number;
+  end: number;
+  midi: number;
+}
+
+/** Steps of the A natural minor scale from A, in semitones. */
+const MINOR_STEPS = [0, 2, 3, 5, 7, 8, 10];
+
+/** The A minor scale from A3 (MIDI 57), `n` notes up from it. */
+const minorNote = (n: number) => 57 + 12 * Math.floor(n / 7) + MINOR_STEPS[n % 7]!;
+
+/**
+ * A 120 BPM song for the melody contour, over a groove of drums and a low bass (A1, under
+ * the melody range): an intro with no lead (4 bars), a lead climbing the A minor scale a
+ * quarter note at a time from A3 to B5 (4 bars), holding A5 (2 bars), falling back down to
+ * A3 (4 bars, from B5), holding A3 (2 bars), and an outro with no lead (2 bars). `notes` are the
+ * lead's notes.
+ */
+export function melodySong(rate = TEST_RATE): TestSong & { notes: MelodyNote[] } {
+  const kit = drumKit(rate);
+  const bpm = 120;
+  const period = 60 / bpm;
+  const bass = bassNote(55, period * 0.9, rate);
+  const notes: MelodyNote[] = [];
+  const voices = new Map<string, Float32Array>();
+  const play = (bar: Bar, midi: number, beat: number, beats: number) => {
+    const key = `${midi}:${beats}`;
+    if (!voices.has(key))
+      voices.set(key, lead(440 * 2 ** ((midi - 69) / 12), beats * period * 0.95, rate));
+    bar.hit(voices.get(key)!, beat, 0.35);
+    notes.push({ time: bar.at(beat), end: bar.at(beat + beats * 0.95), midi });
+  };
+  const groove = (bar: Bar) => {
+    for (const k of [0, 2]) bar.hit(kit.kick, k, 0.8);
+    for (const k of [1, 3]) bar.hit(kit.snare, k, 0.4);
+    for (let k = 0; k < 8; k++) bar.hit(kit.hat, k / 2, 0.15);
+    for (let k = 0; k < 4; k++) bar.hit(bass, k, 0.4);
+  };
+
+  const parts: Part[] = [
+    { name: 'Intro', bpm, bars: 4, play: groove },
+    {
+      name: 'Climb',
+      bpm,
+      bars: 4,
+      play: (bar) => {
+        groove(bar);
+        for (let k = 0; k < 4; k++) play(bar, minorNote(bar.index * 4 + k), k, 1);
+      },
+    },
+    {
+      name: 'High',
+      bpm,
+      bars: 2,
+      play: (bar) => {
+        groove(bar);
+        play(bar, 81, 0, 4);
+      },
+    },
+    {
+      name: 'Fall',
+      bpm,
+      bars: 4,
+      play: (bar) => {
+        groove(bar);
+        for (let k = 0; k < 4; k++) play(bar, minorNote(15 - bar.index * 4 - k), k, 1);
+      },
+    },
+    {
+      name: 'Low',
+      bpm,
+      bars: 2,
+      play: (bar) => {
+        groove(bar);
+        play(bar, 57, 0, 4);
+      },
+    },
+    { name: 'Outro', bpm, bars: 2, play: groove },
+  ];
+  return { ...render(parts, 1, rate), notes };
 }
 
 /** The samples as a 16-bit mono WAV file. */

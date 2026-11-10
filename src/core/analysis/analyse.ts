@@ -3,6 +3,7 @@ import { frameTime, pickOnsets } from './onsets';
 import { beatEnvelope, beatTimes, findDownbeatPhase, tempoFromBeats, trackBeats } from './rhythm';
 import { computeFrames, type Frames } from './spectrum';
 import { findFeatures } from './features';
+import { melodyCurve } from './melody';
 import { energyCurves, findStructure } from './structure';
 import { findTempoSegments, framePeriods, refineChanges, type FrameSegment } from './tempo';
 
@@ -10,7 +11,7 @@ import { findTempoSegments, framePeriods, refineChanges, type FrameSegment } fro
  * Bumped whenever the analysis changes what it finds, so cached results from older
  * versions are ignored and the song is analysed again.
  */
-export const ANALYSIS_VERSION = 6;
+export const ANALYSIS_VERSION = 7;
 
 /** Share of the progress bar the spectrum takes; the rest is quick. */
 const SPECTRUM_SHARE = 0.85;
@@ -69,6 +70,7 @@ export function analyseSamples(
     bands,
     chroma: (start, end) => meanChroma(frames, start, end),
   });
+  const melody = melodyCurve(frames, duration);
   onProgress?.(1);
 
   return {
@@ -83,6 +85,7 @@ export function analyseSamples(
     sections,
     drops,
     features,
+    melody,
   };
 }
 

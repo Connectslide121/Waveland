@@ -148,6 +148,18 @@ export interface SongAnalysis {
   drops: Drop[];
   /** Held sounds, stops, accents, fills, syncopations and repeated bars. */
   features: MusicFeatures;
+  /** The melody's pitch over time (its strongest partial), 0 where there is none. */
+  melody: PitchCurve;
+}
+
+/**
+ * A pitch sampled at a fixed rate, in MIDI note numbers with fractions (69 is A 440 Hz,
+ * one per semitone), 0 where nothing has a pitch.
+ */
+export interface PitchCurve {
+  /** Seconds between samples. */
+  step: number;
+  values: Float32Array;
 }
 
 /**
@@ -234,7 +246,22 @@ export interface MoodCurves {
   brightness: number[];
   density: number[];
   heaviness: number[];
+  /**
+   * How high the melody is, 0 to 1 over the song's own range (its 5th to 95th percentile).
+   * Beats with no melody take the value between the heard beats around them (held before
+   * the first and after the last; 0.5 when the song has none), so it never jumps; their
+   * `melodyMove` is `none`.
+   */
+  melody: number[];
+  /** Where the melody is going on each beat, or `none` where none is heard. */
+  melodyMove: MelodyMove[];
 }
+
+/**
+ * The melody's movement on a beat: rising, falling, held (or wavering about one note), or
+ * none heard on that beat.
+ */
+export type MelodyMove = 'rising' | 'falling' | 'held' | 'none';
 
 /**
  * The level built from a song: what every game reads, each in its own way. Pure data,

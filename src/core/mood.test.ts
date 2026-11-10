@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { analyseSamples } from './analysis/analyse';
 import { beatGrid, drumKit, place, track, TEST_RATE } from './analysis/test-audio';
 import { buildLevelMap } from './level-map';
-import { curveAt, sectionMoods, smoothBeats } from './mood';
+import { curveAt, melodyCurves, sectionMoods, smoothBeats } from './mood';
 import { randomAnalysis } from './test-analysis';
 import type { MoodCurves, Section } from './types';
 
@@ -35,7 +35,9 @@ describe('the mood curves', () => {
     curve.slice(beatOf(from), beatOf(to)).reduce((a, b) => a + b, 0) / (beatOf(to) - beatOf(from));
 
   it('has one value per grid beat in every curve, each 0 to 1', () => {
-    for (const curve of Object.values(map.mood)) {
+    const { melodyMove, ...curves } = map.mood;
+    expect(melodyMove).toHaveLength(map.beats.length);
+    for (const curve of Object.values(curves)) {
       expect(curve).toHaveLength(map.beats.length);
       for (const v of curve) {
         expect(v).toBeGreaterThanOrEqual(0);
@@ -89,6 +91,8 @@ describe('sectionMoods', () => {
     brightness: beats.map(() => 0.5),
     density: beats.map(() => 0.5),
     heaviness: beats.map(() => 0.5),
+    melody: beats.map(() => 0.5),
+    melodyMove: beats.map(() => 'none'),
   });
 
   it('feels quiet parts calm, middling ones a groove and the loudest a chorus', () => {
@@ -137,5 +141,49 @@ describe('smoothBeats and curveAt', () => {
     expect(curveAt([0, 1, 0], 0.5)).toBeCloseTo(0.5);
     expect(curveAt([0, 1, 0], 5)).toBe(0);
     expect(curveAt([], 1)).toBe(0);
+  });
+});
+
+describe('melodyCurves', () => {
+  /** 24 beats of half a second, the melody at `pitch(t)` (0 for none) sampled at 50/s. */
+  const beats = Array.from({ length: 24 }, (_, i) => i * 0.5);
+  const melodyOf = (pitch: (t: number) => number) => ({
+    step: 0.02,
+    values: Float32Array.from({ length: 600 }, (_, k) => pitch(k * 0.02)),
+  });
+  const span = () => 0.5;
+
+  it('fills beats with no melody between the heard ones, and says none was heard', () => {
+    // A5 for 4 s, nothing for 2 s, A4 for the rest.
+    const curves = melodyCurves(
+      melodyOf((t) => (t < 4 ? 81 : t < 6 ? 0 : 69)),
+      beats,
+      span,
+    );
+    expect(curves.melodyMove.slice(8, 12)).toEqual(['none', 'none', 'none', 'none']);
+    // Down from the top to the bottom across the gap, without jumping to 0 and back.
+    for (let i = 7; i < 13; i++)
+      expect(curves.melody[i + 1]!).toBeLessThanOrEqual(curves.melody[i]! + 1e-9);
+    expect(curves.melody[2]!).toBeGreaterThan(0.95);
+    expect(curves.melody[20]!).toBeLessThan(0.05);
+    expect(curves.melodyMove[2]).toBe('held');
+  });
+
+  it('is level at 0.5 with no movement when the song has no melody', () => {
+    for (const melody of [melodyOf(() => 0), undefined]) {
+      const curves = melodyCurves(melody, beats, span);
+      expect(new Set(curves.melody)).toEqual(new Set([0.5]));
+      expect(new Set(curves.melodyMove)).toEqual(new Set(['none']));
+    }
+  });
+
+  it('counts a beat as heard only when enough of it has a melody', () => {
+    // A blip of 60 ms on every beat: a snare's crack read as a pitch, not a melody.
+    const curves = melodyCurves(
+      melodyOf((t) => (t % 0.5 < 0.06 ? 90 : 0)),
+      beats,
+      span,
+    );
+    expect(new Set(curves.melodyMove)).toEqual(new Set(['none']));
   });
 });

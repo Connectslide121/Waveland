@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildLevelMap } from '../level-map';
 import { analyseSamples } from './analyse';
-import { electroSong, rockSong, wavFile } from './test-songs';
+import { electroSong, melodySong, rockSong, wavFile } from './test-songs';
 
 /** Share of `expected` times that have a found time within `tolerance`. */
 function recall(found: number[], expected: number[], tolerance: number): number {
@@ -87,6 +87,72 @@ describe('the electronic track: a steady 128 BPM', () => {
     analysis.drops.forEach((d, i) => expect(Math.abs(d.time - drops[i]!)).toBeLessThan(2));
   });
 });
+
+// At 48 kHz too, the browser's usual rate: frames of another size hear the snare otherwise.
+describe.each([22050, 48000])(
+  'the melody song at %i Hz: a lead climbing, holding and falling',
+  (rate) => {
+    const song = melodySong(rate);
+    const analysis = analyseSamples(song.samples, song.rate);
+    const map = buildLevelMap(analysis);
+    const part = (name: string) => song.parts.find((p) => p.name === name)!;
+    /** The grid beats from `from` beats into a part to `to` beats before its end. */
+    const beatsOf = (name: string, from = 1, to = 1) => {
+      const p = part(name);
+      const period = 60 / p.bpm;
+      return map.beats
+        .map((t, i) => [t, i] as const)
+        .filter(([t]) => t >= p.start + from * period - 0.01 && t < p.end - to * period - 0.01)
+        .map(([, i]) => i);
+    };
+
+    it('hears each note of the lead within half a semitone, and nothing where none plays', () => {
+      const { step, values } = analysis.melody;
+      let near = 0;
+      for (const n of song.notes) {
+        // The middle of the note, away from its attack and release.
+        const v = values[Math.round((n.time + n.end) / 2 / step)]!;
+        if (Math.abs(v - n.midi) <= 0.5) near++;
+      }
+      expect(near / song.notes.length).toBeGreaterThan(0.9);
+      // In the intro and outro the drums and the low bass play, and no melody is heard.
+      for (const name of ['Intro', 'Outro']) {
+        const p = part(name);
+        const from = Math.ceil(p.start / step);
+        const to = Math.floor(p.end / step);
+        let heard = 0;
+        for (let k = from; k < to; k++) if (values[k]! > 0) heard++;
+        expect(heard / (to - from)).toBeLessThan(0.1);
+      }
+    });
+
+    it('puts the melody on the grid: rising up the climb, holding high, falling, holding low', () => {
+      const { melody, melodyMove } = map.mood;
+      const climb = beatsOf('Climb', 2, 2);
+      for (const i of climb) expect(melodyMove[i]).toBe('rising');
+      for (let k = 1; k < climb.length; k++)
+        expect(melody[climb[k]!]!).toBeGreaterThan(melody[climb[k - 1]!]!);
+      for (const i of beatsOf('Fall', 2, 2)) expect(melodyMove[i]).toBe('falling');
+      for (const i of beatsOf('High', 3, 2)) {
+        expect(melodyMove[i]).toBe('held');
+        expect(melody[i]!).toBeGreaterThan(0.85);
+      }
+      for (const i of beatsOf('Low', 3, 1)) {
+        expect(melodyMove[i]).toBe('held');
+        expect(melody[i]!).toBeLessThan(0.15);
+      }
+    });
+
+    it('says where no melody is heard, and keeps the curve level there, not dropping to 0', () => {
+      const { melody, melodyMove } = map.mood;
+      const intro = beatsOf('Intro', 0, 1);
+      for (const i of [...intro, ...beatsOf('Outro', 1, 0)]) expect(melodyMove[i]).toBe('none');
+      // Before the first note, the curve holds where the melody starts.
+      const first = beatsOf('Climb', 0, 0)[0]!;
+      for (const i of intro) expect(melody[i]).toBeCloseTo(melody[first]!, 1);
+    });
+  },
+);
 
 describe('wavFile', () => {
   it('writes a 16-bit mono WAV of the samples', async () => {

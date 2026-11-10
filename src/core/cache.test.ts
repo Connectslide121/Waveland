@@ -17,6 +17,7 @@ const analysis: SongAnalysis = {
   sections: [{ start: 0, end: 3, kind: 'main', energy: 0.5 }],
   drops: [],
   features: { sustains: [], stops: [], accents: [], fills: [], syncopations: [], bars: [] },
+  melody: { step: 0.02, values: Float32Array.of(0, 69, 71.5) },
 };
 
 /** Put a record straight into the cache's store, as an older version would have. */

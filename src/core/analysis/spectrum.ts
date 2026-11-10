@@ -32,10 +32,28 @@ export interface Frames {
    * are at `i * 12` to `i * 12 + 11`. For telling bars apart by their notes and chords.
    */
   chroma: Float32Array;
+  /**
+   * The strongest partial in the melody range per frame, as a MIDI note number with
+   * fractions (69 is A 440 Hz), 0 when the range is silent. With `pitchShare`, the share
+   * of the range's power in that partial, and `melodyPower`, the range's power, so
+   * `melody.ts` can tell a melody from noise and silence.
+   */
+  pitch: Float32Array;
+  pitchShare: Float32Array;
+  melodyPower: Float32Array;
 }
 
 /** The range the chroma listens to, in Hz: bass notes up to the top of most melodies. */
 const CHROMA_RANGE = [110, 2000] as const;
+/** The range a melody is looked for in, in Hz: above most bass notes, up to a lead's top. */
+export const MELODY_RANGE = [200, 2000] as const;
+/**
+ * A partial's peak has at least this much power over the median of the bins from
+ * `PEAK_CLEAR` to `PEAK_AROUND` either side of it (past its own window lobe): 10 dB.
+ */
+const PEAK_PROMINENCE = 10;
+const PEAK_CLEAR = 3;
+const PEAK_AROUND = 8;
 
 function nearestPowerOfTwo(n: number): number {
   return 2 ** Math.round(Math.log2(n));
@@ -81,6 +99,12 @@ export function computeFrames(
     pitchClass[k] = ((midi % 12) + 12) % 12;
   }
   const chroma = new Float32Array(count * 12);
+  const melodyFrom = binOf(MELODY_RANGE[0]);
+  const melodyTo = binOf(MELODY_RANGE[1]);
+  const pitch = new Float32Array(count);
+  const pitchShare = new Float32Array(count);
+  const melodyPower = new Float32Array(count);
+  const around = new Float32Array(2 * (PEAK_AROUND - PEAK_CLEAR + 1));
 
   const power = {
     low: new Float32Array(count),
@@ -112,6 +136,38 @@ export function computeFrames(
     power.all[i] = all;
     for (let k = chromaFrom; k < chromaTo; k++)
       chroma[i * 12 + pitchClass[k]!] = chroma[i * 12 + pitchClass[k]!]! + mags[k]! * mags[k]!;
+
+    // The melody range's strongest partial, between bins by a parabola through the log
+    // magnitudes around it, and the share of the range's power its peak holds.
+    let range = 0;
+    let peak = melodyFrom;
+    for (let k = melodyFrom; k < melodyTo; k++) {
+      range += mags[k]! * mags[k]!;
+      if (mags[k]! > mags[peak]!) peak = k;
+    }
+    melodyPower[i] = range;
+    // A peak on the range's edge that keeps rising past it is the skirt of a lower or
+    // higher sound (a bass note's harmonic), not a partial of its own.
+    const own = mags[peak]! >= mags[peak - 1]! && mags[peak]! >= mags[peak + 1]!;
+    // A partial stands well above the bins around it; noise (a snare's crack) only a little.
+    // The median, so another partial or a bass note among them doesn't count against it.
+    let n = 0;
+    for (let d = PEAK_CLEAR; d <= PEAK_AROUND; d++)
+      for (const k of [peak - d, peak + d]) if (k > 0 && k < bins) around[n++] = mags[k]!;
+    const neighbours = around.subarray(0, n).sort();
+    const median = neighbours[n >> 1] ?? 0;
+    const prominent = n > 0 && mags[peak]! ** 2 >= PEAK_PROMINENCE * median * median;
+    if (range > 1e-12 && own && prominent) {
+      const a = Math.log(mags[peak - 1]! + 1e-12);
+      const b = Math.log(mags[peak]! + 1e-12);
+      const c = Math.log(mags[peak + 1]! + 1e-12);
+      const bend = a - 2 * b + c;
+      const offset = bend < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a - c)) / bend)) : 0;
+      const hz = ((peak + offset) * sampleRate) / size;
+      pitch[i] = 69 + 12 * Math.log2(hz / 440);
+      const lobe = mags[peak - 1]! ** 2 + mags[peak]! ** 2 + mags[peak + 1]! ** 2;
+      pitchShare[i] = Math.min(1, lobe / range);
+    }
     for (const band of BANDS) {
       const [lo, hi] = ranges[band];
       let p = 0;
@@ -130,5 +186,14 @@ export function computeFrames(
   }
   onProgress?.(1);
 
-  return { rate: sampleRate / hop, count, power, flux, chroma };
+  return {
+    rate: sampleRate / hop,
+    count,
+    power,
+    flux,
+    chroma,
+    pitch,
+    pitchShare,
+    melodyPower,
+  };
 }

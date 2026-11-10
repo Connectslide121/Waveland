@@ -1,7 +1,9 @@
 import type {
   EnergyCurve,
+  MelodyMove,
   Mood,
   MoodCurves,
+  PitchCurve,
   Section,
   SectionFeel,
   SectionMood,
@@ -16,7 +18,9 @@ import type {
  * - intensity: the overall energy per beat, over the song's own range;
  * - brightness: the high band's share of the loudness, over the song's own range;
  * - density: hits per beat (all bands, hits within 35 ms counted once), 1 at four a beat;
- * - heaviness: the low band's share of the loudness, over the song's own range.
+ * - heaviness: the low band's share of the loudness, over the song's own range;
+ * - melody: how high the melody is, over the song's own range, and where it is going
+ *   (from the analysis' melody pitch, `analysis/melody.ts`).
  *
  * The curves are smoothed over about a bar (two beats either side), so they follow the
  * music's contour rather than every hit.
@@ -42,6 +46,12 @@ const CHORUS_ABOVE = 0.08;
 /** A main section rising this much from its first bar to its last, into a louder one, builds. */
 const BUILD_RISE = 0.25;
 const BUILD_NEXT = 0.1;
+/** A beat has a melody when at least this share of it has one. */
+const MELODY_HEARD = 0.3;
+/** A melody moving less than this, in semitones a beat (smoothed), holds. */
+const MELODY_MOVING = 0.4;
+/** A melody spanning less than this many semitones over the song is flat: 0.5 throughout. */
+const MELODY_FLAT = 1;
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -85,7 +95,7 @@ export function smoothBeats(values: readonly number[], reach = SMOOTH_BEATS): nu
  * beat i lasts, `energy` the overall energy per beat already spread over the song's range.
  */
 export function moodCurves(
-  analysis: Pick<SongAnalysis, 'bands' | 'onsets'>,
+  analysis: Pick<SongAnalysis, 'bands' | 'onsets'> & Partial<Pick<SongAnalysis, 'melody'>>,
   beats: readonly number[],
   span: (i: number) => number,
   energy: readonly number[],
@@ -118,7 +128,67 @@ export function moodCurves(
     brightness: smoothBeats(spread(share(high))),
     density: smoothBeats(counts).map((c) => clamp01(c / BUSY_HITS)),
     heaviness: smoothBeats(spread(share(low))),
+    ...melodyCurves(analysis.melody, beats, span),
   };
+}
+
+/**
+ * The melody per beat: how high (0–1 over the song's own range) and where it is going.
+ * A beat's pitch is the median of its samples with a melody, when at least
+ * `MELODY_HEARD` of it has one; the beats between are filled in between the heard beats
+ * around them, the whole is smoothed like the other curves, and the slope of the
+ * smoothed pitch, in semitones a beat, says whether it rises, falls or holds.
+ */
+export function melodyCurves(
+  melody: PitchCurve | undefined,
+  beats: readonly number[],
+  span: (i: number) => number,
+): Pick<MoodCurves, 'melody' | 'melodyMove'> {
+  const heard: (number | undefined)[] = beats.map((t, i) => {
+    if (!melody) return undefined;
+    const from = Math.max(0, Math.floor(t / melody.step));
+    const to = Math.min(
+      melody.values.length,
+      Math.max(from + 1, Math.ceil((t + span(i)) / melody.step)),
+    );
+    const pitches: number[] = [];
+    for (let k = from; k < to; k++) if (melody.values[k]! > 0) pitches.push(melody.values[k]!);
+    if (to <= from || pitches.length < MELODY_HEARD * (to - from)) return undefined;
+    pitches.sort((a, b) => a - b);
+    return pitches[Math.floor(pitches.length / 2)];
+  });
+  if (!heard.some((p) => p !== undefined))
+    return { melody: beats.map(() => 0.5), melodyMove: beats.map(() => 'none') };
+
+  // Beats with no melody: between the heard beats around them, held at the ends.
+  const filled = heard.map((p, i) => {
+    if (p !== undefined) return p;
+    let before = i - 1;
+    while (before >= 0 && heard[before] === undefined) before--;
+    let after = i + 1;
+    while (after < heard.length && heard[after] === undefined) after++;
+    const a = heard[before];
+    const b = heard[after];
+    if (a === undefined) return b!;
+    if (b === undefined) return a;
+    return a + ((b - a) * (i - before)) / (after - before);
+  });
+  const pitch = smoothBeats(filled);
+
+  // The song's own range: the 5th to 95th percentile of its heard beats.
+  const sorted = pitch.filter((_, i) => heard[i] !== undefined).sort((a, b) => a - b);
+  const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
+  const lo = at(0.05);
+  const hi = at(0.95);
+  const height =
+    hi - lo < MELODY_FLAT ? pitch.map(() => 0.5) : pitch.map((p) => clamp01((p - lo) / (hi - lo)));
+
+  const melodyMove = pitch.map((p, i): MelodyMove => {
+    if (heard[i] === undefined) return 'none';
+    const slope = ((pitch[i + 1] ?? p) - (pitch[i - 1] ?? p)) / 2;
+    return slope >= MELODY_MOVING ? 'rising' : slope <= -MELODY_MOVING ? 'falling' : 'held';
+  });
+  return { melody: height, melodyMove };
 }
 
 /** A curve's value at fractional beat `beat`, between its beats. */

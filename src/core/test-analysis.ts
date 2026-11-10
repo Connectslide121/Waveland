@@ -9,6 +9,7 @@ import type {
   Drop,
   EnergyCurve,
   Onset,
+  PitchCurve,
   Section,
   SectionKind,
   SongAnalysis,
@@ -161,7 +162,41 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
     sections,
     drops,
     features: findFeatures({ duration, segments, beats, downbeats, onsets, energy, bands }),
+    melody: randomMelody(new Random(seed ^ 0x3e10), beats, sections, duration),
   };
+}
+
+/**
+ * A melody for a random song, with its own randomness so the rest stays as it was: a note
+ * a beat, wandering by up to a few semitones and now and then running up or down a
+ * phrase, in every section but breakdowns, and only now and then in intros and outros.
+ */
+function randomMelody(
+  rng: Random,
+  beats: number[],
+  sections: Section[],
+  duration: number,
+): PitchCurve {
+  const values = new Float32Array(Math.ceil(duration * RATE));
+  const played = sections.map((s) =>
+    s.kind === 'breakdown'
+      ? false
+      : s.kind === 'intro' || s.kind === 'outro'
+        ? rng.chance(0.3)
+        : true,
+  );
+  let note = rng.range(62, 74);
+  let run = 0;
+  beats.forEach((t, i) => {
+    const s = sections.findIndex((x) => t >= x.start && t < x.end);
+    if (i % 8 === 0) run = rng.chance(0.3) ? (rng.chance(0.5) ? -2 : 2) : 0;
+    note = Math.max(55, Math.min(86, note + run + rng.int(-2, 2)));
+    if (!played[s]) return;
+    const end = beats[i + 1] ?? duration;
+    for (let k = Math.ceil(t * RATE); k < Math.min(values.length, end * RATE); k++)
+      values[k] = note;
+  });
+  return { step: 1 / RATE, values };
 }
 
 /**

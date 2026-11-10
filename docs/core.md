@@ -26,6 +26,7 @@ All in `src/core/analysis`, pure TypeScript with no dependencies, run directly b
 | Sections | `structure.ts` | Bar features (energy per band, onset density per band); a novelty curve compares the 4 bars before each bar line with the 4 after; its clear peaks, at least 4 bars apart, start new sections. |
 | Drops | `structure.ts` | A section whose "drive" (energy plus bass energy) jumps by 0.15 or more over the one before, landing in the top part of the song's range. The drop is then moved to the bar line nearby (within a bar, or about 3.5 s) where the bass gets loudest against the bar before, since a build's last bar (a snare roll, a riser) often changes the music more than the drop itself. The section before it is a build (energy rising) or a breakdown; quiet first and last sections are intro and outro. |
 | Chroma | `spectrum.ts` | Power per pitch class (C to B) from 110 Hz to 2 kHz, per frame: what notes and chords sound, for telling bars apart. |
+| Melody | `spectrum.ts`, `melody.ts` | How high the melody is: see [The melody](#the-melody) below. |
 | Musical moments | `features.ts` | Held sounds, stops, accents, fills, syncopations and repeated bars: see [The musical moments](#the-musical-moments) below. |
 
 ## The musical moments
@@ -44,6 +45,19 @@ All in `src/core/analysis`, pure TypeScript with no dependencies, run directly b
 The level map puts them on the grid (`gridFeatures`): hits snapped as the events are, held sounds' and stops' ends on the sixteenths, a fill's hits on the sixteenths ending on the grid's bar line, and one `BarInfo` per grid bar, repeating the first grid bar its analysis bar's group starts in.
 
 They follow the tempo map but not swing or rubato any better than the beats do, and a held sound under drums that keep hitting hard reads as no held sound: the drums end it.
+
+## The melody
+
+The chroma says which notes sound but not how high; the tunnel's path climbs and bends with the melody, so the analysis also follows its pitch (`SongAnalysis.melody`, a `PitchCurve` at 50 samples a second in MIDI note numbers with fractions, 0 where there is none). It is cheap on purpose: no pitch tracker, just the strongest partial where one clearly stands out.
+
+1. **Per frame** (`spectrum.ts`, in the same pass as the rest): the strongest bin from 200 Hz to 2 kHz (above most bass notes, up to a lead's top), placed between bins by a parabola through the log magnitudes around it and read as a note on the log-frequency (semitone) scale. It counts only when it is a peak of its own (not the skirt of a bass harmonic just below the range) and stands 10 dB above the median of the bins 3 to 8 either side (a partial does; a snare's band of noise doesn't, and a bass note among the neighbours doesn't count against it).
+2. **Melody or not** (`melody.ts`): a frame has one when that peak holds at least 15% of the range's power (a chord wash or noise spreads it out) and the range is within 30 dB of its loud frames. A median over about 70 ms (4 of its 7 frames voiced) smooths it and drops single-frame jumps.
+
+It hears a lead or a voice over a band as its notes; where a harmonic outsings the fundamental it reads an octave up, and where no lead plays a bass's harmonics or a chord's loudest note can stand in. That is fine for a contour: the games want up and down, not note names.
+
+On the grid (`mood.ts`, `melodyCurves`), each beat's pitch is the median of its samples with a melody when at least 30% of the beat has one. Beats with none take the value between the heard beats around them (held before the first and after the last), so the curve never drops to 0 and back; the whole is smoothed like the other mood curves and spread to 0–1 over the 5th to 95th percentile of the heard beats (0.5 throughout when the melody spans less than a semitone or there is none). `mood.melodyMove` says, per beat, `rising` or `falling` when the smoothed pitch moves 0.4 semitones a beat or more, `held` otherwise, and `none` where no melody is heard, so a game can tell a real climb from a filled-in gap.
+
+The song details view draws it under the energy (MELODY): the pitch heard as faint dots, the height per beat as a cyan line, dashed where no melody is heard.
 
 ## Why our own analysis and not Essentia.js
 
@@ -70,7 +84,9 @@ The tests render songs with known changes (120 → 150 BPM, 140 → 100 → 140,
 
 `analysis/test-audio.ts` renders clicks, kicks, snares and hats at known times (seeded noise, so runs are repeatable). The tests check tempo within ±1 BPM at 90–150 BPM, beats within 25 ms, one tempo segment for steady songs, tempo changes found within a beat with beats within 30 ms on both sides (`tempoChangeSong`), downbeats on bar starts, kicks, snares and hats each heard in their own band, and drops where a quiet passage turns loud. `momentsSong` is a 120 BPM song with one of each moment at known times (crash accents, a held A minor chord, a full-band stop, a sixteenth-note snare fill, a four-bar riff of its own chords and drum patterns played twice): every moment is found on its time, nothing else is, and the riff's second time repeats its first bar for bar.
 
-Two whole songs in `analysis/test-songs.ts` are for playtesting and tuning the games end to end (`test-songs.test.ts`): `rockSong`, a stand-in for a fast rock song with tempo and mood changes (170 BPM with a pre-chorus fill, loud choruses with crashes, a full-band stop and a half-time breakdown; a quiet bridge and a build at 150; a last chorus at 180), and `electroSong`, a steady 128 BPM track with builds under a riser, drops and a drumless breakdown. Their tempo maps come out as built (170, 150, 180; one 128), the grid within 15 ms of every true beat and bar, the crashes as accents (not every downbeat over a bass and a guitar on the eighths), the drops and the quiet bridge as such. `wavFile` makes a WAV the browser can load.
+`melodySong` (`test-songs.ts`) is a 120 BPM groove with a lead that climbs the A minor scale two octaves a quarter note at a time, holds, falls back and holds low, with drum-only bars either side: at 22.05 and 48 kHz every note is heard within half a semitone, nothing is heard in the drum-only bars, and on the grid the climb rises beat by beat, the holds hold at the top and bottom of the range, the fall falls and the bars without a lead say `none`. The mood tests check the gap filling and that blips (a snare read as a pitch) don't count as a melody.
+
+Whole songs in `analysis/test-songs.ts` are for playtesting and tuning the games end to end (`test-songs.test.ts`): `rockSong`, a stand-in for a fast rock song with tempo and mood changes (170 BPM with a pre-chorus fill, loud choruses with crashes, a full-band stop and a half-time breakdown; a quiet bridge and a build at 150; a last chorus at 180), and `electroSong`, a steady 128 BPM track with builds under a riser, drops and a drumless breakdown. Their tempo maps come out as built (170, 150, 180; one 128), the grid within 15 ms of every true beat and bar, the crashes as accents (not every downbeat over a bass and a guitar on the eighths), the drops and the quiet bridge as such. `wavFile` makes a WAV the browser can load.
 
 ## Timing and latency
 
@@ -85,7 +101,7 @@ Two whole songs in `analysis/test-songs.ts` are for playtesting and tuning the g
 - **Levels per beat**: bass and overall energy averaged over each beat, spread to 0–1 over the song's own range.
 - **Events**, sorted by time: kicks, snares and hats (onsets moved onto the eighth-note grid when within 0.15 beats of it), an off-beat halfway through every beat, drops moved onto the nearest bar line, and section starts with their kind.
 - **Musical moments** (`features`): the analysis' held sounds, stops, accents, fills, syncopations and repeated bars on the grid; see [The musical moments](#the-musical-moments).
-- **Mood** (`mood.ts`): see [The mood](#the-mood) below: `mood`, four curves per grid beat, and `moods`, each section's mood and feel.
+- **Mood** (`mood.ts`): see [The mood](#the-mood) below: `mood`, five curves per grid beat (and the melody's movement), and `moods`, each section's mood and feel.
 - **Beat fit** (`beatFit`): `none` with fewer than 8 beats; `loose` when fewer than 80% of the tracked beats sit on their segment's grid (swing, rubato, a gradual speed-up); otherwise `changing` with more than one tempo segment and `steady` with one. Games follow the tempo map either way; the title screen says so under the song's name ("Tempo changes, 120 → 150 BPM · the level follows it"), and the song details view shows the segments on its timeline (a TEMPO strip with the BPM of each, a dashed line at each change in the close-up).
 - **Seed**: a hash of the analysis, so games seed their randomness from the song (`random.ts` has the seeded generator).
 
@@ -93,9 +109,9 @@ The map is cheap to build and isn't cached; each game builds its own level from 
 
 ## The mood
 
-`mood.ts` describes how each part of the song feels, so games can shape their whole world by it (the platformer's terrain styles and look, `docs/platformer.md`). It uses only what the analysis already has, in the level map, so it changed nothing cached (no `ANALYSIS_VERSION` bump).
+`mood.ts` describes how each part of the song feels, so games can shape their whole world by it (the platformer's terrain styles and look, `docs/platformer.md`). It is built in the level map from what the analysis has (the melody curve needed `ANALYSIS_VERSION` 7; the rest changed nothing cached).
 
-`LevelMap.mood` has four curves, one value per grid beat, each 0 to 1 and smoothed over about a bar (a triangular average two beats either side), so they follow the music's contour rather than every hit:
+`LevelMap.mood` has five curves, one value per grid beat, each 0 to 1 and smoothed over about a bar (a triangular average two beats either side), so they follow the music's contour rather than every hit:
 
 | Curve | From |
 |---|---|
@@ -103,8 +119,9 @@ The map is cheap to build and isn't cached; each game builds its own level from 
 | `brightness` | The high band's share of the loudness (cymbals, a bright lead, distortion), spread over the song's range. |
 | `density` | Hits per beat in all bands (strength 0.3 or more, hits within 35 ms counted once); 1 at four a beat (sixteenths) or more. |
 | `heaviness` | The low band's share of the loudness (kick and bass), spread over the song's range. |
+| `melody` | How high the melody is, spread over the song's range; beats with no melody filled in between the heard ones. With `melodyMove` per beat: `rising`, `falling`, `held` or `none`. See [The melody](#the-melody). |
 
-`LevelMap.moods` has one `SectionMood` per section (same order as `sections`): the mean of each curve over the section's beats, and its `feel`:
+`LevelMap.moods` has one `SectionMood` per section (same order as `sections`): the mean of the first four curves over the section's beats, and its `feel`:
 
 | Feel | When |
 |---|---|
