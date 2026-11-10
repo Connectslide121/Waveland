@@ -208,6 +208,27 @@ describe('PlatformerRun', () => {
     expect(run.results().accuracy).toBeCloseTo(2 / 3);
   });
 
+  it('breaks a slam plate the player slams through, and mends it on a death before it', () => {
+    // Standing on a plate 60 px over the ground from the start; a slam an instant after a
+    // jump starts just above it and goes through on its first step.
+    const { level } = testLevel(
+      [{ kind: 'plate', x0: -40, x1: 5000, top: 60 }, ground(-40, 5000)],
+      { speed: 0, duration: 10, start: { x: ANCHOR_X, y: 60 } },
+    );
+    const run = new PlatformerRun(level, []);
+    run.update(0, NOTHING);
+    play(run, PHYSICS_DT, 1, NOTHING);
+    run.update(1 + PHYSICS_DT, JUMP);
+    const events = run.update(1 + 2 * PHYSICS_DT, { ...HOLD, slamPressed: true }).events;
+    events.push(...play(run, 1 + 3 * PHYSICS_DT, 1.5, NOTHING));
+    expect(events.some((e) => e.type === 'plate')).toBe(true);
+    expect([...run.brokenAt.keys()]).toHaveLength(1);
+    expect(run.player.y).toBe(0);
+    // Back at the checkpoint (the start), the plate is whole again.
+    run.respawn();
+    expect(run.brokenAt.size).toBe(0);
+  });
+
   it('leaves a landing off the grid unjudged, so it never breaks the combo', () => {
     // A jump at 1.2 s, near the beat at 1.25 s, lands about 1.883 s: an eighth from the grid.
     const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });

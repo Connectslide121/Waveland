@@ -589,7 +589,8 @@ export class PlatformerRun {
       events.push(this.#judge('dash', t, p));
     }
     if (slam && p.slamming) this.slammedAt = t;
-    if (prev.slamming) this.#breakPlates(t, prev, p, events);
+    // Through a plate in a slam, its first step included (it may start just above one).
+    if (prev.slamming || slam) this.#breakPlates(t, prev, p, events);
     if (!prev.grounded && p.grounded) {
       this.landedAt = t;
       // The extra dash lasts until the next landing.
