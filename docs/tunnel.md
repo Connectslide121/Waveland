@@ -12,7 +12,7 @@ A song-locked rail racer. The player never controls speed: their distance down t
 - **Jump**: a short hop over low walls (about half a beat in the air at 120 BPM), the tunnel's answer to the platformer's jump.
 - **Overdrive**: the platformer's overdrive (4 bars ×2), on its own bindable button.
 
-No dash or slam: the tunnel's depth is lanes and timing, not a move set. The controls are their own actions (`left`, `right`, plus the shared `jump` and `overdrive`), bound in Settings next to the platformer's.
+No dash or slam: the tunnel's depth is lanes and timing, not a move set. The controls are their own actions (`left`, `right`, plus the shared `jump` and `overdrive`; `controls` on the tunnel's `GameDefinition`), bound in Settings under the game picker's Tunnel: by default ← or A and → or D, d-pad left and right on a gamepad, no mouse button. Bindings are shared by every game (jump is the same key in both), but an input only moves between actions some game uses together (`rivalActions`), so the tunnel's left may share a key with the platformer's slam.
 
 **No deaths.** The music never stops for a crash: hitting an obstacle breaks the combo, costs points and a shield, flashes orange and shakes the camera (both off with reduced effects). Rank counts crashes instead of deaths. A race that stops and rewinds kills the flow these games are known for; the platformer keeps the checkpoint model.
 
@@ -44,7 +44,7 @@ A validator (`level/validate.ts`) proves a clean run exists, as the platformer's
 
 ## Scoring
 
-`TunnelRun` (`run.ts`): pickups score, chains of pickups without a crash build the combo (×4), lane hops and jumps that land on the beat or eighth score perfect/good like the platformer's actions, overdrive doubles, clean sections (no crash) score a bonus, and the result ranks S/A/B/C on pickups taken, timing and crashes. The results screen and pause menu are the shared ones.
+`TunnelRun` (`run.ts`): pickups score, chains of pickups without a crash build the combo (×4), lane hops and jumps that land on the beat or eighth score perfect/good like the platformer's actions, overdrive doubles, clean sections (no crash) score a bonus, and the result ranks S/A/B/C on pickups taken, timing and crashes. The results screen and pause menu are the shared ones (`src/games/shared/menus.ts`): the run gives the results screen its score, rank, two columns of rows and the rank rules in words (crashes instead of deaths), and the pause menu its actions. The HUD is the shared one too (`src/games/shared/hud.ts`: song, beat dots, score and combo meter with the run's combo step and top multiplier, overdrive with what fills it, progress with the drops, count-in, frame rate), with any tunnel-only slots added after the overdrive meter (`hud.status`).
 
 ## Look
 
@@ -54,7 +54,8 @@ Neon arcade (`docs/concept/look.html`), drawn in code with Three.js: no textures
 
 Each step is a queue task with its own chat; each ends green (`npm run typecheck`, `test`, `lint`), committed on `main`, and updates this file.
 
-1. **Shared game parts.** Move what both games need out of the platformer: the pause menu, results screen, modal and HUD pieces (`src/games/platformer/ui.ts`) into `src/games/shared/`; per-game control actions in Settings (`left`, `right` added, Settings lists each game's actions); per-game difficulty lines on the title screen (`GameDefinition` carries them). The platformer plays exactly as before.
+1. **Shared game parts.** ✅ Done. Move what both games need out of the platformer: the pause menu, results screen, modal and HUD pieces (`src/games/platformer/ui.ts`) into `src/games/shared/`; per-game control actions in Settings (`left`, `right` added, Settings lists each game's actions); per-game difficulty lines on the title screen (`GameDefinition` carries them). The platformer plays exactly as before.
+   - Done as planned, with these details: the shared parts use `game-` class names (`game-hud`, `game-modal`, `game-od`, `game-results`); the platformer's `ui.ts` wraps them and keeps its boosters, hints, results breakdown and rank rules. `GameDefinition` carries `controls` (the actions, in Settings' order) and `difficulty` (the three lines). Settings' Controls section has a game picker; the tunnel's difficulty lines ("Three lanes and wide gaps, on the strongest hits", "Five lanes and most of the song's hits", "Nearly every hit, with blocks sliding on the off-beats") show once the tunnel is `ready`, since the title screen only selects playable games. Added to the plan: bindings stay shared by every game, but an input only moves off actions some game uses together with the one it is bound to (`rivalActions`; see the controls under The design).
 2. **Melody contour in the core.** A per-frame pitch height (strongest partial in the melody range, log frequency, smoothed) put on the grid as `LevelMap.mood.melody` (per beat, 0–1 over the song's own range) and its movement. Bump `ANALYSIS_VERSION`, test on the synthetic songs, document in `docs/core.md`.
 3. **The track.** `src/games/tunnel/level/`: path, lanes, speed (`zAtTime`), obstacles and pickups from the grammar above, `stepRacer` physics, the validator and repairs, `solveLevel`, run in a worker. Pure TypeScript, no Three.js; tests for the grammar, the validator and every test song at every difficulty.
 4. **The run.** `TunnelRun`: input, collisions against the track, pickups, combo, overdrive, crashes, sections, results and rank, autoplay; tests.
