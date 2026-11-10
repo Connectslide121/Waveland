@@ -83,7 +83,33 @@ The tests render songs with known changes (120 → 150 BPM, 140 → 100 → 140,
 - **Levels per beat**: bass and overall energy averaged over each beat, spread to 0–1 over the song's own range.
 - **Events**, sorted by time: kicks, snares and hats (onsets moved onto the eighth-note grid when within 0.15 beats of it), an off-beat halfway through every beat, drops moved onto the nearest bar line, and section starts with their kind.
 - **Musical moments** (`features`): the analysis' held sounds, stops, accents, fills, syncopations and repeated bars on the grid; see [The musical moments](#the-musical-moments).
+- **Mood** (`mood.ts`): see [The mood](#the-mood) below: `mood`, four curves per grid beat, and `moods`, each section's mood and feel.
 - **Beat fit** (`beatFit`): `none` with fewer than 8 beats; `loose` when fewer than 80% of the tracked beats sit on their segment's grid (swing, rubato, a gradual speed-up); otherwise `changing` with more than one tempo segment and `steady` with one. Games follow the tempo map either way; the title screen says so under the song's name ("Tempo changes, 120 → 150 BPM · the level follows it"), and the song details view shows the segments on its timeline (a TEMPO strip with the BPM of each, a dashed line at each change in the close-up).
 - **Seed**: a hash of the analysis, so games seed their randomness from the song (`random.ts` has the seeded generator).
 
 The map is cheap to build and isn't cached; each game builds its own level from it.
+
+## The mood
+
+`mood.ts` describes how each part of the song feels, so games can shape their whole world by it (the platformer's terrain styles and look, `docs/platformer.md`). It uses only what the analysis already has, in the level map, so it changed nothing cached (no `ANALYSIS_VERSION` bump).
+
+`LevelMap.mood` has four curves, one value per grid beat, each 0 to 1 and smoothed over about a bar (a triangular average two beats either side), so they follow the music's contour rather than every hit:
+
+| Curve | From |
+|---|---|
+| `intensity` | The overall energy per beat, spread over the song's own range (the level map's `energy`). |
+| `brightness` | The high band's share of the loudness (cymbals, a bright lead, distortion), spread over the song's range. |
+| `density` | Hits per beat in all bands (strength 0.3 or more, hits within 35 ms counted once); 1 at four a beat (sixteenths) or more. |
+| `heaviness` | The low band's share of the loudness (kick and bass), spread over the song's range. |
+
+`LevelMap.moods` has one `SectionMood` per section (same order as `sections`): the mean of each curve over the section's beats, and its `feel`:
+
+| Feel | When |
+|---|---|
+| `build`, `drop`, `breakdown` | The structure's kind (`structure.ts`). |
+| `calm` | An intro or outro unless loud (intensity over 0.55), or a main section at 0.3 or under. |
+| `chorus` | A main section at 0.6 or more that is at 0.75 or more, or 0.08 louder than the song's middling (median) main section. |
+| `build` | Also a main section whose last bar is 0.25 louder than its first, into a section 0.1 louder than it. |
+| `groove` | Every other main section (a verse, a riff). |
+
+`curveAt(curve, beat)` reads a curve between beats. The tests check a quiet intro into a loud, busy chorus (synthetic drums): intensity rises by more than half its range, smoothly over the change; the chorus is busier and brighter and the kicks-only intro heavier; the intro feels calm (or a lead-in) and the chorus loud; and the same analysis always gives the same mood.
