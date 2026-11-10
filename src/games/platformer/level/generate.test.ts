@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildLevelMap, DIFFICULTIES, type Difficulty, type LevelMap } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
-import { DIFFICULTY, generateLevel, MAX_JUMP, MAX_TOP, MIN_TOP } from './generate';
-import type { PlatformerLevel } from './level';
+import { bridgeWindows, DIFFICULTY, generateLevel, MAX_JUMP, MAX_TOP, MIN_TOP } from './generate';
+import { solidTop, type PlatformerLevel } from './level';
 import { validateLevel } from './validate';
 
 const maps = new Map<number, LevelMap>();
@@ -181,6 +181,63 @@ describe('generateLevel: the music', () => {
         }
       }
     }
+  });
+});
+
+describe('generateLevel: bridges come and go', () => {
+  const saved = { ...DIFFICULTY.normal };
+  afterEach(() => Object.assign(DIFFICULTY.normal, saved));
+
+  /** A rock song: the snare exactly on 2 and 4 of every bar, doubled on the "and" of 4 when asked. */
+  function backbeat(seed: number, doubled: boolean): LevelMap {
+    const map = buildLevelMap(randomAnalysis(seed, { duration: 60, tempo: 150 }));
+    const snares = map.beats.flatMap((t, i) => {
+      const inBar = (((i - map.barPhase) % 4) + 4) % 4;
+      if (inBar === 1) return [t];
+      if (inBar === 3) return doubled ? [t, t + map.beatPeriod / 2] : [t];
+      return [];
+    });
+    const events = [
+      ...map.events.filter((e) => e.kind !== 'snare'),
+      ...snares.map((time) => ({ kind: 'snare' as const, time, intensity: 1 })),
+    ].sort((a, b) => a.time - b.time);
+    return { ...map, events };
+  }
+
+  for (const doubled of [false, true])
+    it(`leaves every bridge gone for at least a beat between its windows (snares on 2 and 4${doubled ? ', doubled' : ''})`, () => {
+      // Every busy bar an obstacle, so there are bridges to check.
+      DIFFICULTY.normal.hazard = 1;
+      let checked = 0;
+      for (const seed of [21, 22, 23]) {
+        const map = backbeat(seed, doubled);
+        const l = generateLevel(map, 'normal');
+        expect(validateLevel(l).ok).toBe(true);
+        for (const bridge of l.solids.filter((s) => s.kind === 'bridge')) {
+          const windows = bridge.windows!;
+          expect(windows.length).toBeGreaterThan(0);
+          for (let i = 1; i < windows.length; i++) {
+            const gone = windows[i]![0] - windows[i - 1]![1];
+            expect(gone).toBeGreaterThanOrEqual(map.beatPeriod - 1e-6);
+            // Not there anywhere in the gap.
+            for (let k = 1; k < 8; k++)
+              expect(solidTop(bridge, windows[i - 1]![1] + (gone * k) / 8)).toBeNull();
+            checked++;
+          }
+        }
+      }
+      expect(checked).toBeGreaterThan(0);
+    }, 20_000);
+
+  it('keeps each window on a snare, the bridge there on it', () => {
+    const snares = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((b) => b * 0.5);
+    // Snares on every beat (0.5 s), held 1.5 beats: the bridge's own snare at 2 s, then
+    // only snares a full beat after a window ends, either way.
+    expect(bridgeWindows(snares, 2, 0.75, 0.5)).toEqual([
+      [0.5, 1.25],
+      [2, 2.75],
+      [3.5, 4.25],
+    ]);
   });
 });
 

@@ -246,6 +246,32 @@ function equaliser(ctx: BuildContext): Built {
   return { kind: 'eq', solids, spikes: [], pickups: [], h: base };
 }
 
+/**
+ * When a bridge is there: from its own snare for `hold`, and from other snares near it, so
+ * a player off the beat gets another go. Each comes out on a snare and is gone for at
+ * least `BRIDGE_GAP` beats before the next, so a backbeat's snares every two beats never
+ * merge its windows into a bridge that is always there.
+ */
+export function bridgeWindows(
+  snares: number[],
+  own: number,
+  hold: number,
+  period: number,
+): [number, number][] {
+  const gap = BRIDGE_GAP * period;
+  const near = snares.filter((t) => t >= own - 8 * period && t <= own + 8 * period);
+  const starts = [own];
+  // Later snares, each a full gap after the window before ends.
+  for (const t of near) if (t >= starts[starts.length - 1]! + hold + gap) starts.push(t);
+  // Earlier ones, nearest first, each ending a full gap before the window after starts.
+  for (let i = near.length - 1; i >= 0; i--)
+    if (near[i]! + hold + gap <= starts[0]!) starts.unshift(near[i]!);
+  return starts.map((t): [number, number] => [t, t + hold]);
+}
+
+/** Beats a bridge is gone, at least, between two times it is there. */
+export const BRIDGE_GAP = 1;
+
 /** Pits spanned by bridges that come out on the snares and stay a beat or two. */
 function bridges(ctx: BuildContext): Built {
   const { stretch, x, settings, ease, map, h } = ctx;
@@ -256,10 +282,6 @@ function bridges(ctx: BuildContext): Built {
   const inStretch = snares.filter(
     (t) => t >= stretch.start + 0.25 * period && t <= stretch.end - 0.5 * period,
   );
-  // A bridge is there after every snare near it, so a player off the beat gets another go.
-  const windows = snares
-    .filter((t) => t >= stretch.start - 8 * period && t <= stretch.end + 8 * period)
-    .map((t): [number, number] => [t, t + hold]);
   const end = x(stretch.end);
   const solids: Solid[] = [];
   let from = x(stretch.start);
@@ -270,7 +292,13 @@ function bridges(ctx: BuildContext): Built {
     const x1 = Math.min(x(snare + hold) - 0.1 * beatWidth, end - 0.4 * beatWidth);
     if (x1 - x0 < 40) continue;
     solids.push(ground(from, x0, h));
-    solids.push({ kind: 'bridge', x0, x1, top: h, windows });
+    solids.push({
+      kind: 'bridge',
+      x0,
+      x1,
+      top: h,
+      windows: bridgeWindows(snares, snare, hold, period),
+    });
     from = x1;
     free = snare + hold + 0.5 * period;
   }
