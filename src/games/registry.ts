@@ -1,4 +1,4 @@
-import type { AnalysedSong, ControlAction } from '../core';
+import type { AnalysedSong, ControlAction, Difficulty } from '../core';
 
 /**
  * A running game. The game owns its keys, Escape included (for its own pause menu), and
@@ -18,6 +18,8 @@ interface GameBase {
   icon: string;
   /** The control actions the game uses, in the order Settings and its pause menu list them. */
   controls: readonly ControlAction[];
+  /** What each difficulty means in this game, one line under the title screen's picker. */
+  difficulty: Record<Difficulty, string>;
 }
 
 /** A game the player can start. */

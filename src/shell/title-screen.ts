@@ -40,13 +40,6 @@ const WAVE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M
 const GEAR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 const SPINNER_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" class="spin"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 14" stroke-linecap="round"/></svg>`;
 
-/** What each difficulty means, in one line under the picker. */
-const DIFFICULTY_ABOUT: Record<Difficulty, string> = {
-  easy: 'Relaxed: fewer, smaller obstacles on the strongest hits',
-  normal: 'Most of the song’s hits, at a fair size',
-  hard: 'Nearly every hit, with dash and slam combos',
-};
-
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
@@ -255,7 +248,8 @@ export function createTitleScreen({
       button.tabIndex = on ? 0 : -1;
       button.disabled = starting;
     });
-    difficultyAbout.textContent = DIFFICULTY_ABOUT[difficulty];
+    // What the difficulty means in the picked game; the line keeps its space without one.
+    difficultyAbout.textContent = selected?.difficulty[difficulty] ?? '';
   }
 
   // Play row: the button, and next to it why it can't be pressed yet.

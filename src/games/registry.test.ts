@@ -15,6 +15,12 @@ describe('games', () => {
     expect(games.get('tunnel')!.controls).toEqual(['left', 'right', 'jump', 'overdrive']);
   });
 
+  it('says what each difficulty means in each game', () => {
+    for (const game of games.all())
+      expect(Object.values(game.difficulty).every((line) => line.length > 0)).toBe(true);
+    expect(games.get('tunnel')!.difficulty.easy).toMatch(/Three lanes/);
+  });
+
   it('says in words why a soon game cannot be played', () => {
     const tunnel = games.get('tunnel') as SoonGame;
     expect(tunnel.reason.length).toBeGreaterThan(0);
@@ -29,6 +35,7 @@ describe('GameRegistry', () => {
     icon: '',
     status: 'soon',
     controls: [],
+    difficulty: { easy: '', normal: '', hard: '' },
     reason: 'Later',
   };
 

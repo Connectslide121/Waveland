@@ -10,6 +10,7 @@ const ready: ReadyGame = {
   icon: '<svg></svg>',
   status: 'ready',
   controls: ['jump'],
+  difficulty: { easy: 'Run easy', normal: 'Run normal', hard: 'Run hard' },
   start: vi.fn(),
 };
 const soon: GameDefinition = {
@@ -19,6 +20,7 @@ const soon: GameDefinition = {
   icon: '<svg></svg>',
   status: 'soon',
   controls: ['left', 'right'],
+  difficulty: { easy: 'Race easy', normal: 'Race normal', hard: 'Race hard' },
   reason: 'Comes after the platformer.',
 };
 
@@ -288,11 +290,27 @@ describe('title screen difficulty', () => {
     const about = screen!.element.querySelector('.difficulty-row__about')!;
     expect(options.map((o) => o.textContent)).toEqual(['Easy', 'Normal', 'Hard']);
     expect(options[1]!.getAttribute('aria-checked')).toBe('true');
-    const normal = about.textContent;
+    expect(about.textContent).toBe('Run normal');
     options[2]!.click();
     expect(options[2]!.getAttribute('aria-checked')).toBe('true');
-    expect(about.textContent).not.toBe(normal);
+    expect(about.textContent).toBe('Run hard');
     expect(getDifficulty()).toBe('hard');
+  });
+
+  it('says what the difficulty means in the picked game', () => {
+    const racer: ReadyGame = { ...ready, id: 'racer', name: 'Racer', difficulty: soon.difficulty };
+    screen = createTitleScreen({
+      games: [ready, racer],
+      onPlay: vi.fn(async () => {}),
+      analyse: instant,
+      onDetails: vi.fn(),
+    });
+    document.body.append(screen.element);
+    const about = screen.element.querySelector('.difficulty-row__about')!;
+    expect(about.textContent).toBe('Run normal');
+    const radios = [...screen.element.querySelectorAll<HTMLInputElement>('input[name=mode]')];
+    radios[1]!.click();
+    expect(about.textContent).toBe('Race normal');
   });
 
   it('moves between difficulties with the arrow keys', () => {
