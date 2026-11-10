@@ -19,7 +19,8 @@ import {
   type PlatformerLevel,
   type Solid,
 } from './level';
-import { FrameMonitor, QUALITY, type Quality } from './perf';
+import { FrameMonitor } from '../shared/perf';
+import { QUALITY, type Quality } from './perf';
 import {
   ANCHOR_SHARE,
   ANCHOR_X,
@@ -373,7 +374,7 @@ export class PlatformerScene extends Phaser.Scene {
       this.#joinedLeft[i] = joinsNear(solids, i, -1) ? 1 : 0;
       this.#joinedRight[i] = joinsNear(solids, i, 1) ? 1 : 0;
     }
-    this.monitor = new FrameMonitor((level) => {
+    this.monitor = new FrameMonitor(QUALITY.length, (level) => {
       this.#setQuality(QUALITY[level]!);
       onLowered();
     });
