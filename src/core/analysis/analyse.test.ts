@@ -115,6 +115,26 @@ describe('analyseSamples: tempo map', () => {
     expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
   });
 
+  it('follows a rock song through several changes, a half-time feel among them', () => {
+    // A groove at 150 then a half-time feel at 150 must not pull the groove an octave down.
+    const song = tempoChangeSong([
+      { bpm: 120, bars: 12 },
+      { bpm: 150, bars: 16 },
+      { bpm: 150, bars: 8, feel: 'half' },
+      { bpm: 100, bars: 8 },
+      { bpm: 150, bars: 12 },
+    ]);
+    const analysis = analyseSamples(song.samples, TEST_RATE);
+
+    expect(analysis.segments.map((s) => Math.round(s.tempo))).toEqual([120, 150, 100, 150]);
+    const changes = [song.changes[0]!, song.changes[2]!, song.changes[3]!];
+    analysis.segments.slice(1).forEach((s, i) => {
+      expect(Math.abs(s.start - changes[i]!)).toBeLessThanOrEqual(0.4);
+    });
+    for (const t of analysis.beats) expect(nearest(song.beats, t)).toBeLessThanOrEqual(TOLERANCE);
+    expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
+  });
+
   it('keeps a half-time feel at the same tempo as one segment', () => {
     const song = tempoChangeSong([
       { bpm: 150, bars: 12 },

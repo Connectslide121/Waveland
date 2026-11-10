@@ -37,6 +37,8 @@ const DRIFT_COST = 0.15;
 const CHANGE_COST = 2;
 /** A path drifting this many steps from where its stretch started is a change too. */
 const MAX_DRIFT_STEPS = 1;
+/** What a slower reading keeps of its fit where the octave above carries the pulse too. */
+const SLOWER_SHARE = 0.6;
 /** Neighbouring stretches closer in tempo than this (as a ratio) are one. */
 const SAME_TEMPO = 0.025;
 /** Stretches shorter than this join the neighbour nearest their tempo, in seconds. */
@@ -84,7 +86,8 @@ export function findTempoSegments(env: Float32Array, rate: number): FrameSegment
   const count = Math.floor((n - win) / hop) + 1;
 
   // How well each tempo fits each window: its pulse (against the window's best), leaning
-  // toward 120 BPM; the faster octave wins when it still carries half the pulse.
+  // toward 120 BPM. Where the faster octave still carries half the pulse it wins, clearly
+  // enough that a half-time stretch later on can't pull a whole groove an octave down.
   const fit: Float64Array[] = [];
   for (let w = 0; w < count; w++) {
     const ac = autocorrelation(x, w * hop, w * hop + win, minLag, maxLag);
@@ -97,8 +100,10 @@ export function findTempoSegments(env: Float32Array, rate: number): FrameSegment
       for (let s = 0; s + STATES_PER_OCTAVE < states; s++) {
         const faster = s + STATES_PER_OCTAVE;
         if (bpmOf(faster) > HALVING_MAX_BPM) break;
-        if (at(ac, lagOf(faster)) >= HALVING_SHARE * at(ac, lagOf(s)))
+        if (at(ac, lagOf(faster)) >= HALVING_SHARE * at(ac, lagOf(s))) {
           row[faster] = Math.max(row[faster]!, row[s]!);
+          row[s] = row[s]! * SLOWER_SHARE;
+        }
       }
     }
     fit.push(row);
