@@ -243,7 +243,9 @@ describe('createResultsScreen', () => {
       ['Shield saves', '1'],
     ]);
     expect(
-      results.element.querySelector('.pf-results__ranks')!.textContent!.replace(/ /g, ' '),
+      results.element
+        .querySelector('.pf-results__ranks')!
+        .textContent!.replaceAll(String.fromCharCode(160), ' '),
     ).toBe(
       'S: timing 85%+, no deaths · A: timing 70%+, at most 2 deaths · B: timing 50%+ · C: finished. Timing counts a good as half a perfect.',
     );

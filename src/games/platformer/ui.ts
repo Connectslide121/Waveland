@@ -469,6 +469,8 @@ export function createPauseMenu(handlers: {
  * The ranks' thresholds in words, from `RANKS`: "S: timing 85%+, no deaths · A: 70%+, at
  * most 2 deaths · B: 50%+ · C: finished". Timing counts a good as half a perfect.
  */
+const NBSP = String.fromCharCode(160);
+
 export function rankRules(): string {
   const parts = RANKS.map(({ rank, timing, deaths }) => {
     if (timing === 0) return `${rank}: finished`;
@@ -478,7 +480,7 @@ export function rankRules(): string {
     return `${rank}: timing ${t}${d}`;
   });
   // Each rank's rule stays on one line.
-  const whole = parts.map((p) => p.replace(/ /g, ' '));
+  const whole = parts.map((p) => p.replace(/ /g, NBSP));
   return `${whole.join(' · ')}. Timing counts a good as half a perfect.`;
 }
 
