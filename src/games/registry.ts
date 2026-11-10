@@ -1,6 +1,9 @@
 import type { AnalysedSong } from '../core';
 
-/** A running game. The shell stops it when the player goes back to the menu. */
+/**
+ * A running game. The game owns its keys, Escape included (for its own pause menu), and
+ * calls the `exit` it was started with to go back to the menu; the shell then stops it.
+ */
 export interface GameSession {
   stop(): void;
 }
@@ -18,8 +21,11 @@ interface GameBase {
 /** A game the player can start. */
 export interface ReadyGame extends GameBase {
   status: 'ready';
-  /** Start the game for a song inside the container; resolves once it is running. */
-  start(song: AnalysedSong, container: HTMLElement): Promise<GameSession>;
+  /**
+   * Start the game for a song inside the container; resolves once it is running. The game
+   * calls `exit` when the player quits to the menu.
+   */
+  start(song: AnalysedSong, container: HTMLElement, exit: () => void): Promise<GameSession>;
 }
 
 /** A game that is shown but can't be played yet. */

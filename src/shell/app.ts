@@ -6,7 +6,7 @@ import { createTitleScreen } from './title-screen';
 
 /**
  * Wire the title screen to the games and the song details: pick a mode and a song, play,
- * and come back with Escape.
+ * and come back from the game's own menu, or from the details with Escape.
  */
 export function startApp(root: HTMLElement): void {
   const stage = document.createElement('div');
@@ -14,11 +14,7 @@ export function startApp(root: HTMLElement): void {
   stage.hidden = true;
   const canvas = document.createElement('div');
   canvas.className = 'stage__canvas';
-  const menu = document.createElement('button');
-  menu.type = 'button';
-  menu.className = 'stage__menu';
-  menu.innerHTML = '<span>Menu</span><kbd>Esc</kbd>';
-  stage.append(canvas, menu);
+  stage.append(canvas);
 
   let session: GameSession | null = null;
   let details: SongDetails | null = null;
@@ -39,14 +35,13 @@ export function startApp(root: HTMLElement): void {
       // Start under the title screen so the game can size itself, then reveal it.
       stage.hidden = false;
       try {
-        session = await game.start(song, canvas);
+        session = await game.start(song, canvas, backToMenu);
       } catch (error) {
         stage.hidden = true;
         canvas.replaceChildren();
         throw error;
       }
       title.element.hidden = true;
-      menu.focus();
     },
   });
 
@@ -65,9 +60,9 @@ export function startApp(root: HTMLElement): void {
       title.element.hidden = false;
     }
   }
-  menu.addEventListener('click', backToMenu);
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') backToMenu();
+    // A running game handles Escape itself (its pause menu).
+    if (event.key === 'Escape' && details) backToMenu();
   });
 
   root.replaceChildren(stage, title.element);
