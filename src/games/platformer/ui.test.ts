@@ -46,7 +46,12 @@ describe('createHud', () => {
 
 describe('createPauseMenu', () => {
   it('resumes on Escape, restarts and quits from its buttons, and ignores the backdrop', () => {
-    const handlers = { onResume: vi.fn(), onRestart: vi.fn(), onQuit: vi.fn() };
+    const handlers = {
+      onResume: vi.fn(),
+      onRestart: vi.fn(),
+      onSettings: vi.fn(),
+      onQuit: vi.fn(),
+    };
     const menu = createPauseMenu(handlers);
     document.body.append(menu.element);
     expect(menu.open).toBe(false);
@@ -62,10 +67,12 @@ describe('createPauseMenu', () => {
     expect(handlers.onResume).toHaveBeenCalledOnce();
 
     const buttons = [...menu.element.querySelectorAll('button')];
-    expect(buttons.map((b) => b.textContent)).toEqual(['ResumeEsc', 'Restart', 'Quit']);
+    expect(buttons.map((b) => b.textContent)).toEqual(['ResumeEsc', 'Restart', 'Settings', 'Quit']);
     buttons[1]!.click();
     buttons[2]!.click();
+    buttons[3]!.click();
     expect(handlers.onRestart).toHaveBeenCalledOnce();
+    expect(handlers.onSettings).toHaveBeenCalledOnce();
     expect(handlers.onQuit).toHaveBeenCalledOnce();
     menu.destroy();
   });

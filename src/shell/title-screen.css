@@ -449,3 +449,34 @@
     display: none;
   }
 }
+
+/* Settings, in the top right corner, out of the way of everything else. */
+.title__settings {
+  position: absolute;
+  top: clamp(14px, 3vh, 28px);
+  right: clamp(14px, 3vw, 32px);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgb(20 16 44 / 0.75);
+  color: var(--ink);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.title__settings svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.title__settings:hover {
+  border-color: var(--cyan);
+}

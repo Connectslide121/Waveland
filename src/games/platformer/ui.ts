@@ -204,6 +204,7 @@ export interface PauseMenu extends Modal {
 export function createPauseMenu(handlers: {
   onResume: () => void;
   onRestart: () => void;
+  onSettings: () => void;
   onQuit: () => void;
 }): PauseMenu {
   const menu = modal(
@@ -211,6 +212,7 @@ export function createPauseMenu(handlers: {
     [
       { label: 'Resume', hint: 'Esc', primary: true, run: handlers.onResume },
       { label: 'Restart', run: handlers.onRestart },
+      { label: 'Settings', run: handlers.onSettings },
       { label: 'Quit', run: handlers.onQuit },
     ],
     handlers.onResume,

@@ -1,5 +1,6 @@
 import { AUDIO_ACCEPT, songFromFile, type AnalysedSong, type Song } from '../core';
 import type { GameDefinition, ReadyGame } from '../games';
+import { openSettings } from './settings';
 import './title-screen.css';
 
 export interface TitleScreenOptions {
@@ -23,6 +24,7 @@ const HORIZON_BARS = [18, 30, 46, 62, 80, 95, 70, 52, 84, 100, 76, 58, 88, 64, 4
 const NOTE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="16" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`;
 const PLAY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/></svg>`;
 const WAVE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4M21 12h0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+const GEAR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 const SPINNER_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" class="spin"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 14" stroke-linecap="round"/></svg>`;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -77,6 +79,11 @@ export function createTitleScreen({
 
   const root = el('main', 'title');
   root.setAttribute('aria-labelledby', 'title-logo');
+
+  const settings = el('button', 'title__settings');
+  settings.type = 'button';
+  settings.innerHTML = `${GEAR_ICON}<span>Settings</span>`;
+  settings.addEventListener('click', () => openSettings());
 
   const floor = el('div', 'title__floor');
   floor.setAttribute('aria-hidden', 'true');
@@ -212,7 +219,7 @@ export function createTitleScreen({
   const panel = el('section', 'title__panel');
   panel.setAttribute('aria-label', 'Pick a mode and a song');
   panel.append(modes, zone, playRow);
-  root.append(floor, head, horizon, panel);
+  root.append(floor, settings, head, horizon, panel);
 
   function renderProgress(): void {
     const analysing = progress !== null;

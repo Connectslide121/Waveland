@@ -1,0 +1,268 @@
+/* The Settings modal, over the title screen or a game's pause menu. Same panel as the
+   game's menus: a dark violet card on a blurred backdrop. */
+
+.settings {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(7 6 15 / 0.72);
+  backdrop-filter: blur(3px);
+  font-family: var(--font);
+  color: var(--ink);
+}
+
+.settings__panel {
+  width: min(500px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 24px 28px 26px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgb(16 12 36 / 0.96);
+  box-shadow:
+    0 0 0 1px rgb(138 92 255 / 0.15),
+    0 24px 80px -20px rgb(138 92 255 / 0.45);
+}
+
+.settings__head {
+  display: grid;
+  grid-template-columns: 1fr 36px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.settings__title {
+  margin: 0;
+  font-family: var(--wide);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.settings__close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings__close:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.settings__close svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Each setting: label, control, value, in fixed columns. */
+.settings__row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.settings__row--wide {
+  grid-template-columns: 120px minmax(0, 1fr);
+}
+
+.settings__label {
+  font-family: var(--wide);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.settings__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings__range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+
+.settings__segments {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+}
+
+.settings__segment {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  border-radius: 99px;
+  font-family: var(--wide);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings__segment:has(input:checked) {
+  background: var(--cyan);
+  color: var(--night);
+  box-shadow: 0 0 22px -6px var(--cyan);
+}
+
+.settings__segment:has(input:focus-visible) {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.settings__note {
+  grid-column: 2;
+  margin: 0;
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.settings__stepper {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  width: 180px;
+}
+
+.settings__step {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgb(20 16 44 / 0.9);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings__step:hover:not(:disabled) {
+  border-color: var(--cyan);
+}
+
+.settings__step:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.settings__latency {
+  text-align: center;
+  font-family: var(--wide);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
+/* The calibrator always takes the same space: light, text, button. */
+.settings__calibrate {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 128px;
+  align-items: center;
+  gap: 14px;
+  min-height: 74px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.settings__calibrate[data-state='running'] {
+  border-color: rgb(255 43 214 / 0.5);
+}
+
+.settings__light {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.settings__light.on {
+  background: var(--magenta);
+  box-shadow: 0 0 12px var(--magenta);
+}
+
+.settings__cal-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.settings__calibrate[data-state='running'] .settings__cal-text,
+.settings__calibrate[data-state='good'] .settings__cal-text {
+  color: var(--ink);
+}
+
+.settings__calibrate[data-state='bad'] .settings__cal-text {
+  color: var(--orange);
+}
+
+.settings__cal-button,
+.settings__done {
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgb(20 16 44 / 0.9);
+  font-family: var(--wide);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.settings__cal-button:hover,
+.settings__done:hover {
+  border-color: var(--cyan);
+}
+
+.settings__calibrate[data-state='running'] .settings__cal-button {
+  border-color: var(--magenta);
+  background: var(--magenta);
+  color: var(--night);
+  box-shadow: 0 0 24px -6px var(--magenta);
+}
+
+.settings__done {
+  width: 100%;
+  margin-top: 6px;
+  border-color: var(--cyan);
+  background: var(--cyan);
+  color: var(--night);
+  box-shadow: 0 0 28px -6px var(--cyan);
+}
+
+@media (max-width: 460px) {
+  .settings__row,
+  .settings__row--wide {
+    grid-template-columns: minmax(0, 1fr) 56px;
+  }
+
+  .settings__row--wide > *,
+  .settings__note {
+    grid-column: 1 / -1;
+  }
+}

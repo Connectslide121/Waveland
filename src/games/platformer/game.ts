@@ -3,9 +3,11 @@ import {
   AudioClock,
   buildLevelMap,
   decodeSong,
+  getLatencyMs,
   type AnalysedSong,
   type LevelMap,
 } from '../../core';
+import { openSettings } from '../../shell/settings';
 import { palette } from '../../theme/palette';
 import type { GameSession } from '../registry';
 import { generateLevelInWorker, type PlatformerLevel } from './level';
@@ -56,6 +58,11 @@ class PlatformerSession {
     this.pause = createPauseMenu({
       onResume: () => this.resume(),
       onRestart: () => this.restart(),
+      onSettings: () =>
+        openSettings({
+          // A new latency offset applies when the music plays on.
+          onClose: () => (this.clock.latencyMs = getLatencyMs()),
+        }),
       onQuit: () => this.exit(),
     });
     this.results = createResultsScreen(song.title, {
