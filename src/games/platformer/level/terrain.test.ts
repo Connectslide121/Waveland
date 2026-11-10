@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { beatAt, buildLevelMap, DIFFICULTIES, timeOfBeat, type LevelMap } from '../../../core';
+import {
+  beatAt,
+  buildLevelMap,
+  DIFFICULTIES,
+  periodAt,
+  timeOfBeat,
+  type LevelMap,
+} from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
 import { PLAYER_WIDTH, STEP_UP } from '../physics';
 import { generateLevel, STYLE_OF_FEEL } from './generate';
@@ -83,7 +90,9 @@ describe('terrain styles: a rock song with tempo and mood changes', () => {
         if (c.kind === 'drop') expect(c.style).toBe('drop');
         // A stretch made flat as a last resort is still ground.
         else if (c.kind !== 'flat' || c.repairs === 0)
-          expect(c.style, `at ${c.start.toFixed(2)} s`).toBe(STYLE_OF_FEEL[feelAt(c.start)]);
+          expect(c.style, `at ${c.start.toFixed(2)} s`).toBe(
+            STYLE_OF_FEEL[feelAt(c.start + periodAt(map, c.start) / 2)],
+          );
       }
       expect([...styles].sort()).toEqual(['climb', 'contour', 'drop', 'float', 'heave']);
     }
@@ -96,9 +105,13 @@ describe('terrain styles: a rock song with tempo and mood changes', () => {
     const moving = slabs.filter((s) => s.keys && range(s) > 4);
     expect(moving.length).toBeGreaterThan(slabs.length / 2);
     for (const s of slabs) {
-      if (s.keys) expect(range(s)).toBeLessThanOrEqual(2 * FLOAT_RANGE + 1e-6);
-      // Where the player's front reaches it, it is at its own height.
+      // It drifts at most its range either way of its own height (once any reshaping at a
+      // change of style is over).
       const on = timeAtX(normal, s.x0 - PLAYER_WIDTH);
+      for (const [k, t] of (s.keys?.times ?? []).entries())
+        if (t >= on)
+          expect(Math.abs(s.keys!.tops[k]! - s.top)).toBeLessThanOrEqual(FLOAT_RANGE + 1e-6);
+      // Where the player's front reaches it, it is at its own height.
       expect(solidTop(s, on)).toBeCloseTo(s.top, 3);
     }
   });

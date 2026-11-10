@@ -657,8 +657,9 @@ function contourTop(map: LevelMap, t: number): number {
 /**
  * Where the stretch's plain ground steps to, by its style: a build climbs a step every
  * stretch; elsewhere the ground steps toward the intensity's height when the music has
- * got clearly louder or quieter, a low step in a calm part, up to `CONTOUR_STEP` of the
- * difficulty's `rise` in a groove or a chorus.
+ * got clearly louder or quieter: up a low step in a calm part, up to `CONTOUR_STEP` of
+ * the difficulty's `rise` in a groove or a chorus, and down (no jump needed) up to a
+ * whole `rise`, so the ground comes back down soon after a drop's high plateau.
  */
 function stepTarget(ctx: BuildContext): { to: number; reason: string } | null {
   const { stretch, h, map, settings } = ctx;
@@ -670,8 +671,8 @@ function stepTarget(ctx: BuildContext): { to: number; reason: string } | null {
   }
   const target = contourTop(map, stretch.end);
   if (Math.abs(target - h) < CALM_STEP) return null;
-  const most = ctx.style === 'float' ? CALM_STEP : size(CONTOUR_STEP);
   const up = target > h;
+  const most = !up ? size(1) : ctx.style === 'float' ? CALM_STEP : size(CONTOUR_STEP);
   return {
     to: clampTop(h + Math.sign(target - h) * Math.min(most, Math.abs(target - h))),
     reason: up ? 'kick, the music getting louder' : 'kick, the music getting quieter',
@@ -1460,8 +1461,9 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     const calmSection = isCalm(section);
     const abilities = new Set(taught);
     if (teaching && lesson) abilities.add(lesson);
-    // The ground's style, by the section's feel; a new one starts on this downbeat.
-    const style: TerrainStyle = isDrop ? 'drop' : styleAt(stretch.start);
+    // The ground's style, by the section's feel; a new one starts on this downbeat. Read
+    // half a beat in: the analysis' section lines sit a hair off the grid's bar lines.
+    const style: TerrainStyle = isDrop ? 'drop' : styleAt(stretch.start + stretch.period / 2);
     const fresh = style !== lastStyle;
     const styleSince = fresh ? stretch.start : since;
 
