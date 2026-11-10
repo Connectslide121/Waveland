@@ -4,3 +4,4 @@ export * from './load';
 export * from './settings';
 export * from './song';
 export * from './types';
+export * from './waveform';
