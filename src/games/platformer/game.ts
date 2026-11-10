@@ -27,7 +27,8 @@ import { solveLevel } from './level/validate';
 import type { PlayerInput } from './physics';
 import { musicOf, PlatformerRun, type RunMusic } from './run';
 import { PlatformerScene, type FrameState } from './scene';
-import { chipBinding, createHud, createPauseMenu, createResultsScreen } from './ui';
+import { chipBinding } from '../shared';
+import { createHud, createPauseMenu, createResultsScreen } from './ui';
 
 /**
  * One play of the platformer: the audio clock, the run, the controls and the HTML over
@@ -99,7 +100,7 @@ class PlatformerSession {
       onRetry: () => this.restart(),
       onBack: () => this.exit(),
     });
-    this.overlay.className = 'pf-overlay';
+    this.overlay.className = 'game-overlay';
     this.overlay.append(this.hud.element, this.pause.element, this.results.element);
     document.addEventListener('visibilitychange', this.#hidden);
     this.run = new PlatformerRun(level, map.sections, this.#music);

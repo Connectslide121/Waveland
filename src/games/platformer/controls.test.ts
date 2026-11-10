@@ -116,7 +116,7 @@ describe('Controls', () => {
   it('ignores clicks on the menus’ buttons', () => {
     const surface = document.body.appendChild(document.createElement('div'));
     const modal = surface.appendChild(document.createElement('div'));
-    modal.className = 'pf-modal';
+    modal.className = 'game-modal';
     const button = modal.appendChild(document.createElement('button'));
     const hudButton = surface.appendChild(document.createElement('button'));
     const controls = new Controls(window, () => [], surface);

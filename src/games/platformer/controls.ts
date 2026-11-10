@@ -1,6 +1,5 @@
 import {
   bindingKey,
-  CONTROL_ACTIONS,
   getBindings,
   MOUSE_BUTTONS,
   onSettingsChange,
@@ -25,7 +24,16 @@ import type { RunInput } from './run';
 /** The stick counts as pushed past this. */
 const DEAD_ZONE = 0.5;
 /** Clicks on these are the menus', not the game's. */
-const NOT_GAME = 'button, a, input, select, textarea, label, [role="dialog"], .pf-modal';
+const NOT_GAME = 'button, a, input, select, textarea, label, [role="dialog"], .game-modal';
+
+/** The actions the platformer uses, in the order Settings and the pause menu list them. */
+export const PLATFORMER_ACTIONS = [
+  'jump',
+  'dash',
+  'slam',
+  'overdrive',
+] as const satisfies readonly ControlAction[];
+type PlatformerAction = (typeof PLATFORMER_ACTIONS)[number];
 
 export interface ControlsFrame extends Required<RunInput> {
   /** Pause was pressed since the last read. */
@@ -38,7 +46,7 @@ export type GamepadSource = () => readonly (Gamepad | null)[];
 const browserPads: GamepadSource = () =>
   typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
 
-type Flags = Record<ControlAction, boolean>;
+type Flags = Record<PlatformerAction, boolean>;
 const none = (): Flags => ({ jump: false, dash: false, slam: false, overdrive: false });
 
 export class Controls {
@@ -56,12 +64,12 @@ export class Controls {
   readonly #stopSettings = onSettingsChange(() => (this.#bindings = getBindings()));
 
   /** The actions a key is bound to. */
-  #actionsOfKey(key: string): ControlAction[] {
-    return CONTROL_ACTIONS.filter((a) => this.#bindings[a].keys.includes(key));
+  #actionsOfKey(key: string): PlatformerAction[] {
+    return PLATFORMER_ACTIONS.filter((a) => this.#bindings[a].keys.includes(key));
   }
 
-  #actionsOfMouse(button: number): ControlAction[] {
-    return CONTROL_ACTIONS.filter((a) =>
+  #actionsOfMouse(button: number): PlatformerAction[] {
+    return PLATFORMER_ACTIONS.filter((a) =>
       this.#bindings[a].mouse.some((m) => m !== null && MOUSE_BUTTONS[m] === button),
     );
   }
@@ -144,7 +152,7 @@ export class Controls {
   }
 
   /** True while any key or mouse button bound to the action is held. */
-  #held(action: ControlAction): boolean {
+  #held(action: PlatformerAction): boolean {
     const b = this.#bindings[action];
     for (const key of b.keys) if (key !== null && this.#keys.has(key)) return true;
     for (const m of b.mouse)
@@ -167,7 +175,7 @@ export class Controls {
         (pad.buttons[i]?.pressed ?? false) ||
         (i === PAD_BUTTONS.down && y > DEAD_ZONE) ||
         (i === PAD_BUTTONS.up && y < -DEAD_ZONE);
-      for (const a of CONTROL_ACTIONS)
+      for (const a of PLATFORMER_ACTIONS)
         padHeld[a] ||= this.#bindings[a].pad.some((b) => b !== null && down(b));
       padPause ||= down(PAUSE_PAD_BUTTON);
     }
@@ -182,7 +190,7 @@ export class Controls {
       pausePressed,
     };
     if (this.#enabled) {
-      const fresh = (a: ControlAction) => pressed[a] || (padHeld[a] && !this.#padHeld[a]);
+      const fresh = (a: PlatformerAction) => pressed[a] || (padHeld[a] && !this.#padHeld[a]);
       frame.jumpHeld = this.#held('jump') || padHeld.jump;
       frame.jumpPressed = fresh('jump');
       frame.dashPressed = fresh('dash');

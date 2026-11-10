@@ -132,6 +132,14 @@ const BINDINGS_KEY = 'waveland.controls';
 export type ControlAction = 'jump' | 'dash' | 'slam' | 'overdrive';
 export const CONTROL_ACTIONS: readonly ControlAction[] = ['jump', 'dash', 'slam', 'overdrive'];
 
+/** Each action's name as the player reads it. */
+export const CONTROL_ACTION_NAMES: Record<ControlAction, string> = {
+  jump: 'Jump',
+  dash: 'Dash',
+  slam: 'Slam',
+  overdrive: 'Overdrive',
+};
+
 export type MouseButton = 'left' | 'right' | 'middle' | 'back' | 'forward';
 /** `MouseEvent.button` numbers, by name. */
 export const MOUSE_BUTTONS: Record<MouseButton, number> = {

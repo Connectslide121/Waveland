@@ -1,0 +1,315 @@
+/* The HUD every game shows over its canvas. Sizes follow the stage's width, like the
+   mock-up (docs/concept/look.html, scene 1), within readable limits. */
+
+.game-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.game-hud {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  pointer-events: none;
+  font-family: var(--wide);
+  color: var(--muted);
+}
+
+.game-hud__top {
+  position: absolute;
+  inset: clamp(14px, 3cqw, 40px) clamp(16px, 3.4cqw, 48px) auto;
+  display: grid;
+  /* Fixed side columns, so the beat dots stay centred whatever the song is called. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  font-size: clamp(11px, 1.25cqw, 16px);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.game-hud__song {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  line-height: clamp(26px, 3cqw, 40px);
+}
+
+.game-hud__song b {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.game-hud__beats {
+  display: flex;
+  gap: clamp(7px, 0.7cqw, 12px);
+  height: clamp(26px, 3cqw, 40px);
+  align-items: center;
+}
+
+.game-hud__beats i {
+  width: clamp(9px, 0.9cqw, 14px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.game-hud__beats i.on {
+  background: var(--magenta);
+  box-shadow: 0 0 10px var(--magenta);
+}
+
+.game-hud__score-box {
+  justify-self: end;
+  text-align: right;
+}
+
+.game-hud__score {
+  color: var(--ink);
+  font-size: clamp(20px, 2.2cqw, 30px);
+  line-height: clamp(26px, 3cqw, 40px);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px var(--magenta);
+}
+
+/* The combo meter: the multiplier, eight steps to the next one, the count. Fixed widths,
+   so nothing moves as it counts. */
+.game-hud__combo {
+  display: inline-grid;
+  grid-template-columns: 3ch auto 4ch;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--magenta);
+  font-size: clamp(10px, 1cqw, 13px);
+  font-variant-numeric: tabular-nums;
+  transition: opacity 0.2s;
+}
+
+.game-hud__combo.none {
+  opacity: 0.45;
+}
+
+.game-hud__mult {
+  font-size: 1.3em;
+  font-weight: 700;
+  text-align: left;
+  letter-spacing: 0.04em;
+}
+
+.game-hud__steps {
+  display: flex;
+  gap: 3px;
+}
+
+.game-hud__steps i {
+  width: clamp(5px, 0.55cqw, 8px);
+  height: clamp(8px, 0.8cqw, 11px);
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.game-hud__steps i.on {
+  background: var(--magenta);
+  box-shadow: 0 0 6px var(--magenta);
+}
+
+.game-hud__combo.max .game-hud__steps i {
+  background: var(--flare);
+  box-shadow: 0 0 8px var(--magenta);
+}
+
+.game-hud__combo-count {
+  text-align: right;
+  color: var(--ink);
+}
+
+/* Overdrive, and a game's own slots after it, bottom left over the progress bar. */
+.game-hud__status {
+  position: absolute;
+  left: clamp(16px, 3.4cqw, 48px);
+  bottom: calc(clamp(14px, 2.6cqw, 36px) + 14px);
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(14px, 1.6cqw, 24px);
+  font-size: clamp(9px, 0.85cqw, 12px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.game-od {
+  width: clamp(190px, 19cqw, 280px);
+}
+
+.game-od__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+}
+
+.game-od__name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.game-od__state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+
+.game-od__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-od__bar {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgb(7 6 15 / 0.6);
+}
+
+.game-od__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: rgb(255 43 214 / 0.55);
+}
+
+/* Its key chip keeps one width, bound or not. */
+.game-od__key {
+  min-width: 2.4em;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font: inherit;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--muted);
+}
+
+.game-od.ready .game-od__state,
+.game-od.on .game-od__state {
+  color: var(--magenta);
+}
+
+.game-od.ready .game-od__fill,
+.game-od.on .game-od__fill {
+  background: var(--magenta);
+  box-shadow: 0 0 12px var(--magenta);
+}
+
+.game-od.ready .game-od__bar {
+  border-color: var(--magenta);
+  box-shadow: 0 0 14px -2px var(--magenta);
+  animation: game-ready var(--beat) ease-in-out infinite alternate;
+}
+
+.game-od.ready .game-od__key {
+  border-color: var(--magenta);
+  color: var(--ink);
+}
+
+.game-od.on .game-od__fill {
+  background: linear-gradient(90deg, var(--magenta), var(--flare));
+}
+
+@keyframes game-ready {
+  to {
+    box-shadow: 0 0 22px 1px var(--magenta);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-od.ready .game-od__bar {
+    animation: none;
+  }
+}
+
+.game-hud__progress {
+  position: absolute;
+  left: clamp(16px, 3.4cqw, 48px);
+  right: clamp(16px, 3.4cqw, 48px);
+  bottom: clamp(14px, 2.6cqw, 36px);
+  height: 3px;
+  border-radius: 99px;
+  background: var(--line);
+}
+
+.game-hud__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--violet), var(--cyan));
+  box-shadow: 0 0 10px var(--cyan);
+}
+
+/* Drops in the drop colour, standing out from the fill. */
+.game-hud__drop {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 11px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--magenta);
+  box-shadow: 0 0 8px var(--magenta);
+}
+
+/* The frame rate readout (Settings: Frame rate), small and quiet over the progress bar. */
+.game-hud__perf {
+  position: absolute;
+  right: clamp(16px, 3.4cqw, 48px);
+  bottom: calc(clamp(14px, 2.6cqw, 36px) + 12px);
+  font-size: clamp(10px, 0.9cqw, 12px);
+  letter-spacing: 0.14em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.game-hud__perf[hidden] {
+  display: none;
+}
+
+/* On a narrow screen a game's slots (the boosters) reach the right edge: the readout goes
+   under the combo meter instead, top right. */
+@container (max-width: 640px) {
+  .game-hud__perf {
+    top: calc(clamp(14px, 3cqw, 40px) + 60px);
+    bottom: auto;
+  }
+}
+
+.game-hud__count {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  translate: -50% -50%;
+  color: var(--magenta);
+  font-size: clamp(56px, 9cqw, 140px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 24px var(--magenta),
+    0 0 60px var(--magenta);
+  opacity: 0;
+}
+
+.game-hud__count.on {
+  opacity: 1;
+}
