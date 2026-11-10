@@ -62,6 +62,18 @@ describe('AudioClock', () => {
     expect(sources[1]!.start).toHaveBeenCalledWith(0, 4);
   });
 
+  it('plays a lead of silence from before the start, counting up through it', async () => {
+    const { context, sources } = fakeContext();
+    const clock = new AudioClock(buffer, { context, latencyMs: 0 });
+    await clock.play(-2);
+    expect(sources[0]!.start).toHaveBeenCalledWith(102, 0);
+    expect(clock.time).toBeCloseTo(-2);
+    context.currentTime += 1.5;
+    expect(clock.time).toBeCloseTo(-0.5);
+    context.currentTime += 1;
+    expect(clock.time).toBeCloseTo(0.5);
+  });
+
   it('seeks, and stays within the song', async () => {
     const { context } = fakeContext();
     const clock = new AudioClock(buffer, { context, latencyMs: 0 });

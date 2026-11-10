@@ -36,8 +36,10 @@ export class AudioClock {
   #source: AudioBufferSourceNode | null = null;
   /** Song position when paused, or where the current playback started from. */
   #position = 0;
-  /** Context time when the current playback started. */
+  /** Context time when the current playback started (or will, after a lead of silence). */
   #startedAt = 0;
+  /** Seconds of silence before the song starts, when playing from before its start. */
+  #lead = 0;
 
   constructor(buffer: AudioBuffer, { context, latencyMs }: AudioClockOptions = {}) {
     this.buffer = buffer;
@@ -56,16 +58,20 @@ export class AudioClock {
   /**
    * The song time the player is hearing now, in seconds: the context's clock minus the
    * output latency the browser reports and the player's own offset, kept within the song.
+   * During a lead of silence (playing from before 0) it counts up from below 0.
    */
   get time(): number {
     if (!this.#source) return this.#position;
     const elapsed = this.#context.currentTime - this.#startedAt;
     const latency =
       (this.#context.outputLatency ?? 0) + (this.#context.baseLatency ?? 0) + this.latencyMs / 1000;
-    return Math.max(0, Math.min(this.duration, this.#position + elapsed - latency));
+    return Math.max(-this.#lead, Math.min(this.duration, this.#position + elapsed - latency));
   }
 
-  /** Play from a song time (by default, from where it is). */
+  /**
+   * Play from a song time (by default, from where it is). A time before 0 plays that much
+   * silence first, with `time` counting up to 0 through it: a count-in before the song.
+   */
   async play(from = this.#position): Promise<void> {
     this.#halt();
     if (this.#context.state === 'suspended') await this.#context.resume();
@@ -73,7 +79,8 @@ export class AudioClock {
     source.buffer = this.buffer;
     source.connect(this.#context.destination);
     this.#position = Math.max(0, Math.min(this.duration, from));
-    this.#startedAt = this.#context.currentTime;
+    this.#lead = Math.max(0, -from);
+    this.#startedAt = this.#context.currentTime + this.#lead;
     source.onended = () => {
       // Only the source still playing ends the song; one we stopped ourselves doesn't.
       if (this.#source !== source) return;
@@ -82,7 +89,7 @@ export class AudioClock {
       this.onEnded?.();
     };
     this.#source = source;
-    source.start(0, this.#position);
+    source.start(this.#lead > 0 ? this.#startedAt : 0, this.#position);
   }
 
   /** Stop where it is; `play()` carries on from there. */
