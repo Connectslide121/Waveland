@@ -1,0 +1,96 @@
+/* The tunnel's own HUD pieces, over the shared HUD (src/games/shared/hud.css). */
+
+/* The shield: one slot that is always there, dim until a clean section earns it. */
+.tn-shield {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: clamp(48px, 4.6cqw, 64px);
+  color: var(--line);
+  transition: color 0.15s;
+}
+
+.tn-shield__icon {
+  display: grid;
+  place-items: center;
+  width: clamp(30px, 2.8cqw, 40px);
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgb(7 6 15 / 0.55);
+}
+
+.tn-shield__icon svg {
+  width: 70%;
+  height: 70%;
+}
+
+.tn-shield__name {
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.tn-shield.on {
+  color: var(--cyan);
+}
+
+.tn-shield.on .tn-shield__name {
+  color: var(--ink);
+  opacity: 1;
+}
+
+.tn-shield.on .tn-shield__icon {
+  border-color: currentColor;
+  box-shadow:
+    0 0 14px -3px currentColor,
+    inset 0 0 10px -4px currentColor;
+}
+
+/* The word a hop or jump was judged, under the count-in's place, fading on its own. */
+.tn-judge {
+  position: absolute;
+  left: 50%;
+  top: 24%;
+  translate: -50% 0;
+  font-size: clamp(14px, 1.6cqw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.tn-judge[data-word='perfect'] {
+  color: var(--magenta);
+  text-shadow: 0 0 14px var(--magenta);
+}
+
+.tn-judge[data-word='good'] {
+  color: var(--ink);
+}
+
+.tn-judge[data-word='miss'] {
+  color: var(--muted);
+}
+
+.tn-judge[data-word='crash'] {
+  color: var(--orange);
+  text-shadow: 0 0 14px var(--orange);
+}
+
+.tn-judge[data-word='saved'] {
+  color: var(--cyan);
+  text-shadow: 0 0 14px var(--cyan);
+}
+
+/* The crash's orange flash over the whole screen, under the HUD. */
+.tn-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 70%, transparent 30%, var(--orange) 140%);
+  opacity: 0;
+}

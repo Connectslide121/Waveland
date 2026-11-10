@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { games, GameRegistry, type SoonGame } from '.';
 
 describe('games', () => {
-  it('lists the platformer first and ready, the tunnel as coming soon', () => {
+  it('lists the platformer first, then the tunnel, both ready', () => {
     expect(games.all().map((g) => [g.id, g.status])).toEqual([
       ['platformer', 'ready'],
-      ['tunnel', 'soon'],
+      ['tunnel', 'ready'],
     ]);
     expect(games.firstReady()?.id).toBe('platformer');
   });
@@ -19,11 +19,6 @@ describe('games', () => {
     for (const game of games.all())
       expect(Object.values(game.difficulty).every((line) => line.length > 0)).toBe(true);
     expect(games.get('tunnel')!.difficulty.easy).toMatch(/Three lanes/);
-  });
-
-  it('says in words why a soon game cannot be played', () => {
-    const tunnel = games.get('tunnel') as SoonGame;
-    expect(tunnel.reason.length).toBeGreaterThan(0);
   });
 });
 

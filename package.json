@@ -16,6 +16,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.19.2",
+    "@types/three": "^0.187.0",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "fake-indexeddb": "^6.2.8",
@@ -28,6 +29,7 @@
     "vitest": "^5.1.0"
   },
   "dependencies": {
-    "phaser": "^4.2.1"
+    "phaser": "^4.2.1",
+    "three": "^0.187.0"
   }
 }
