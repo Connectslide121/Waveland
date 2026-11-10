@@ -7,7 +7,7 @@ A collection of music games in the browser. You drop in any song and each game b
 | Game | Status | Idea |
 |---|---|---|
 | Platformer | Playable | An auto-runner locked to the song: you always run in time with the music, and jump, dash and slam through a world that moves with it. Equaliser columns rise and fall with the bass, bridges appear on snares, dash gates stand on the accents, slam plates break on heavy kicks and at the end of fills, spikes come out on off-beats, drops become set pieces. |
-| Tunnel | Idea for later | Race down a 3D tunnel that twists and climbs with the melody; obstacles and pickups land on the beat, steering between lanes. |
+| Tunnel | Playable (being tuned) | Race down a 3D tunnel that bends and climbs with the melody and pulses with the bass: hop between lanes and jump low walls as obstacles land on the beat, ride rails of gems along held notes, and burst through the drops. |
 
 More music games can join later; each is a mode picked from the same menu.
 
@@ -44,6 +44,17 @@ That starts the dev server and opens the game in your browser, normally at <http
    - 10 perfects in a row burst for a bonus, and a section without a hit earns a **clean section** bonus;
    - the results screen shows your score and rank with the perfect, good and miss counts, timing, best combo, overdrives, clean sections, pickups and shield saves. Rank S needs 85% timing and no deaths, A 70% and at most 2 deaths, B 50%; C is finishing. Timing counts a good as half a perfect.
 
+### Tunnel
+
+Pick **Tunnel** instead, with the same song and difficulty picker: **Easy** has three lanes and wide gaps, **Normal** and **Hard** five lanes (hard adds blocks sliding on the off-beats). You race down the tunnel by yourself, in time with the music:
+
+- **steer** one lane left or right (hold to keep hopping every half beat) round the orange blocks: one on a kick, its mirror on a snare, a slalom on a fill;
+- walls on the accents leave a gap to steer to; the lowest of them are **jumped**;
+- magenta gems sit on the hi-hats and off-beats, rails of gems run along held notes, and a drop opens the tunnel wide with a wave of gems in every lane;
+- when the band stops, the tunnel goes dark: steer to the gap of the wall that comes with its return.
+
+There are no deaths and the music never stops: a crash breaks the combo and costs 500 points, or the **shield** (a cyan bubble) that every section without a crash earns. Hops and jumps are judged on the beat like the platformer's actions, gems build the combo and fill overdrive, and the rank counts timing, pickups taken and crashes.
+
 Use **Song details** on the title screen to see what the analysis found and a preview of the level. If the music feels late against the picture (Bluetooth headphones), set the audio offset in **Settings**: nudge it, or tap along to calibrate.
 
 ## Controls
@@ -56,6 +67,8 @@ The defaults:
 | Dash | Shift, J or X | Right click | X or RB |
 | Slam | S or ↓ | Left click | B, or down on the d-pad or left stick |
 | Overdrive | E or L | | Y |
+| Steer left (tunnel) | ← or A | | D-pad or left stick left |
+| Steer right (tunnel) | → or D | | D-pad or left stick right |
 | Pause | Esc | | Start |
 
 Change them in **Settings → Controls**: click a slot, then press the key or button to use (Escape cancels, Backspace clears). Each action has three key slots and two mouse and gamepad slots; an input another action had moves over, and Settings says so. Esc and Start always pause. The pause menu shows the controls as they are bound now, and has Resume, Restart, Settings and Quit. Switching to another tab pauses too. There are no touch controls yet: play on a computer.
@@ -64,7 +77,7 @@ Change them in **Settings → Controls**: click a slot, then press the key or bu
 
 - **TypeScript + Vite**, runs in the browser.
 - **Core** (shared by every game): load a song, analyse it once (beats, tempo, energy over time, sections, drops), cache the result, and turn it into a level map that each game reads its own way.
-- **Games** as separate modes: the platformer in **Phaser**, the tunnel later in **Three.js**.
+- **Games** as separate modes: the platformer in **Phaser**, the tunnel in **Three.js**, each loaded only when its game starts.
 - **Menus** (song picker, mode select, settings) in plain HTML and CSS over the game canvas.
 - Everything is timed from the audio clock, never from frame time, so it stays in sync.
 

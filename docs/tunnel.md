@@ -161,7 +161,32 @@ The results screen and pause menu are the shared ones (`src/games/shared/menus.t
 
 ## Look
 
-Neon arcade (`docs/concept/look.html`), drawn in code with Three.js: no textures or models. The tunnel is rings and lane lines of glowing lines on night `#07060f`, bloom on. Colours keep their meanings: cyan the player craft and the free lanes, violet the tunnel walls and bass pulse, magenta pickups, score and drops, orange obstacles. Colours from `src/theme/palette.ts`. A frame monitor (the platformer's `perf.ts`) lowers effects (bloom, ring count) to keep frames smooth, and says so in Settings.
+Neon arcade (`docs/concept/look.html`), drawn in code with Three.js (`scene.ts`, `TunnelScene`): no textures or models, only a radial glow drawn once on a canvas. Three.js is loaded with a dynamic import when the game starts (`index.ts`), like the platformer's Phaser, so it is its own chunk.
+
+Colours keep their meanings, all from `src/theme/palette.ts`: cyan the craft and the lane lines (safe paths), violet the tube, its rings and the bass pulse, magenta gems, rails, kick rings and drops, orange obstacles, on night `#07060f`.
+
+**Where things are.** Track units throughout (a lane is one unit). The path's point is the tube's centre; its frame (forward, right, up) comes from the path a unit either side. The lanes sit one unit apart on the deck, an arc of `LANE_RADIUS` (3) below the centre, so the outer lanes tilt up the tube's side. The tube's rings are wider (`TUBE_RADIUS`, 4.6, times the section's radius share, eased from its start to its end) and breathe with the bass and the kicks; the deck never moves, so a lane is where the physics says. Everything is placed from song time: a ring on its beat (`zAtTime` of the beat's time), an obstacle on its moment, a sliding block where it has slid to now.
+
+**What is drawn**, rebuilt every frame from the stretch in view (`VIEW_BEHIND` 8 units behind the craft to the quality's `viewAhead`), fading into the night far ahead:
+
+- **Rings** of light every `ringBeats` of the section's look, brighter on downbeats and with the section's glow; ring walls (a glowing band) on every beat in a chorus. Instanced tori.
+- **Lane lines** (cyan, the deck's edges brighter), a faint floor per lane, and ten long violet lines along the tube. Flat strips rebuilt into one buffer (`Ribbons`), since WebGL lines are a pixel wide.
+- **Obstacles**: an orange box per blocked lane, bright edges and a dim fill (an edge shader); a low wall is `LOW_WALL_HEIGHT` tall. The one just hit flares white.
+- **Pickups**: spinning magenta octahedra floating over their lane, gone once taken; rails are a magenta strip along their lane, a held chord's ring is magenta rings every 2 units of it.
+- **The craft**: a cyan dart with a light rim and an engine glow, on its lane (between two mid-hop), at its jump height, banked with the deck, leaning into a hop. The shield is a cyan wireframe bubble round it.
+- **Pulse**: on every kick a magenta ring opens out just ahead of the craft and the rings brighten; the tube breathes 5% with the bass and 5% with the kick.
+- **Stops**: everything in a stop's dark is down to `DARK_LIGHT` (7%).
+- **Drop set piece**: from the drop's first bar for `DROP_BARS`, its rings are magenta and flash on every beat, the far end's glow turns magenta, bloom goes up. Overdrive turns the rings magenta too.
+- **Crash**: an orange flash over the screen (a CSS layer under the HUD) and a 0.35 s camera shake; sparks (orange, cyan when the shield took it). Sparks also burst on pickups, perfects, overdrive and a new shield.
+- **Bloom** (`UnrealBloomPass`) then the output pass. The renderer turns the clear colour to sRGB even inside the composer's linear buffer, so the clear colour is given pre-linearised once more, or night shows as grey.
+
+**Camera.** Behind the craft (`CAMERA_BACK`, 4.6 units, more on a narrow screen so every lane stays in view) and `CAMERA_UP` (1.75) over the deck, following the craft's lane halfway, its frame averaged over 6 units of path so bends come in smoothly, looking `LOOK_AHEAD` (12) units ahead and banking a little with the deck. The field of view aims at 78° across, between 55° and 88° up and down, so a phone held upright still sees every lane.
+
+**Reduced effects** (Settings, or the system's reduced motion): no crash flash or shake, no drop flashes, kick and bass pulses at 40%.
+
+**Frame monitor**: the shared `FrameMonitor` (`src/games/shared/perf.ts`) steps down `QUALITY` (`perf.ts`) when frames stay slow: pixel ratio 2, then 1.25 with a shorter view, then 1 without bloom and a 65-unit view, fewer sparks each step. A step down is said in Settings while the game runs. Resizing refits the renderer, the composer and the camera; stopping disposes every geometry, material, texture, the composer and the renderer.
+
+**The session** (`game.ts`, `TunnelSession`) is the platformer's: the audio clock, `GameControls` with the tunnel's actions (`actions.ts`), the shared pause menu (listing left, right, jump, overdrive and pause), results screen and HUD with the shield slot and the last judgement word (`ui.ts`), the count-in, tab-hidden pause, settings changes, `DisplayLead`, and dev autoplay (`waveland.autoplay()`, `solveLevel` on the main thread).
 
 ## Build steps
 
@@ -193,5 +218,8 @@ Each step is a queue task with its own chat; each ends green (`npm run typecheck
      - The shield is earned by a clean section, not picked up: the track stays as step 3 built it. It takes a crash's points, not the combo.
      - The rank counts pickups taken as well as timing and crashes. Every number here is a first guess for step 6 to tune.
    - Left for step 5: the session feeds `update` and draws the events (a crash's flash and shake), and the HUD shows the shield; the run's results go to the shared results screen through `summaryOf` and `rankRules()`.
-5. **The game.** Three.js (`npm i three`), loaded only when the game starts; the session (audio clock, controls, pause, results, HUD), the scene (tunnel, lanes, craft, obstacles, pickups, pulses, bloom, camera following the path), frame monitor, reduced effects; the registry entry turns `ready`. Checked with screenshots on desktop and phone sizes.
+5. **The game.** ✅ Done. Three.js (`npm i three`), loaded only when the game starts; the session (audio clock, controls, pause, results, HUD), the scene (tunnel, lanes, craft, obstacles, pickups, pulses, bloom, camera following the path), frame monitor, reduced effects; the registry entry turns `ready`. Checked with screenshots on desktop and phone sizes.
+   - Done as planned; Look above describes it as built. The platformer's controls reader and frame monitor moved to `src/games/shared/` (`GameControls`, `FrameMonitor`); the left stick now steers left and right as the d-pad does.
+   - Checked in a browser on the 128 BPM electronic test song with autoplay, on normal: no crash, no console errors, desktop and phone sizes, pause, resume, restart and quit (the canvas is removed).
+   - Left for step 6: every look number (ring brightness, bloom, camera distance and height, the shield bubble's size) is a first guess; the playtest should judge them on real songs and a real screen. An offscreen browser throttles its frames, so the frame monitor there drops to the lowest quality: judge the frame rate on a real window.
 6. **Playtest and tune.** Play the synthetic songs and a few real ones, tune speeds, lane hop timing, density per difficulty and the camera; update this file, `README.md` and `AGENTS.md`.
