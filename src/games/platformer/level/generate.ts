@@ -20,9 +20,13 @@ import {
   PHYSICS_DT,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
+  startState,
+  stepPlayer,
   VIEW_WIDTH,
+  type PlayerState,
 } from '../physics';
 import {
+  BOOSTER_KINDS,
   GATE_GRACE,
   LevelWorld,
   LOWEST_TOP,
@@ -185,8 +189,12 @@ const RUN_OUT_SECONDS = 3;
 const MIN_STEP_WIDTH = 70;
 /** Bars narrower than this are built two at a time, px. */
 const MIN_BAR_WIDTH = 340;
-/** Coins are at least this far apart, and from gems, px. */
+/** Coins are at least this far apart, and from gems and boosters, px. */
 const COIN_SPACING = 26;
+/** At most one booster in this many bars, the first in the song's second section. */
+const BOOSTER_BARS = 8;
+/** A booster sits this far above the head at the top of a full jump, px. */
+const BOOSTER_ABOVE = 6;
 /** The drop staircase's steps. */
 const STAIR_STEPS = 7;
 /** Gems in the arc over the drop's plateau. */
@@ -1232,6 +1240,88 @@ function attemptsFor(count: number, isDrop: boolean): Attempt[] {
 }
 
 /**
+ * Where a full jump taken on the ground at `t` peaks, simulated with the game's own step:
+ * null when there is no ground to take off from, or the jump (or a moment standing after
+ * it) dies. Risky when the peak is over a pit.
+ */
+function fullJump(
+  level: PlatformerLevel,
+  world: LevelWorld,
+  t: number,
+): { time: number; x: number; y: number; risky: boolean } | null {
+  const standing = (x: number, at: number) => {
+    let best: { surface: number; top: number } | null = null;
+    for (const i of world.solidsBetween(x, x + PLAYER_WIDTH)) {
+      if (level.solids[i]!.kind === 'overhang') continue;
+      const top = world.topAt(i, at);
+      if (top !== null && (!best || top > best.top)) best = { surface: i, top };
+    }
+    return best;
+  };
+  const ground = standing(xAtTime(level, t), t);
+  if (!ground) return null;
+  let p: PlayerState = { ...startState(xAtTime(level, t), ground.top), surface: ground.surface };
+  let peak = { time: t, x: p.x, y: p.y };
+  let k = 1;
+  for (; k * PHYSICS_DT <= 2 * JUMP_AIR; k++) {
+    const at = t + k * PHYSICS_DT;
+    p = stepPlayer(p, { jump: k === 1 }, world, at);
+    if (!p.alive) return null;
+    if (p.y > peak.y) peak = { time: at, x: p.x, y: p.y };
+    if (k > 1 && p.grounded) break;
+  }
+  if (!p.grounded) return null;
+  // Not landing somewhere that kills a moment later without a press.
+  for (let j = 1; j <= 15 && p.alive; j++)
+    p = stepPlayer(p, { jump: false }, world, t + (k + j) * PHYSICS_DT);
+  if (!p.alive) return null;
+  return {
+    time: peak.time,
+    x: peak.x + PLAYER_WIDTH / 2,
+    y: peak.y + PLAYER_HEIGHT + BOOSTER_ABOVE,
+    risky: standing(peak.x, peak.time) === null,
+  };
+}
+
+/**
+ * Boosters (shield, magnet, extra dash, in turn) in optional or risky spots: just over
+ * the head at the top of a full jump taken on a beat, over a pit when a section has one
+ * in its first bars, else over plain ground. A short hop or no jump passes under it. One
+ * a section at most, at least `BOOSTER_BARS` apart, from the second section on, never in
+ * a drop's set piece or around a lesson. The validator never sees pickups, so the level
+ * stays completable without them.
+ */
+function boosters(level: PlatformerLevel, map: LevelMap, seed: number): void {
+  const world = new LevelWorld(level);
+  const rng = new Random(hashOf(seed, 'boosters'));
+  let turn = rng.int(0, BOOSTER_KINDS.length - 1);
+  let after = -Infinity;
+  const busy = (t: number) =>
+    level.chunks.some(
+      (c) => (c.kind === 'drop' || c.kind === 'run-out') && t >= c.start - 1 && t < c.end,
+    ) || level.lessons.some((l) => t >= l.time - 4 * periodAt(map, l.time) && t <= l.end + 0.5);
+  for (const section of map.sections.slice(1)) {
+    const from = Math.max(section.start + 4 * periodAt(map, section.start), after);
+    const to = Math.min(section.end, timeOfBeat(map, beatAt(map, from) + BOOSTER_BARS * 4));
+    let best: ReturnType<typeof fullJump> = null;
+    for (const t of map.beats) {
+      if (t < from || t >= to || busy(t)) continue;
+      const spot = fullJump(level, world, t);
+      if (!spot || busy(spot.time)) continue;
+      if (spot.risky) {
+        best = spot;
+        break;
+      }
+      best ??= spot;
+    }
+    if (!best) continue;
+    const kind = BOOSTER_KINDS[turn++ % BOOSTER_KINDS.length]!;
+    level.pickups.push({ kind, x: best.x, y: best.y, time: best.time });
+    after = timeOfBeat(map, beatAt(map, best.time) + BOOSTER_BARS * 4);
+  }
+}
+
+/**
  * Coins on the hi-hats, over the ground or up in the jump over a pit. Where there are no
  * hats for a while (a quiet intro, a breakdown without drums) the coins go on the beats
  * instead, so there is always something to run to in time.
@@ -1242,7 +1332,7 @@ function coins(level: PlatformerLevel, map: LevelMap, every: number, from: numbe
     level.chunks.some((c) => c.kind === 'drop' && t >= c.start && t < c.end);
   // Fast hats (sixteenths at 174 BPM are 14 px apart) would pile coins into a clump, and
   // onto the drop's gems: keep each coin clear of the others and of the gems.
-  const taken = level.pickups.filter((p) => p.kind === 'gem').map((p) => p.x);
+  const taken = level.pickups.filter((p) => p.kind !== 'coin').map((p) => p.x);
   const clear = (x: number) => taken.every((t) => Math.abs(t - x) >= COIN_SPACING);
   const place = (time: number) => {
     const x = xAtTime(level, time) + PLAYER_WIDTH / 2;
@@ -1577,6 +1667,7 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     throw new LevelGenerationError('Nobody gets through the run-out');
 
   level.obstacles.sort((a, b) => a.time - b.time);
+  boosters(level, map, seed);
   coins(level, map, settings.coinEvery, 0.5, map.duration - 0.5);
   return level;
 }

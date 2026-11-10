@@ -11,7 +11,15 @@ import {
 import { analyseSamples } from '../../../core/analysis/analyse';
 import { momentsSong, TEST_RATE } from '../../../core/analysis/test-audio';
 import { randomAnalysis } from '../../../core/test-analysis';
-import { PHYSICS_DT, PLAYER_WIDTH, scrollSpeed, stepPlayer } from '../physics';
+import {
+  PHYSICS_DT,
+  PLAYER_HEIGHT,
+  PLAYER_WIDTH,
+  scrollSpeed,
+  startState,
+  stepPlayer,
+  type PlayerState,
+} from '../physics';
 import {
   bridgeWindows,
   dashPitAir,
@@ -23,12 +31,14 @@ import {
   MIN_TOP,
 } from './generate';
 import {
+  BOOSTER_KINDS,
   GATE_GRACE,
   LevelWorld,
   solidTop,
   speedAt,
   timeAtX,
   xAtTime,
+  type Pickup,
   type PlatformerLevel,
 } from './level';
 import { Explorer, stepAt, validateLevel } from './validate';
@@ -190,6 +200,60 @@ describe('generateLevel: the music', () => {
       expect(sorted[i]! - sorted[i - 1]!).toBeGreaterThanOrEqual(26 - 1e-6);
     for (const c of coins)
       for (const g of gems) expect(Math.abs(c - g)).toBeGreaterThanOrEqual(26 - 1e-6);
+  });
+
+  it('places boosters in turn over a full jump on a beat, at least 8 bars apart, never in drops', () => {
+    /** The closest a jump from the ground at `t` (held, or let go at once) comes to `k`. */
+    const closest = (
+      l: PlatformerLevel,
+      world: LevelWorld,
+      t: number,
+      k: Pickup,
+      hold: boolean,
+    ) => {
+      const x = xAtTime(l, t);
+      let top = -Infinity;
+      let surface = -1;
+      for (const i of world.solidsBetween(x, x + PLAYER_WIDTH)) {
+        const at = world.topAt(i, t);
+        if (l.solids[i]!.kind !== 'overhang' && at !== null && at > top) [top, surface] = [at, i];
+      }
+      if (surface < 0) return Infinity;
+      let p: PlayerState = { ...startState(x, top), surface };
+      let best = Infinity;
+      for (let i = 1; i < 60 && p.alive; i++) {
+        p = stepPlayer(p, { jump: i === 1, release: !hold }, world, t + i * PHYSICS_DT);
+        const nx = Math.max(p.x, Math.min(k.x, p.x + PLAYER_WIDTH));
+        const ny = Math.max(p.y, Math.min(k.y, p.y + PLAYER_HEIGHT));
+        best = Math.min(best, Math.hypot(nx - k.x, ny - k.y));
+      }
+      return best;
+    };
+    let placed = 0;
+    for (let seed = 1; seed <= 8; seed++) {
+      const map = song(seed);
+      const l = level(seed, DIFFICULTIES[seed % 3]!);
+      const world = new LevelWorld(l);
+      const boosts = l.pickups.filter((p) => (BOOSTER_KINDS as string[]).includes(p.kind));
+      placed += boosts.length;
+      boosts.forEach((b, i) => {
+        expect(b.time).toBeGreaterThan(map.sections[1]!.start);
+        expect(l.chunks.some((c) => c.kind === 'drop' && b.time >= c.start && b.time < c.end)).toBe(
+          false,
+        );
+        const prev = boosts[i - 1];
+        if (prev) {
+          expect(beatAt(map, b.time) - beatAt(map, prev.time)).toBeGreaterThanOrEqual(32 - 1e-6);
+          expect(b.kind).not.toBe(prev.kind);
+        }
+        // A full jump on a beat just before reaches it; a short hop on that beat doesn't.
+        const takeoffs = map.beats.filter((t) => t < b.time && t > b.time - 0.6);
+        const reach = takeoffs.find((t) => closest(l, world, t, b, true) <= 22);
+        expect(reach).toBeDefined();
+        expect(closest(l, world, reach!, b, false)).toBeGreaterThan(22);
+      });
+    }
+    expect(placed).toBeGreaterThan(4);
   });
 
   it('puts coins on the beats of a song with no hi-hats', () => {

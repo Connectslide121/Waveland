@@ -461,12 +461,20 @@ export function createLevelPreview({
       ctx.fillRect(px(g.x) - 1.5, STRIP, 3, py(g.top) - STRIP);
     }
 
-    // Coins and gems.
+    // Coins and gems; boosters as a ring in the player's cyan.
     ctx.fillStyle = palette.magenta;
     for (const p of l.pickups) {
       if (p.x < from || p.x > to) continue;
       const x = px(p.x);
       const y = py(p.y);
+      if (p.kind !== 'coin' && p.kind !== 'gem') {
+        ctx.strokeStyle = palette.cyan;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 7 * scale + 2, 0, Math.PI * 2);
+        ctx.stroke();
+        continue;
+      }
       ctx.beginPath();
       if (p.kind === 'gem') {
         const r = 8 * scale + 2;
