@@ -202,6 +202,9 @@ interface Burst {
   seed: number;
 }
 
+/** The DROP callout's alpha while it warms up: drawn, but not to be seen. */
+const WARM_ALPHA = 0.004;
+
 /** How long each kind of burst lasts, how many particles and how fast they fly. */
 const BURSTS = {
   land: { life: 0.35, count: 10, speed: 140 },
@@ -302,6 +305,11 @@ export class PlatformerScene extends Phaser.Scene {
   readonly #joinedRight: Uint8Array;
   readonly #music: Music;
   #zoom = 1;
+  /**
+   * Frames left drawing the DROP callout all but invisibly, so its texture is on the GPU
+   * before the first drop: drawn first on the drop, it hitched that frame.
+   */
+  #warmFrames = 3;
   #offsetX = 0;
   #offsetY = 0;
   /** The mood this frame: intensity, brightness and the grid's roll, refreshed in `#draw`. */
@@ -817,7 +825,8 @@ export class PlatformerScene extends Phaser.Scene {
     this.#callout
       .setPosition(this.#offsetX + (VIEW_WIDTH / 2) * this.#zoom, this.#offsetY + 96 * this.#zoom)
       .setScale(this.#zoom * (drop === 1 ? thump : 0.9))
-      .setAlpha(Math.max(0, (drop - 0.8) * 5));
+      .setAlpha(Math.max(this.#warmFrames > 0 ? WARM_ALPHA : 0, (drop - 0.8) * 5));
+    if (this.#warmFrames > 0) this.#warmFrames--;
     // A banner under it: in quickly, held, then out.
     const bannerAge = time - this.#bannerAt;
     const bannerAlpha =
