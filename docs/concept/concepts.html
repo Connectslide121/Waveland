@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waveland: three looks</title>
+<style>
+  :root { --beat: .5s; --bar: 2s; --font: "Segoe UI", system-ui, sans-serif; --wide: "Bahnschrift", "Segoe UI", system-ui, sans-serif; --mono: "Cascadia Mono", Consolas, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #050409; color: #e9e7ff; font-family: var(--font); padding: 40px clamp(16px, 4vw, 56px) 64px; }
+  header, section { max-width: 1200px; margin: 0 auto; }
+  header { margin-bottom: 32px; }
+  header h1 { font-family: var(--wide); font-weight: 600; letter-spacing: .32em; font-size: 14px; color: #8b87b3; margin: 0 0 6px; text-transform: uppercase; }
+  header p { margin: 0; color: #8b87b3; font-size: 14px; line-height: 1.5; max-width: 72ch; }
+  section { margin-bottom: 48px; }
+  .label { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: baseline; margin-bottom: 12px; }
+  .label .n { font-family: var(--wide); font-size: 22px; font-weight: 700; color: #8b87b3; }
+  .label h2 { margin: 0; font-family: var(--wide); font-weight: 600; font-size: 20px; letter-spacing: .06em; }
+  .label .meter { font-size: 12px; color: #8b87b3; letter-spacing: .14em; text-transform: uppercase; display: flex; gap: 8px; align-items: center; }
+  .label .meter i { width: 22px; height: 6px; border-radius: 99px; background: #2a2450; }
+  .label .meter i.on { background: #c9c3ff; }
+  .desc { color: #a9a5cc; font-size: 14px; line-height: 1.55; margin: 12px 0 0 46px; max-width: 80ch; }
+  .desc b { color: #e9e7ff; font-weight: 600; }
+  .strip { margin: 14px 0 0 46px; display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; }
+  .sw { display: flex; gap: 8px; }
+  .sw i { width: 28px; height: 28px; border-radius: 6px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+
+  /* ---------- the shared scene ---------- */
+  .frame { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 14px; container-type: inline-size; box-shadow: 0 0 0 1px #1d1838, 0 30px 80px -30px #000; }
+  .floor { position: absolute; left: -50%; right: -50%; bottom: -10%; height: 60%; transform: perspective(300px) rotateX(62deg); transform-origin: 50% 100%; mask-image: linear-gradient(to top, #000 30%, transparent 95%); animation: floor var(--beat) linear infinite; }
+  @keyframes floor { to { background-position: 0 40px, 0 0; } }
+  .sun { position: absolute; right: 12%; top: 16%; width: 22cqw; aspect-ratio: 1; }
+  .sun i { position: absolute; inset: 0; border-radius: 50%; animation: ring var(--beat) ease-out infinite; opacity: 0; }
+  .sun i:nth-child(2) { animation-delay: calc(var(--beat) / 3); }
+  .sun i:nth-child(3) { animation-delay: calc(var(--beat) * 2 / 3); }
+  .sun b { position: absolute; inset: 38%; border-radius: 50%; animation: thump var(--beat) ease-out infinite; }
+  @keyframes ring { 0% { transform: scale(.3); opacity: .9; } 100% { transform: scale(1.4); opacity: 0; } }
+  @keyframes thump { 0% { transform: scale(1.2); } 40%, 100% { transform: scale(.92); } }
+  .eq { position: absolute; bottom: 14%; display: flex; gap: .6cqw; align-items: flex-end; height: 34%; }
+  .eq.a { left: 6%; } .eq.b { left: 58%; height: 26%; }
+  .eq i { display: block; width: 3.2cqw; height: 100%; transform-origin: bottom; animation: eq var(--beat) cubic-bezier(.2,.8,.3,1) infinite alternate; animation-delay: var(--d); }
+  @keyframes eq { from { transform: scaleY(var(--lo)); } to { transform: scaleY(var(--hi)); } }
+  .ledge { position: absolute; left: 20%; width: 9%; bottom: 43%; height: 1.1cqw; }
+  .bridge { position: absolute; left: 30%; bottom: 46%; display: flex; gap: .9cqw; }
+  .bridge i { width: 2.1cqw; height: .9cqw; opacity: .08; animation: snare var(--bar) steps(1) infinite; }
+  @keyframes snare { 0% { opacity: .08; } 25% { opacity: 1; } 50% { opacity: .08; } 75% { opacity: 1; } }
+  .spikes { position: absolute; left: 41%; bottom: 14%; width: 13cqw; height: 5cqw; overflow: hidden; }
+  .spikes svg { width: 100%; height: 100%; animation: offbeat var(--beat) ease-in-out infinite; }
+  @keyframes offbeat { 0%, 30% { transform: translateY(60%); } 55%, 85% { transform: translateY(0); } 100% { transform: translateY(60%); } }
+  .hero { position: absolute; left: 21%; bottom: 46%; width: 4.2cqw; aspect-ratio: 1; animation: hop var(--bar) cubic-bezier(.3,.6,.4,1) infinite; }
+  .hero b { position: absolute; inset: 0; transform-origin: 50% 100%; animation: squash var(--bar) ease-in-out infinite; }
+  .hero b::after { content: ""; position: absolute; top: 30%; right: 18%; width: 18%; height: 22%; border-radius: 2px; }
+  .hero::before { content: ""; position: absolute; right: 100%; top: 20%; width: 9cqw; height: 60%; border-radius: 99px; filter: blur(4px); }
+  @keyframes hop { 0% { transform: translate(0,0); } 25% { transform: translate(8cqw,-13cqw) rotate(90deg); } 50% { transform: translate(16cqw,0) rotate(180deg); } 75% { transform: translate(8cqw,-9cqw) rotate(90deg); } 100% { transform: translate(0,0) rotate(0); } }
+  @keyframes squash { 0%,50%,100% { transform: scale(1.25,.75); } 8%,58% { transform: scale(.82,1.2); } 25%,75% { transform: scale(1,1); } }
+  .hud { position: absolute; inset: 3cqw 3.4cqw auto; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; font-size: 1.25cqw; letter-spacing: .18em; text-transform: uppercase; }
+  .hud .score { justify-self: end; font-size: 2.2cqw; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+  .beats { display: flex; gap: .7cqw; }
+  .beats i { width: .9cqw; aspect-ratio: 1; border-radius: 50%; animation: lit var(--bar) steps(1) infinite; }
+  .beats i:nth-child(2) { animation-delay: calc(var(--beat) * -3); }
+  .beats i:nth-child(3) { animation-delay: calc(var(--beat) * -2); }
+  .beats i:nth-child(4) { animation-delay: calc(var(--beat) * -1); }
+  @keyframes lit { 0% { background: var(--beat-on); } 25%, 100% { background: var(--beat-off); } }
+  .progress { position: absolute; left: 3.4cqw; right: 3.4cqw; bottom: 2.6cqw; height: 3px; border-radius: 99px; }
+  .progress::before { content: ""; position: absolute; inset: 0 62% 0 0; border-radius: inherit; }
+  .progress i { position: absolute; top: -4px; width: 2px; height: 11px; left: var(--x); }
+  .logo { position: absolute; left: 3.4cqw; bottom: 5.4cqw; font-size: 1.1cqw; letter-spacing: .4em; opacity: .55; }
+
+  /* ---------- 1. Neon arcade (full) ---------- */
+  .neon { background: radial-gradient(120% 90% at 50% 110%, #1a0f3a 0%, #07060f 60%); font-family: var(--wide); }
+  .neon .floor { background: linear-gradient(transparent 0 94%, rgba(138,92,255,.55) 94% 100%) 0 0 / 100% 40px, linear-gradient(90deg, transparent 0 97%, rgba(138,92,255,.4) 97% 100%) 0 0 / 60px 100%; opacity: .7; }
+  .neon .sun i { border: 2px solid #8a5cff; }
+  .neon .sun b { background: radial-gradient(circle, #fff 0, #8a5cff 40%, transparent 70%); }
+  .neon .eq i { border-radius: 3px; background: linear-gradient(to top, transparent 0 calc(100% - 6px), var(--c) calc(100% - 6px)); box-shadow: 0 -2px 18px -2px var(--c); }
+  .neon .ledge { border-radius: 99px; background: #8a5cff; box-shadow: 0 0 14px #8a5cff, 0 0 40px -6px #8a5cff; }
+  .neon .bridge i { border-radius: 2px; background: #2ef2ff; box-shadow: 0 0 12px #2ef2ff; }
+  .neon .hero b { border-radius: 26%; background: #2ef2ff; box-shadow: 0 0 18px #2ef2ff, 0 0 50px -6px #2ef2ff, inset 0 0 0 3px #b9fbff; }
+  .neon .hero b::after { background: #07060f; box-shadow: -.9cqw 0 0 #07060f; }
+  .neon .hero::before { background: linear-gradient(90deg, transparent, rgba(46,242,255,.45)); }
+  .neon .hud { color: #8b87b3; --beat-on: #ff2bd6; --beat-off: #2a2450; }
+  .neon .hud b { color: #e9e7ff; }
+  .neon .score { color: #e9e7ff; text-shadow: 0 0 14px #ff2bd6; }
+  .neon .progress { background: #1d1838; }
+  .neon .progress::before { background: linear-gradient(90deg, #8a5cff, #ff2bd6); box-shadow: 0 0 10px #ff2bd6; }
+  .neon .progress i { background: #ff8a2b; }
+  .neon .logo { background: linear-gradient(90deg, #2ef2ff, #ff2bd6); -webkit-background-clip: text; background-clip: text; color: transparent; opacity: .9; font-weight: 700; }
+
+  /* ---------- 2. Wireframe (minimal) ---------- */
+  .wire { background: #020305; font-family: var(--mono); }
+  .wire .floor { background: linear-gradient(transparent 0 97%, rgba(200,230,255,.22) 97% 100%) 0 0 / 100% 40px, linear-gradient(90deg, transparent 0 98.5%, rgba(200,230,255,.16) 98.5% 100%) 0 0 / 60px 100%; }
+  .wire .sun i { border: 1px solid rgba(220,240,255,.5); }
+  .wire .sun b { border: 1px solid #dff3ff; background: transparent; inset: 44%; }
+  .wire .eq i { border: 1.5px solid rgba(220,240,255,.75); border-bottom: 0; background: transparent; }
+  .wire .eq i:nth-child(3) { border-color: #00e5ff; }
+  .wire .ledge { border: 1.5px solid rgba(220,240,255,.75); height: .9cqw; background: transparent; }
+  .wire .bridge i { border: 1.5px solid #00e5ff; background: transparent; }
+  .wire .hero b { border: 2px solid #00e5ff; background: rgba(0,229,255,.06); box-shadow: 0 0 10px rgba(0,229,255,.35); }
+  .wire .hero b::after { background: #00e5ff; box-shadow: -.9cqw 0 0 #00e5ff; height: 10%; }
+  .wire .hero::before { background: repeating-linear-gradient(90deg, transparent 0 6px, rgba(0,229,255,.5) 6px 8px); filter: none; height: 2px; top: 50%; }
+  .wire .hud { color: rgba(220,240,255,.45); letter-spacing: .12em; --beat-on: #dff3ff; --beat-off: transparent; }
+  .wire .beats i { border: 1px solid rgba(220,240,255,.5); }
+  .wire .hud b { color: #dff3ff; font-weight: 400; }
+  .wire .score { color: #dff3ff; }
+  .wire .progress { background: rgba(220,240,255,.12); height: 1px; }
+  .wire .progress::before { background: #dff3ff; }
+  .wire .progress i { background: #ff3355; }
+  .wire .logo { color: #dff3ff; }
+
+  /* ---------- 3. Dusk (soft) ---------- */
+  .dusk { background: linear-gradient(#22183f 0%, #4a2a63 38%, #b5577a 66%, #f0a07a 84%, #ffd39a 100%); font-family: var(--font); }
+  .dusk .floor { background: linear-gradient(transparent 0 92%, rgba(255,214,190,.35) 92% 100%) 0 0 / 100% 40px, linear-gradient(90deg, transparent 0 96%, rgba(255,214,190,.25) 96% 100%) 0 0 / 60px 100%; opacity: .55; }
+  .dusk .sun { top: 22%; }
+  .dusk .sun i { background: radial-gradient(circle, rgba(255,214,160,.25), transparent 65%); }
+  .dusk .sun b { inset: 20%; background: repeating-linear-gradient(#ffe2a8 0 7%, #ffb38a 7% 9%) ; background: linear-gradient(#ffe7ae, #ff9c8a); mask-image: repeating-linear-gradient(#000 0 10%, #000 10% 12%, transparent 12% 14%); box-shadow: 0 0 60px rgba(255,190,140,.6); }
+  .dusk .hills { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; }
+  .dusk .eq i { border-radius: 1.2cqw 1.2cqw 0 0; background: var(--c); box-shadow: 0 10px 24px -10px rgba(40,10,50,.6); }
+  .dusk .ledge { border-radius: 99px; background: #ffe3ef; box-shadow: 0 6px 16px -6px rgba(40,10,50,.6); }
+  .dusk .bridge i { border-radius: 99px; background: #fff3d6; height: .8cqw; }
+  .dusk .hero b { border-radius: 40%; background: #fff6e8; box-shadow: 0 8px 20px -8px rgba(60,10,40,.7), 0 0 26px rgba(255,220,180,.6); }
+  .dusk .hero b::after { background: #4a2a63; box-shadow: -.9cqw 0 0 #4a2a63; border-radius: 50%; }
+  .dusk .hero::before { background: linear-gradient(90deg, transparent, rgba(255,246,232,.5)); }
+  .dusk .hud { color: rgba(255,240,230,.7); text-transform: none; letter-spacing: .04em; font-size: 1.4cqw; --beat-on: #fff3d6; --beat-off: rgba(255,255,255,.2); }
+  .dusk .hud b { color: #fff6ec; font-weight: 600; }
+  .dusk .score { color: #fff6ec; font-weight: 300; }
+  .dusk .progress { background: rgba(255,255,255,.2); }
+  .dusk .progress::before { background: #fff3d6; }
+  .dusk .progress i { background: #ff6f6f; }
+  .dusk .logo { color: #fff6ec; letter-spacing: .3em; font-weight: 600; opacity: .8; text-transform: lowercase; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-play-state: paused !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Waveland · three looks</h1>
+  <p>The same platformer moment in three styles, from loudest to calmest. Each one is drawn in code and moves to the same 120 BPM beat: platforms with the bass, the bridge on the snare, spikes on the off-beats.</p>
+</header>
+
+<template id="scene"></template>
+
+<!-- 1 -->
+<section>
+  <div class="label"><span class="n">1</span><h2>Neon arcade</h2><span class="meter">Intensity <i class="on"></i><i class="on"></i><i class="on"></i></span></div>
+  <div class="frame neon" role="img" aria-label="Neon arcade: glowing magenta, cyan and violet platforms on a dark synth grid">
+    <div class="floor"></div>
+    <div class="sun"><i></i><i></i><i></i><b></b></div>
+    <div class="eq a"><i style="--c:#ff2bd6;--lo:.35;--hi:.55;--d:0s"></i><i style="--c:#8a5cff;--lo:.45;--hi:.7;--d:-.1s"></i><i style="--c:#2ef2ff;--lo:.5;--hi:.9;--d:-.2s"></i><i style="--c:#8a5cff;--lo:.4;--hi:.75;--d:-.3s"></i><i style="--c:#ff2bd6;--lo:.3;--hi:.5;--d:-.4s"></i></div>
+    <div class="ledge"></div>
+    <div class="bridge"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="spikes"><svg viewBox="0 0 120 40" preserveAspectRatio="none"><g fill="#ff8a2b" style="filter:drop-shadow(0 0 4px #ff8a2b)"><path d="M0 40 L10 4 L20 40Z"/><path d="M20 40 L30 4 L40 40Z"/><path d="M40 40 L50 4 L60 40Z"/><path d="M60 40 L70 4 L80 40Z"/><path d="M80 40 L90 4 L100 40Z"/><path d="M100 40 L110 4 L120 40Z"/></g></svg></div>
+    <div class="eq b"><i style="--c:#2ef2ff;--lo:.6;--hi:.9;--d:-.25s"></i><i style="--c:#ff2bd6;--lo:.4;--hi:.8;--d:-.05s"></i><i style="--c:#8a5cff;--lo:.55;--hi:.95;--d:-.35s"></i><i style="--c:#2ef2ff;--lo:.35;--hi:.6;--d:-.15s"></i><i style="--c:#ff2bd6;--lo:.5;--hi:.85;--d:-.45s"></i><i style="--c:#8a5cff;--lo:.3;--hi:.55;--d:-.2s"></i></div>
+    <div class="hero"><b></b></div>
+    <div class="hud"><div><b>Midnight Drive</b> · 120 BPM</div><div class="beats"><i></i><i></i><i></i><i></i></div><div class="score">048 210</div></div>
+    <div class="logo">WAVELAND</div>
+    <div class="progress"><i style="--x:30%"></i><i style="--x:71%"></i></div>
+  </div>
+  <p class="desc"><b>Loud and glowing.</b> Thick bloom, saturated magenta, cyan and violet, pulse rings on every kick. The most "party", like Geometry Dash meets synthwave. Risk: it can tire the eyes over a long session, and the drops have less room to feel bigger.</p>
+  <div class="strip"><div class="sw"><i style="--c:#07060f"></i><i style="--c:#2ef2ff"></i><i style="--c:#ff2bd6"></i><i style="--c:#8a5cff"></i><i style="--c:#ff8a2b"></i></div></div>
+</section>
+
+<!-- 2 -->
+<section>
+  <div class="label"><span class="n">2</span><h2>Wireframe</h2><span class="meter">Intensity <i class="on"></i><i></i><i></i></span></div>
+  <div class="frame wire" role="img" aria-label="Wireframe: thin white outlines on black, the player and the bridge in one cyan accent">
+    <div class="floor"></div>
+    <div class="sun"><i></i><i></i><i></i><b></b></div>
+    <div class="eq a"><i style="--lo:.35;--hi:.55;--d:0s"></i><i style="--lo:.45;--hi:.7;--d:-.1s"></i><i style="--lo:.5;--hi:.9;--d:-.2s"></i><i style="--lo:.4;--hi:.75;--d:-.3s"></i><i style="--lo:.3;--hi:.5;--d:-.4s"></i></div>
+    <div class="ledge"></div>
+    <div class="bridge"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="spikes"><svg viewBox="0 0 120 40" preserveAspectRatio="none"><g fill="none" stroke="#ff3355" stroke-width="2"><path d="M1 40 L10 4 L19 40"/><path d="M21 40 L30 4 L39 40"/><path d="M41 40 L50 4 L59 40"/><path d="M61 40 L70 4 L79 40"/><path d="M81 40 L90 4 L99 40"/><path d="M101 40 L110 4 L119 40"/></g></svg></div>
+    <div class="eq b"><i style="--lo:.6;--hi:.9;--d:-.25s"></i><i style="--lo:.4;--hi:.8;--d:-.05s"></i><i style="--lo:.55;--hi:.95;--d:-.35s"></i><i style="--lo:.35;--hi:.6;--d:-.15s"></i><i style="--lo:.5;--hi:.85;--d:-.45s"></i><i style="--lo:.3;--hi:.55;--d:-.2s"></i></div>
+    <div class="hero"><b></b></div>
+    <div class="hud"><div><b>Midnight Drive</b> · 120 BPM</div><div class="beats"><i></i><i></i><i></i><i></i></div><div class="score">048 210</div></div>
+    <div class="logo">WAVELAND</div>
+    <div class="progress"><i style="--x:30%"></i><i style="--x:71%"></i></div>
+  </div>
+  <p class="desc"><b>Calm and precise.</b> Thin white outlines on black, like a vector display or an oscilloscope. Only two colours carry meaning: cyan is you and safe paths, red is danger. Easy on the eyes and very readable, and it leaves lots of room for the drops to explode into colour as a contrast.</p>
+  <div class="strip"><div class="sw"><i style="--c:#020305"></i><i style="--c:#dff3ff"></i><i style="--c:#00e5ff"></i><i style="--c:#ff3355"></i></div></div>
+</section>
+
+<!-- 3 -->
+<section>
+  <div class="label"><span class="n">3</span><h2>Dusk</h2><span class="meter">Intensity <i class="on"></i><i class="on"></i><i></i></span></div>
+  <div class="frame dusk" role="img" aria-label="Dusk: a soft sunset sky with a striped sun, rounded pastel platforms and a cream-coloured player">
+    <div class="sun"><i></i><i></i><i></i><b></b></div>
+    <svg class="hills" viewBox="0 0 1600 360" preserveAspectRatio="none" aria-hidden="true"><path d="M0 200 C 200 120, 360 180, 520 140 S 860 60, 1040 130 S 1380 90, 1600 150 V360 H0Z" fill="#6b3a6e" opacity=".55"/><path d="M0 260 C 240 200, 420 250, 640 220 S 1040 170, 1240 230 S 1480 210, 1600 230 V360 H0Z" fill="#3c2251" opacity=".85"/></svg>
+    <div class="floor"></div>
+    <div class="eq a"><i style="--c:#ffc4d6;--lo:.35;--hi:.55;--d:0s"></i><i style="--c:#c7b5ff;--lo:.45;--hi:.7;--d:-.1s"></i><i style="--c:#9fd8ff;--lo:.5;--hi:.9;--d:-.2s"></i><i style="--c:#c7b5ff;--lo:.4;--hi:.75;--d:-.3s"></i><i style="--c:#ffc4d6;--lo:.3;--hi:.5;--d:-.4s"></i></div>
+    <div class="ledge"></div>
+    <div class="bridge"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="spikes"><svg viewBox="0 0 120 40" preserveAspectRatio="none"><g fill="#ff6f6f"><path d="M0 40 Q10 0 20 40Z"/><path d="M20 40 Q30 0 40 40Z"/><path d="M40 40 Q50 0 60 40Z"/><path d="M60 40 Q70 0 80 40Z"/><path d="M80 40 Q90 0 100 40Z"/><path d="M100 40 Q110 0 120 40Z"/></g></svg></div>
+    <div class="eq b"><i style="--c:#9fd8ff;--lo:.6;--hi:.9;--d:-.25s"></i><i style="--c:#ffc4d6;--lo:.4;--hi:.8;--d:-.05s"></i><i style="--c:#c7b5ff;--lo:.55;--hi:.95;--d:-.35s"></i><i style="--c:#9fd8ff;--lo:.35;--hi:.6;--d:-.15s"></i><i style="--c:#ffc4d6;--lo:.5;--hi:.85;--d:-.45s"></i><i style="--c:#c7b5ff;--lo:.3;--hi:.55;--d:-.2s"></i></div>
+    <div class="hero"><b></b></div>
+    <div class="hud"><div><b>Midnight Drive</b> · 120 BPM</div><div class="beats"><i></i><i></i><i></i><i></i></div><div class="score">48 210</div></div>
+    <div class="logo">waveland</div>
+    <div class="progress"><i style="--x:30%"></i><i style="--x:71%"></i></div>
+  </div>
+  <p class="desc"><b>Warm and dreamy.</b> A sunset sky with a striped sun that breathes with the kick, soft rounded pastel platforms and a cream player, like Alto's Odyssey or Sayonara Wild Hearts. Still geometric and drawn in code, but gentle. Each song could pick its own time of day from its mood.</p>
+  <div class="strip"><div class="sw"><i style="--c:#22183f"></i><i style="--c:#b5577a"></i><i style="--c:#ffd39a"></i><i style="--c:#ffc4d6"></i><i style="--c:#c7b5ff"></i><i style="--c:#9fd8ff"></i><i style="--c:#ff6f6f"></i></div></div>
+</section>
+
+</body>
+</html>
