@@ -2,6 +2,8 @@ import {
   beatAt,
   buildLevelMap,
   DIFFICULTIES,
+  DIFFICULTY_NAMES,
+  getDifficulty,
   timeOfBeat,
   type Difficulty,
   type LevelMap,
@@ -46,12 +48,6 @@ const WORLD_BOTTOM = -90;
 const BEHIND = 160;
 /** Height of the strip naming each stretch, px. */
 const STRIP = 22;
-
-const DIFFICULTY_NAMES: Record<Difficulty, string> = {
-  easy: 'Easy',
-  normal: 'Normal',
-  hard: 'Hard',
-};
 
 const CHUNK_NAMES: Record<ChunkKind, string> = {
   'run-in': 'Run-in',
@@ -121,7 +117,8 @@ export function createLevelPreview({
 }: LevelPreviewOptions): LevelPreview {
   const map = buildLevelMap(analysis);
   let level: PlatformerLevel | null = null;
-  let difficulty: Difficulty = 'normal';
+  // The difficulty picked on the title screen, which the game will play at.
+  let difficulty: Difficulty = getDifficulty();
   let request = 0;
   let destroyed = false;
 

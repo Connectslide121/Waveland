@@ -26,47 +26,6 @@
   white-space: nowrap;
 }
 
-/* ---------- difficulty ---------- */
-
-.segmented {
-  display: inline-grid;
-  grid-auto-columns: 92px;
-  grid-auto-flow: column;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 99px;
-  background: rgb(20 16 44 / 0.6);
-}
-
-.segmented__option {
-  height: 34px;
-  border: 0;
-  border-radius: 99px;
-  background: none;
-  color: var(--muted);
-  font-family: var(--wide);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.segmented__option:hover {
-  color: var(--ink);
-}
-
-.segmented__option[aria-checked='true'] {
-  background: var(--cyan);
-  color: var(--night);
-  box-shadow: 0 0 18px -6px var(--cyan);
-}
-
-.segmented__option:focus-visible {
-  outline: 2px solid var(--cyan);
-  outline-offset: 2px;
-}
-
 /* ---------- stats and canvas ---------- */
 
 .stats.stats--level {

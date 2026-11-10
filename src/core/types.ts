@@ -162,6 +162,13 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 
 export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
 
+/** Each difficulty's name, as the menus and the HUD show it. */
+export const DIFFICULTY_NAMES: Record<Difficulty, string> = {
+  easy: 'Easy',
+  normal: 'Normal',
+  hard: 'Hard',
+};
+
 /**
  * What kind of musical moment a level event is: a kick (low band), a snare (mid band), an
  * off-beat (halfway between two beats), a hi-hat (high band), a drop, or a section start.

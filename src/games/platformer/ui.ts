@@ -47,6 +47,8 @@ export interface HudOptions {
   duration: number;
   /** Song times of the drops, marked on the progress bar. */
   drops: number[];
+  /** The difficulty's name, after the tempo. */
+  difficulty?: string;
 }
 
 export interface HudState {
@@ -106,13 +108,14 @@ export interface Hud {
   update(state: HudState): void;
 }
 
-export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
+export function createHud({ title, tempo, duration, drops, difficulty }: HudOptions): Hud {
   const element = el('div', 'pf-hud');
   const top = el('div', 'pf-hud__top');
 
   const song = el('div', 'pf-hud__song');
   const bpm = document.createTextNode(` · ${Math.round(tempo)} BPM`);
   song.append(el('b', undefined, title), bpm);
+  if (difficulty) song.append(` · ${difficulty}`);
 
   const beats = el('div', 'pf-hud__beats');
   beats.setAttribute('aria-hidden', 'true');

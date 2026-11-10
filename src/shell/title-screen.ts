@@ -2,9 +2,14 @@ import {
   AUDIO_ACCEPT,
   beatFit,
   describeTempos,
+  DIFFICULTIES,
+  DIFFICULTY_NAMES,
+  getDifficulty,
   MIN_SONG_SECONDS,
+  setDifficulty,
   songFromFile,
   type AnalysedSong,
+  type Difficulty,
   type Song,
 } from '../core';
 import type { GameDefinition, ReadyGame } from '../games';
@@ -34,6 +39,13 @@ const PLAY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v1
 const WAVE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4M21 12h0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const GEAR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 const SPINNER_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" class="spin"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 14" stroke-linecap="round"/></svg>`;
+
+/** What each difficulty means, in one line under the picker. */
+const DIFFICULTY_ABOUT: Record<Difficulty, string> = {
+  easy: 'Relaxed: fewer, smaller obstacles on the strongest hits',
+  normal: 'Most of the song’s hits, at a fair size',
+  hard: 'Nearly every hit, with dash and slam combos',
+};
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -202,6 +214,50 @@ export function createTitleScreen({
     fileInput.value = '';
   });
 
+  // Difficulty: a radio group like the level preview's, always shown, with what it means.
+  let difficulty = getDifficulty();
+  const difficultyRow = el('div', 'difficulty-row');
+  const difficultyLabel = el('span', 'difficulty-row__label', 'Difficulty');
+  difficultyLabel.id = 'difficulty-label';
+  const picker = el('div', 'segmented');
+  picker.setAttribute('role', 'radiogroup');
+  picker.setAttribute('aria-labelledby', difficultyLabel.id);
+  const difficultyAbout = el('p', 'difficulty-row__about');
+  difficultyAbout.id = 'difficulty-about';
+  picker.setAttribute('aria-describedby', difficultyAbout.id);
+  const difficultyButtons = DIFFICULTIES.map((d) => {
+    const button = el('button', 'segmented__option', DIFFICULTY_NAMES[d]);
+    button.type = 'button';
+    button.setAttribute('role', 'radio');
+    button.addEventListener('click', () => pickDifficulty(d));
+    picker.append(button);
+    return button;
+  });
+  picker.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+    const n = DIFFICULTIES.length;
+    const i = (DIFFICULTIES.indexOf(difficulty) + step + n) % n;
+    pickDifficulty(DIFFICULTIES[i]!);
+    difficultyButtons[i]!.focus();
+  });
+  difficultyRow.append(difficultyLabel, picker, difficultyAbout);
+  function pickDifficulty(next: Difficulty): void {
+    difficulty = next;
+    setDifficulty(next);
+    renderDifficulty();
+  }
+  function renderDifficulty(): void {
+    difficultyButtons.forEach((button, i) => {
+      const on = DIFFICULTIES[i] === difficulty;
+      button.setAttribute('aria-checked', String(on));
+      button.tabIndex = on ? 0 : -1;
+      button.disabled = starting;
+    });
+    difficultyAbout.textContent = DIFFICULTY_ABOUT[difficulty];
+  }
+
   // Play row: the button, and next to it why it can't be pressed yet.
   const playRow = el('div', 'play-row');
   const play = el('button', 'play');
@@ -241,7 +297,7 @@ export function createTitleScreen({
 
   const panel = el('section', 'title__panel');
   panel.setAttribute('aria-label', 'Pick a mode and a song');
-  panel.append(modes, zone, playRow);
+  panel.append(modes, zone, difficultyRow, playRow);
   root.append(floor, settings, head, horizon, panel);
 
   function renderProgress(): void {
@@ -313,6 +369,7 @@ export function createTitleScreen({
     details.disabled = !canShowDetails || starting;
     details.setAttribute('aria-hidden', String(!canShowDetails));
     details.tabIndex = canShowDetails ? 0 : -1;
+    renderDifficulty();
   }
 
   // Drop anywhere on the page while the title screen shows; highlight the zone meanwhile.

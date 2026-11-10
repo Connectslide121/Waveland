@@ -6,7 +6,9 @@ import {
   beatsBefore,
   buildLevelMap,
   decodeSong,
+  DIFFICULTY_NAMES,
   getBindings,
+  getDifficulty,
   getLatencyMs,
   getShowFps,
   onSettingsChange,
@@ -24,9 +26,6 @@ import { Controls } from './controls';
 import { musicOf, PlatformerRun, type RunMusic } from './run';
 import { PlatformerScene, type FrameState } from './scene';
 import { chipBinding, createHud, createPauseMenu, createResultsScreen } from './ui';
-
-/** No difficulty picker yet: every song plays at normal. */
-const DIFFICULTY = 'normal';
 
 /**
  * One play of the platformer: the audio clock, the run, the controls and the HTML over
@@ -81,6 +80,7 @@ class PlatformerSession {
       tempo: map.tempo,
       duration: level.duration,
       drops: map.drops.map((d) => d.time),
+      difficulty: DIFFICULTY_NAMES[level.difficulty],
     });
     this.pause = createPauseMenu({
       onResume: () => this.resume(),
@@ -93,7 +93,7 @@ class PlatformerSession {
       onQuit: () => this.exit(),
       bindings: () => this.#bindings,
     });
-    this.results = createResultsScreen(song.title, {
+    this.results = createResultsScreen(`${song.title} · ${DIFFICULTY_NAMES[level.difficulty]}`, {
       onRetry: () => this.restart(),
       onBack: () => this.exit(),
     });
@@ -275,7 +275,8 @@ export async function startPlatformer(
 ): Promise<GameSession> {
   const map = buildLevelMap(song.analysis);
   const [level, buffer] = await Promise.all([
-    generateLevelInWorker(map, DIFFICULTY),
+    // At the difficulty picked on the title screen.
+    generateLevelInWorker(map, getDifficulty()),
     decodeSong(song),
   ]);
   const session = new PlatformerSession(song, map, level, buffer, container, exit);

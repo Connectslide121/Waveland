@@ -13,8 +13,10 @@ import {
   resetBindings,
   setBindings,
   shortBinding,
+  getDifficulty,
   getEffects,
   getLatencyMs,
+  setDifficulty,
   getMusicVolume,
   hasChosenEffects,
   MAX_LATENCY_MS,
@@ -64,6 +66,14 @@ describe('settings', () => {
     expect(getEffects()).toBe('reduced');
     reducedMotion(false);
     expect(getEffects()).toBe('full');
+  });
+
+  it('keeps the picked difficulty, normal until one is picked', () => {
+    expect(getDifficulty()).toBe('normal');
+    setDifficulty('hard');
+    expect(getDifficulty()).toBe('hard');
+    localStorage.setItem('waveland.difficulty', 'brutal');
+    expect(getDifficulty()).toBe('normal');
   });
 
   it('tells listeners about every change until they stop listening', () => {

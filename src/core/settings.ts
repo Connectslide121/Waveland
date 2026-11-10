@@ -1,5 +1,7 @@
 /** The player's settings, kept in localStorage: music volume, effects and audio latency. */
 
+import { DIFFICULTIES, type Difficulty } from './types';
+
 const LATENCY_KEY = 'waveland.latencyMs';
 const VOLUME_KEY = 'waveland.musicVolume';
 const EFFECTS_KEY = 'waveland.effects';
@@ -108,6 +110,18 @@ export function getShowFps(): boolean {
 
 export function setShowFps(show: boolean): void {
   write(SHOW_FPS_KEY, show ? 'on' : null);
+}
+
+const DIFFICULTY_KEY = 'waveland.difficulty';
+
+/** The difficulty the games build their levels at: the last one picked, normal until then. */
+export function getDifficulty(): Difficulty {
+  const stored = get(DIFFICULTY_KEY);
+  return DIFFICULTIES.includes(stored as Difficulty) ? (stored as Difficulty) : 'normal';
+}
+
+export function setDifficulty(difficulty: Difficulty): void {
+  write(DIFFICULTY_KEY, difficulty);
 }
 
 // Controls: which keys, mouse buttons and gamepad buttons do what.

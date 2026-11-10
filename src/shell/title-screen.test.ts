@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AnalysedSong, Song, SongAnalysis } from '../core';
+import { getDifficulty, type AnalysedSong, type Song, type SongAnalysis } from '../core';
 import type { GameDefinition, ReadyGame } from '../games';
 import { createTitleScreen, type TitleScreen, type TitleScreenOptions } from './title-screen';
 
@@ -274,5 +274,31 @@ describe('title screen', () => {
     play.click();
     await vi.waitFor(() => expect(hint.textContent).toBe("Platformer couldn't start. Try again."));
     expect(play.disabled).toBe(false);
+  });
+});
+
+describe('title screen difficulty', () => {
+  afterEach(() => localStorage.clear());
+
+  it('starts at normal, says what each difficulty means and keeps the pick', () => {
+    mount();
+    const options = [...screen!.element.querySelectorAll<HTMLButtonElement>('.segmented__option')];
+    const about = screen!.element.querySelector('.difficulty-row__about')!;
+    expect(options.map((o) => o.textContent)).toEqual(['Easy', 'Normal', 'Hard']);
+    expect(options[1]!.getAttribute('aria-checked')).toBe('true');
+    const normal = about.textContent;
+    options[2]!.click();
+    expect(options[2]!.getAttribute('aria-checked')).toBe('true');
+    expect(about.textContent).not.toBe(normal);
+    expect(getDifficulty()).toBe('hard');
+  });
+
+  it('moves between difficulties with the arrow keys', () => {
+    mount();
+    const group = screen!.element.querySelector<HTMLElement>('.segmented')!;
+    group.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(getDifficulty()).toBe('easy');
+    group.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(getDifficulty()).toBe('hard');
   });
 });

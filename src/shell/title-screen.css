@@ -324,6 +324,54 @@
   transition: transform 0.15s linear;
 }
 
+/* ---------- difficulty ---------- */
+
+.difficulty-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.difficulty-row__label {
+  color: var(--muted);
+  font-family: var(--wide);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.difficulty-row__about {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.difficulty-row .segmented__option:disabled {
+  cursor: not-allowed;
+}
+
+/* On a phone: the picker across the row, what it means under it. */
+@media (max-width: 560px) {
+  .difficulty-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .difficulty-row .segmented {
+    grid-auto-columns: minmax(0, 1fr);
+  }
+
+  .difficulty-row__about {
+    grid-column: 1 / -1;
+    font-size: 13px;
+  }
+}
+
 /* ---------- play ---------- */
 
 .play-row {
