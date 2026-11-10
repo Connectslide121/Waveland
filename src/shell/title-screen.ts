@@ -105,7 +105,7 @@ export function createTitleScreen({
   settings.type = 'button';
   settings.setAttribute('aria-label', 'Settings');
   settings.innerHTML = `${GEAR_ICON}<span>Settings</span>`;
-  settings.addEventListener('click', () => openSettings());
+  settings.addEventListener('click', () => openSettings({ game: selected?.id }));
 
   const floor = el('div', 'title__floor');
   floor.setAttribute('aria-hidden', 'true');

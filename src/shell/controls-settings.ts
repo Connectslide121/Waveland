@@ -3,7 +3,7 @@ import {
   bindingLabel,
   bindInput,
   BINDING_SLOTS,
-  CONTROL_ACTIONS,
+  CONTROL_ACTION_NAMES as ACTION_NAMES,
   CONTROL_DEVICES,
   getBindings,
   keyLabel,
@@ -12,6 +12,7 @@ import {
   PAUSE_KEY,
   PAUSE_PAD_BUTTON,
   resetBindings,
+  rivalActions,
   setBindings,
   type ActionBindings,
   type ControlAction,
@@ -20,11 +21,30 @@ import {
 } from '../core';
 
 /**
- * The Settings modal's Controls section: jump, dash, slam and overdrive, each with its key, mouse
- * and gamepad slots in aligned columns. Click a slot, then press what to use; Escape
- * cancels, Backspace clears. An input another action had moves here, and the row says
- * so. Pause is fixed (Escape and Start) and says so.
+ * The Settings modal's Controls section: a game picker, then that game's actions (the
+ * platformer's jump, dash, slam and overdrive; the tunnel's left, right, jump and
+ * overdrive), each with its key, mouse and gamepad slots in aligned columns. Bindings are
+ * shared: jump is the same in every game. Click a slot, then press what to use; Escape
+ * cancels, Backspace clears. An input another action of the same game had moves here, and
+ * the row says so; actions no game uses together may share one. Pause is fixed (Escape
+ * and Start) and says so.
  */
+
+/** A game as the section lists it. */
+export interface ControlsGame {
+  id: string;
+  name: string;
+  controls: readonly ControlAction[];
+}
+
+export interface ControlsOptions {
+  /** The games, in menu order; at least one. */
+  games: readonly ControlsGame[];
+  /** The id of the game to show first (the one being played or picked); the first otherwise. */
+  game?: string;
+  /** Where to read gamepads from; tests pass their own. */
+  pads?: PadSource;
+}
 
 export interface ControlsSection {
   element: HTMLElement;
@@ -36,12 +56,6 @@ export interface ControlsSection {
   stop(): void;
 }
 
-const ACTION_NAMES: Record<ControlAction, string> = {
-  jump: 'Jump',
-  dash: 'Dash',
-  slam: 'Slam',
-  overdrive: 'Overdrive',
-};
 const DEVICE_NAMES: Record<ControlDevice, string> = {
   keys: 'Keyboard',
   mouse: 'Mouse',
@@ -92,7 +106,11 @@ export type PadSource = () => readonly (Gamepad | null)[];
 const browserPads: PadSource = () =>
   typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
 
-export function createControlsSection(pads: PadSource = browserPads): ControlsSection {
+export function createControlsSection({
+  games,
+  game,
+  pads = browserPads,
+}: ControlsOptions): ControlsSection {
   const element = el('section', 'controls');
   element.setAttribute('aria-labelledby', 'settings-controls');
   const head = el('div', 'controls__top');
@@ -102,9 +120,33 @@ export function createControlsSection(pads: PadSource = browserPads): ControlsSe
   resetAll.type = 'button';
   head.append(title, resetAll);
 
+  // Which game's actions show: radios like the other settings', when there is a choice.
+  let shown = games.find((g) => g.id === game) ?? games[0]!;
+  const picker = el('div', 'settings__segments controls__games');
+  picker.setAttribute('role', 'radiogroup');
+  picker.setAttribute('aria-label', 'Game');
+  picker.style.setProperty('--games', String(games.length));
+  picker.hidden = games.length < 2;
+  for (const g of games) {
+    const option = el('label', 'settings__segment');
+    const input = el('input', 'visually-hidden');
+    input.type = 'radio';
+    input.name = 'settings-controls-game';
+    input.value = g.id;
+    input.checked = g === shown;
+    option.append(input, el('span', undefined, g.name));
+    picker.append(option);
+    input.addEventListener('change', () => showGame(g));
+  }
+  /** What an input bound to an action can't share: the actions of every game that uses it. */
+  const rivalsOf = (action: ControlAction) =>
+    rivalActions(
+      action,
+      games.map((g) => g.controls),
+    );
+
   const grid = el('div', 'controls__grid');
   grid.setAttribute('role', 'table');
-  grid.setAttribute('aria-labelledby', title.id);
   const header = el('div', 'controls__row controls__row--head');
   header.setAttribute('role', 'row');
   for (const name of ['Action', ...CONTROL_DEVICES.map((d) => DEVICE_NAMES[d])]) {
@@ -112,7 +154,10 @@ export function createControlsSection(pads: PadSource = browserPads): ControlsSe
     cell.setAttribute('role', 'columnheader');
     header.append(cell);
   }
-  grid.append(header);
+  // The shown game's rows, between the header and pause.
+  const body = el('div', 'controls__body');
+  body.setAttribute('role', 'rowgroup');
+  grid.append(header, body);
 
   // What each action's note says: a conflict moved, or why an input can't be used.
   const notes = new Map<ControlAction, string>();
@@ -121,7 +166,7 @@ export function createControlsSection(pads: PadSource = browserPads): ControlsSe
   let padsDown = new Set<number>();
   let frame = 0;
 
-  const rows = CONTROL_ACTIONS.map((action) => {
+  const actionRow = (action: ControlAction) => {
     const row = el('div', 'controls__row');
     row.setAttribute('role', 'row');
     const name = el('div', 'controls__action');
@@ -133,7 +178,7 @@ export function createControlsSection(pads: PadSource = browserPads): ControlsSe
     reset.title = 'Reset to defaults';
     reset.addEventListener('click', () => {
       cancel();
-      resetBindings(action);
+      resetBindings(action, rivalsOf(action));
       notes.set(action, `${ACTION_NAMES[action]} is back to its defaults.`);
       render();
     });
@@ -159,9 +204,22 @@ export function createControlsSection(pads: PadSource = browserPads): ControlsSe
     const note = el('p', 'controls__note');
     note.setAttribute('aria-live', 'polite');
     row.append(note);
-    grid.append(row);
-    return { action, slots, note };
-  });
+    return { action, row, slots, note };
+  };
+  let rows: ReturnType<typeof actionRow>[] = [];
+  function buildRows(): void {
+    rows = shown.controls.map(actionRow);
+    body.replaceChildren(...rows.map((r) => r.row));
+    grid.setAttribute('aria-label', `${shown.name} controls`);
+  }
+  function showGame(next: ControlsGame): void {
+    cancel();
+    shown = next;
+    notes.clear();
+    foot.textContent = '';
+    buildRows();
+    render();
+  }
 
   // Pause: fixed, said plainly.
   const pause = el('div', 'controls__row controls__row--fixed');
@@ -182,7 +240,8 @@ export function createControlsSection(pads: PadSource = browserPads): ControlsSe
   // What Reset all did, on a line of its own that is always there.
   const foot = el('p', 'controls__foot');
   foot.setAttribute('aria-live', 'polite');
-  element.append(head, grid, foot);
+  element.append(head, picker, grid, foot);
+  buildRows();
 
   function render(): void {
     const bindings = getBindings();
@@ -238,7 +297,7 @@ export function createControlsSection(pads: PadSource = browserPads): ControlsSe
   function bind(value: Value | null): void {
     if (!waiting) return;
     const { action, device, slot } = waiting;
-    const result = bindInput(getBindings(), action, device, slot, value as never);
+    const result = bindInput(getBindings(), action, device, slot, value as never, rivalsOf(action));
     waiting = null;
     cancelAnimationFrame(frame);
     if (!result.ok) {

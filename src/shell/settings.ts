@@ -15,6 +15,7 @@ import {
   setShowFps,
   type EffectsLevel,
 } from '../core';
+import { games } from '../games';
 import { COUNT_IN_CLICKS, latencyFromTaps, Metronome, MIN_TAPS, TAP_CLICKS } from './calibration';
 import { createControlsSection } from './controls-settings';
 import './settings.css';
@@ -53,8 +54,14 @@ export function formatLatency(ms: number): string {
   return `${ms > 0 ? '+' : '−'}${Math.abs(ms)} ms`;
 }
 
-/** Open the Settings modal; `onClose` runs once it has closed. */
-export function openSettings({ onClose }: { onClose?: () => void } = {}): SettingsModal {
+/**
+ * Open the Settings modal; `onClose` runs once it has closed. The controls show the
+ * actions of `game` (an id: the game being played or picked), the first game's otherwise.
+ */
+export function openSettings({
+  onClose,
+  game,
+}: { onClose?: () => void; game?: string } = {}): SettingsModal {
   const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
   const element = el('div', 'settings');
@@ -162,8 +169,8 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
   calibrator.append(light, calText, calButton);
   latencyRow.append(latencyLabel, stepper, calibrator);
 
-  // Controls: what jump, dash and slam are bound to.
-  const controls = createControlsSection();
+  // Controls: what each game's actions are bound to.
+  const controls = createControlsSection({ games: games.all(), game });
 
   const done = el('button', 'settings__done', 'Done');
   done.type = 'button';

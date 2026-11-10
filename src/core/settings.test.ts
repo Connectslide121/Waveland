@@ -11,6 +11,7 @@ import {
   mouseLabel,
   padLabel,
   resetBindings,
+  rivalActions,
   setBindings,
   shortBinding,
   getDifficulty,
@@ -106,6 +107,17 @@ describe('control bindings', () => {
       mouse: [null, null],
       pad: [3, null],
     });
+    // Left and right: ← or A, → or D, the d-pad; no mouse button.
+    expect(b.left).toEqual({
+      keys: ['ArrowLeft', 'KeyA', null],
+      mouse: [null, null],
+      pad: [14, null],
+    });
+    expect(b.right).toEqual({
+      keys: ['ArrowRight', 'KeyD', null],
+      mouse: [null, null],
+      pad: [15, null],
+    });
     // Each slot count per device.
     for (const action of CONTROL_ACTIONS)
       for (const device of CONTROL_DEVICES)
@@ -123,6 +135,45 @@ describe('control bindings', () => {
     expect(b.jump.keys).toEqual(['Space', 'KeyE', null]);
     expect(b.overdrive.keys).toEqual([null, 'KeyL', null]);
     expect(b.overdrive.pad).toEqual([3, null]);
+  });
+
+  it('loads bindings saved before left and right, giving them their defaults', () => {
+    const saved = {
+      jump: DEFAULT_BINDINGS.jump,
+      dash: { ...DEFAULT_BINDINGS.dash, keys: ['KeyA', 'KeyJ', 'KeyX'] },
+      slam: DEFAULT_BINDINGS.slam,
+      overdrive: DEFAULT_BINDINGS.overdrive,
+    };
+    localStorage.setItem('waveland.controls', JSON.stringify(saved));
+    const b = getBindings();
+    expect(b.dash.keys).toEqual(['KeyA', 'KeyJ', 'KeyX']);
+    expect(b.jump).toEqual(DEFAULT_BINDINGS.jump);
+    // A was the player's dash already: left keeps only ←.
+    expect(b.left.keys).toEqual(['ArrowLeft', null, null]);
+    expect(b.right).toEqual(DEFAULT_BINDINGS.right);
+  });
+
+  it('only moves an input between actions some game uses together', () => {
+    const games = [
+      ['jump', 'dash', 'slam', 'overdrive'],
+      ['left', 'right', 'jump', 'overdrive'],
+    ] as const;
+    expect(rivalActions('left', games)).toEqual(['jump', 'overdrive', 'left', 'right']);
+    expect(rivalActions('jump', games)).toEqual(CONTROL_ACTIONS);
+    expect(rivalActions('slam')).toEqual(CONTROL_ACTIONS);
+    // S on left stays on slam: no game has both.
+    const left = rivalActions('left', games);
+    const shared = bindInput(getBindings(), 'left', 'keys', 2, 'KeyS', left);
+    expect(shared).toMatchObject({ ok: true, movedFrom: null });
+    if (!shared.ok) return;
+    expect(shared.bindings.left.keys).toEqual(['ArrowLeft', 'KeyA', 'KeyS']);
+    expect(shared.bindings.slam.keys).toEqual(['KeyS', 'ArrowDown', null]);
+    // S on jump moves from both: jump is in both games.
+    const jump = rivalActions('jump', games);
+    const moved = bindInput(shared.bindings, 'jump', 'keys', 2, 'KeyS', jump);
+    if (!moved.ok) throw new Error('not bound');
+    expect(moved.bindings.slam.keys).toEqual([null, 'ArrowDown', null]);
+    expect(moved.bindings.left.keys).toEqual(['ArrowLeft', 'KeyA', null]);
   });
 
   it('moves an input bound to another action, and says which', () => {

@@ -90,6 +90,7 @@ class PlatformerSession {
       onRestart: () => this.restart(),
       onSettings: () =>
         openSettings({
+          game: 'platformer',
           // A new latency offset applies when the music plays on.
           onClose: () => (this.clock.latencyMs = getLatencyMs()),
         }),

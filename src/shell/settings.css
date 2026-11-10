@@ -284,6 +284,21 @@
   font-weight: 400;
 }
 
+/* Which game's actions show: one segment per game. */
+.controls__games {
+  grid-template-columns: repeat(var(--games, 2), minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.controls__games[hidden] {
+  display: none;
+}
+
+/* The shown game's rows sit in the grid as if they were its own children. */
+.controls__body {
+  display: contents;
+}
+
 .controls__reset-all {
   height: 30px;
   padding: 0 14px;

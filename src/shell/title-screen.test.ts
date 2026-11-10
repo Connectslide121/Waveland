@@ -9,6 +9,7 @@ const ready: ReadyGame = {
   blurb: 'Run and jump.',
   icon: '<svg></svg>',
   status: 'ready',
+  controls: ['jump'],
   start: vi.fn(),
 };
 const soon: GameDefinition = {
@@ -17,6 +18,7 @@ const soon: GameDefinition = {
   blurb: 'Race.',
   icon: '<svg></svg>',
   status: 'soon',
+  controls: ['left', 'right'],
   reason: 'Comes after the platformer.',
 };
 

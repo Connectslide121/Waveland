@@ -10,6 +10,11 @@ describe('games', () => {
     expect(games.firstReady()?.id).toBe('platformer');
   });
 
+  it('says which controls each game uses', () => {
+    expect(games.get('platformer')!.controls).toEqual(['jump', 'dash', 'slam', 'overdrive']);
+    expect(games.get('tunnel')!.controls).toEqual(['left', 'right', 'jump', 'overdrive']);
+  });
+
   it('says in words why a soon game cannot be played', () => {
     const tunnel = games.get('tunnel') as SoonGame;
     expect(tunnel.reason.length).toBeGreaterThan(0);
@@ -23,6 +28,7 @@ describe('GameRegistry', () => {
     blurb: '',
     icon: '',
     status: 'soon',
+    controls: [],
     reason: 'Later',
   };
 

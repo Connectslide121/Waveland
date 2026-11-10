@@ -4,8 +4,8 @@ import { openSettings as open, type SettingsModal } from './settings';
 
 /** Every modal opened, closed after each test so its key listener goes too. */
 const opened: SettingsModal[] = [];
-const openSettings = () => {
-  const modal = open();
+const openSettings = (options?: Parameters<typeof open>[0]) => {
+  const modal = open(options);
   opened.push(modal);
   return modal;
 };
@@ -20,7 +20,7 @@ const press = (code: string, key = code) =>
   window.dispatchEvent(new KeyboardEvent('keydown', { code, key, cancelable: true }));
 
 /** The slot buttons of an action's row, by device column. */
-function slots(modal: HTMLElement, action: 'Jump' | 'Dash' | 'Slam') {
+function slots(modal: HTMLElement, action: 'Jump' | 'Dash' | 'Slam' | 'Left') {
   const row = [...modal.querySelectorAll('.controls__row')].find(
     (r) => r.querySelector('.controls__action span')?.textContent === action,
   )!;
@@ -30,7 +30,49 @@ function slots(modal: HTMLElement, action: 'Jump' | 'Dash' | 'Slam') {
   return { keys: keys!, mouse: mouse!, pad: pad!, note: row.querySelector('.controls__note')! };
 }
 
+/** The action names of the rows shown, pause included. */
+const actions = (modal: HTMLElement) =>
+  [
+    ...modal.querySelectorAll('.controls__row:not(.controls__row--head) .controls__action span'),
+  ].map((s) => s.textContent);
+
+/** The game picker's options, and which is checked. */
+const gameOptions = (modal: HTMLElement) =>
+  [...modal.querySelectorAll<HTMLInputElement>('.controls__games input')].map((i) => [
+    i.parentElement!.textContent,
+    i.checked,
+  ]);
+
 describe('Settings: Controls', () => {
+  it('lists the platformer’s actions first, and each game’s from its picker', () => {
+    const modal = openSettings().element;
+    expect(gameOptions(modal)).toEqual([
+      ['Platformer', true],
+      ['Tunnel', false],
+    ]);
+    expect(actions(modal)).toEqual(['Jump', 'Dash', 'Slam', 'Overdrive', 'Pause']);
+    const tunnel = modal.querySelectorAll<HTMLInputElement>('.controls__games input')[1]!;
+    tunnel.click();
+    expect(actions(modal)).toEqual(['Left', 'Right', 'Jump', 'Overdrive', 'Pause']);
+    expect(slots(modal, 'Left').keys.map((b) => b.textContent)).toEqual(['←', 'A', '—']);
+    expect(slots(modal, 'Left').pad.map((b) => b.textContent)).toEqual(['D ←', '—']);
+  });
+
+  it('opens on the game it is asked for', () => {
+    const modal = openSettings({ game: 'tunnel' }).element;
+    expect(gameOptions(modal)[1]).toEqual(['Tunnel', true]);
+    expect(actions(modal)[0]).toBe('Left');
+  });
+
+  it('lets actions no game uses together share an input', () => {
+    const modal = openSettings({ game: 'tunnel' }).element;
+    slots(modal, 'Left').keys[2]!.click();
+    press('KeyS');
+    expect(getBindings().left.keys).toEqual(['ArrowLeft', 'KeyA', 'KeyS']);
+    expect(getBindings().slam.keys).toEqual(['KeyS', 'ArrowDown', null]);
+    expect(slots(modal, 'Left').note.textContent).toBe('');
+  });
+
   it('shows each action’s bindings in key, mouse and gamepad columns, and pause fixed', () => {
     const modal = openSettings().element;
     const heads = [...modal.querySelectorAll('.controls__head')].map((h) => h.textContent);

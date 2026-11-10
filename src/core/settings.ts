@@ -128,9 +128,19 @@ export function setDifficulty(difficulty: Difficulty): void {
 
 const BINDINGS_KEY = 'waveland.controls';
 
-/** What the player can bind. Pause is fixed: Escape and a gamepad's Start. */
-export type ControlAction = 'jump' | 'dash' | 'slam' | 'overdrive';
-export const CONTROL_ACTIONS: readonly ControlAction[] = ['jump', 'dash', 'slam', 'overdrive'];
+/**
+ * What the player can bind, across every game; each game says which it uses (its
+ * `GameDefinition.controls`). Pause is fixed: Escape and a gamepad's Start.
+ */
+export type ControlAction = 'jump' | 'dash' | 'slam' | 'overdrive' | 'left' | 'right';
+export const CONTROL_ACTIONS: readonly ControlAction[] = [
+  'jump',
+  'dash',
+  'slam',
+  'overdrive',
+  'left',
+  'right',
+];
 
 /** Each action's name as the player reads it. */
 export const CONTROL_ACTION_NAMES: Record<ControlAction, string> = {
@@ -138,7 +148,24 @@ export const CONTROL_ACTION_NAMES: Record<ControlAction, string> = {
   dash: 'Dash',
   slam: 'Slam',
   overdrive: 'Overdrive',
+  left: 'Left',
+  right: 'Right',
 };
+
+/**
+ * The actions an input bound to `action` can't also be bound to: every action of each game
+ * that uses it, as `games` lists their actions. Two actions no game uses together may share
+ * an input (the platformer's slam and the tunnel's left). With no games, every action.
+ */
+export function rivalActions(
+  action: ControlAction,
+  games?: readonly (readonly ControlAction[])[],
+): ControlAction[] {
+  if (!games) return [...CONTROL_ACTIONS];
+  const rivals = new Set<ControlAction>([action]);
+  for (const actions of games) if (actions.includes(action)) for (const a of actions) rivals.add(a);
+  return CONTROL_ACTIONS.filter((a) => rivals.has(a));
+}
 
 export type MouseButton = 'left' | 'right' | 'middle' | 'back' | 'forward';
 /** `MouseEvent.button` numbers, by name. */
@@ -169,7 +196,18 @@ export type Bindings = Record<ControlAction, ActionBindings>;
 export const BINDING_SLOTS: Record<ControlDevice, number> = { keys: 3, mouse: 2, pad: 2 };
 
 /** Standard gamepad buttons the defaults use. */
-export const PAD_BUTTONS = { a: 0, b: 1, x: 2, y: 3, rb: 5, start: 9, up: 12, down: 13 } as const;
+export const PAD_BUTTONS = {
+  a: 0,
+  b: 1,
+  x: 2,
+  y: 3,
+  rb: 5,
+  start: 9,
+  up: 12,
+  down: 13,
+  left: 14,
+  right: 15,
+} as const;
 
 /** What can't be bound: they always pause. */
 export const PAUSE_KEY = 'Escape';
@@ -188,6 +226,12 @@ export const DEFAULT_BINDINGS: Bindings = {
     pad: [PAD_BUTTONS.b, PAD_BUTTONS.down],
   },
   overdrive: { keys: ['KeyE', 'KeyL', null], mouse: [null, null], pad: [PAD_BUTTONS.y, null] },
+  left: { keys: ['ArrowLeft', 'KeyA', null], mouse: [null, null], pad: [PAD_BUTTONS.left, null] },
+  right: {
+    keys: ['ArrowRight', 'KeyD', null],
+    mouse: [null, null],
+    pad: [PAD_BUTTONS.right, null],
+  },
 };
 
 /** A key's code as bindings keep it: either Shift (Control, Alt, Meta) is just `Shift`. */
@@ -237,8 +281,8 @@ export function getBindings(): Bindings {
       Object.assign(out[action], { [device]: clean });
     }
   }
-  // An action added since the bindings were saved (overdrive) gets its defaults, less any
-  // the player already gave another action.
+  // An action added since the bindings were saved (overdrive, left, right) gets its
+  // defaults, less any the player already gave another action.
   for (const action of fresh)
     for (const device of CONTROL_DEVICES) {
       const slots = out[action][device] as unknown[];
@@ -256,8 +300,14 @@ export function setBindings(bindings: Bindings): void {
   write(BINDINGS_KEY, JSON.stringify(bindings));
 }
 
-/** Put one action (or all, with no action) back to the defaults. */
-export function resetBindings(action?: ControlAction): void {
+/**
+ * Put one action (or all, with no action) back to the defaults, taking them off its
+ * `rivals` (`rivalActions`) that had them.
+ */
+export function resetBindings(
+  action?: ControlAction,
+  rivals: readonly ControlAction[] = CONTROL_ACTIONS,
+): void {
   if (!action) {
     write(BINDINGS_KEY, null);
     return;
@@ -267,20 +317,21 @@ export function resetBindings(action?: ControlAction): void {
   // The defaults win over whatever another action took of them meanwhile.
   for (const device of CONTROL_DEVICES)
     for (const value of defaults[device])
-      if (value !== null) unbind(bindings, device, value as never, action);
+      if (value !== null) unbind(bindings, device, value as never, action, rivals);
   bindings[action] = defaults;
   setBindings(bindings);
 }
 
-/** Take `value` off every action but `except`; returns the actions it was taken from. */
+/** Take `value` off every action of `among` but `except`; returns the actions it was taken from. */
 function unbind<D extends ControlDevice>(
   bindings: Bindings,
   device: D,
   value: ActionBindings[D][number],
-  except?: ControlAction,
+  except: ControlAction,
+  among: readonly ControlAction[],
 ): ControlAction[] {
   const from: ControlAction[] = [];
-  for (const action of CONTROL_ACTIONS) {
+  for (const action of among) {
     if (action === except) continue;
     const slots = bindings[action][device];
     slots.forEach((v, i) => {
@@ -298,9 +349,10 @@ export type BindResult =
   | { ok: false; reason: 'pause' };
 
 /**
- * Bind `value` to slot `slot` of `action`'s `device`. An input bound to another action
- * moves here (`movedFrom` says which), one in another slot of this action moves to this
- * slot, and the pause inputs can't be bound. Pure: returns the new bindings.
+ * Bind `value` to slot `slot` of `action`'s `device`. An input bound to one of its
+ * `rivals` (`rivalActions`; every action when left out) moves here (`movedFrom` says
+ * which), one in another slot of this action moves to this slot, and the pause inputs
+ * can't be bound. Pure: returns the new bindings.
  */
 export function bindInput<D extends ControlDevice>(
   bindings: Bindings,
@@ -308,6 +360,7 @@ export function bindInput<D extends ControlDevice>(
   device: D,
   slot: number,
   value: ActionBindings[D][number],
+  rivals: readonly ControlAction[] = CONTROL_ACTIONS,
 ): BindResult {
   if (
     (device === 'keys' && value === PAUSE_KEY) ||
@@ -315,7 +368,7 @@ export function bindInput<D extends ControlDevice>(
   )
     return { ok: false, reason: 'pause' };
   const next = copyBindings(bindings);
-  const movedFrom = value === null ? [] : unbind(next, device, value, action);
+  const movedFrom = value === null ? [] : unbind(next, device, value, action, rivals);
   const slots = next[action][device];
   if (value !== null) slots.forEach((v, i) => v === value && (slots[i] = null));
   slots[slot] = value;

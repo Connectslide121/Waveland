@@ -1,4 +1,4 @@
-import type { AnalysedSong } from '../core';
+import type { AnalysedSong, ControlAction } from '../core';
 
 /**
  * A running game. The game owns its keys, Escape included (for its own pause menu), and
@@ -16,6 +16,8 @@ interface GameBase {
   blurb: string;
   /** Inline SVG markup for the mode card, drawn in the palette. */
   icon: string;
+  /** The control actions the game uses, in the order Settings and its pause menu list them. */
+  controls: readonly ControlAction[];
 }
 
 /** A game the player can start. */
