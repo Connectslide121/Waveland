@@ -177,7 +177,31 @@ export function findTempoSegments(env: Float32Array, rate: number): FrameSegment
     const change = changeFrame(score, lo, hi, before.period, after.period);
     before.to = after.from = change;
   }
-  return segments;
+  // A stretch the changes left too short to trust (a half-time feel the path read as
+  // half the tempo for a while, its change found late on the beats) joins the neighbour
+  // nearest its tempo, an octave either way counting as the same.
+  const short = MIN_SEGMENT_SECONDS * rate;
+  const folded = (a: number, b: number) => {
+    const r = Math.abs(Math.log(a / b));
+    return Math.min(r, Math.abs(r - Math.LN2));
+  };
+  for (let i = 0; i < segments.length && segments.length > 1;) {
+    const s = segments[i]!;
+    if (s.to - s.from >= short) {
+      i++;
+      continue;
+    }
+    const prev = segments[i - 1];
+    const next = segments[i + 1];
+    if (prev && (!next || folded(prev.period, s.period) <= folded(next.period, s.period))) {
+      prev.to = s.to;
+      segments.splice(i, 1);
+    } else {
+      next!.from = s.from;
+      segments.splice(i, 1);
+    }
+  }
+  return segments.length === 1 ? whole() : segments;
 }
 
 /** Neighbours at one tempo merged, and stretches too short to trust joined to a neighbour. */
