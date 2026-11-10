@@ -1,0 +1,19 @@
+/* The Neon arcade palette. Same values as palette.ts; a test keeps the two in sync. */
+:root {
+  --night: #07060f;
+  --cyan: #2ef2ff;
+  --magenta: #ff2bd6;
+  --violet: #8a5cff;
+  --orange: #ff8a2b;
+  --ink: #e9e7ff;
+  --muted: #8b87b3;
+  --dusk: #1a0f3a;
+  --line: #2c2558;
+
+  --font: 'Segoe UI', system-ui, sans-serif;
+  --wide: 'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
+
+  /* One beat at the menu's 120 BPM, and one bar of four beats. */
+  --beat: 0.5s;
+  --bar: 2s;
+}
