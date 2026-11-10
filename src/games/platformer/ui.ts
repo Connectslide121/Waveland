@@ -127,6 +127,8 @@ export function createPauseMenu(handlers: {
   onRestart: () => void;
   onSettings: () => void;
   onQuit: () => void;
+  /** Save the session's run data as a file. */
+  onSaveRun?: () => void;
   /** The controls as bound now, shown on the menu. */
   bindings: () => Bindings;
 }): PauseMenu {
@@ -144,7 +146,7 @@ export function rankRules(): string {
 /** The shared results screen with the platformer's breakdown and rank rules. */
 export function createResultsScreen(
   title: string,
-  handlers: { onRetry: () => void; onBack: () => void },
+  handlers: { onRetry: () => void; onBack: () => void; onSaveRun?: () => void },
 ): ResultsScreen<RunResults> {
   const screen = createSharedResultsScreen(title, { ...handlers, rankRules: rankRules() });
   return {

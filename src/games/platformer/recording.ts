@@ -60,7 +60,7 @@ export interface Recording {
     /** What the browser reports, seconds. */
     outputLatency: number | null;
     baseLatency: number | null;
-    sampleRate: number;
+    sampleRate: number | null;
     /** The display's frame interval and the lead drawn ahead of the heard time, seconds. */
     frameInterval: number;
     displayLead: number;
@@ -175,8 +175,8 @@ export class RunRecorder {
     }
     for (const e of events) {
       if (e.type === 'beat') {
-        const { x: _x, y: _y, ...rest } = e;
-        this.#events.push({ t, attempt, ...rest });
+        const { action, quality, accent, points } = e;
+        this.#events.push({ t, attempt, type: 'beat', action, quality, accent, points });
       } else if (e.type === 'death')
         this.#events.push({ t: run.diedAt, attempt, type: 'death', cause: e.cause });
       else this.#events.push({ t, attempt, type: 'other', event: e.type });
@@ -189,7 +189,8 @@ export class RunRecorder {
 
   /** Everything so far, as the file's contents. */
   toRecording(song: { title: string; hash: string }, map: LevelMap, level: PlatformerLevel) {
-    const context = getAudioContext();
+    // The context the game played through (none where there is no Web Audio, as in tests).
+    const context = typeof AudioContext === 'undefined' ? null : getAudioContext();
     const recording: Recording = {
       version: RECORDING_VERSION,
       recordedAt: new Date().toISOString(),
@@ -202,9 +203,9 @@ export class RunRecorder {
           devicePixelRatio: devicePixelRatio,
         },
         latencyMs: getLatencyMs(),
-        outputLatency: context.outputLatency ?? null,
-        baseLatency: context.baseLatency ?? null,
-        sampleRate: context.sampleRate,
+        outputLatency: context?.outputLatency ?? null,
+        baseLatency: context?.baseLatency ?? null,
+        sampleRate: context?.sampleRate ?? null,
         frameInterval: this.#frameInterval,
         displayLead: this.#displayLead,
       },
@@ -222,7 +223,9 @@ export class RunRecorder {
 /** A file name for a recording: the song's title and the time, safe on every system. */
 export function recordingName(title: string, at = new Date()): string {
   const safe = title.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'song';
-  const stamp = at.toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+  const two = (n: number) => String(n).padStart(2, '0');
+  // Local time, as the player's clock shows it.
+  const stamp = `${at.getFullYear()}${two(at.getMonth() + 1)}${two(at.getDate())}-${two(at.getHours())}${two(at.getMinutes())}`;
   return `waveland-run-${safe}-${stamp}.json`;
 }
 

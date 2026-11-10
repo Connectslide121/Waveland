@@ -142,6 +142,9 @@ export function controlsList(bindings: Bindings, actions: readonly ControlAction
   return list;
 }
 
+/** The "Save run data" action, when the game records its runs. */
+const saveRun = (run?: () => void): MenuAction[] => (run ? [{ label: 'Save run data', run }] : []);
+
 export interface PauseMenu extends Modal {
   show(): void;
   /** Show the controls as they are bound now (after a change in Settings). */
@@ -153,6 +156,8 @@ export function createPauseMenu(handlers: {
   onRestart: () => void;
   onSettings: () => void;
   onQuit: () => void;
+  /** Save the session's run data as a file, when the game records it. */
+  onSaveRun?: () => void;
   /** The controls as bound now, shown on the menu. */
   bindings: () => Bindings;
   /** The game's actions, in the order its controls list shows them. */
@@ -164,6 +169,7 @@ export function createPauseMenu(handlers: {
       { label: 'Resume', hint: 'Esc', primary: true, run: handlers.onResume },
       { label: 'Restart', run: handlers.onRestart },
       { label: 'Settings', run: handlers.onSettings },
+      ...saveRun(handlers.onSaveRun),
       { label: 'Quit', run: handlers.onQuit },
     ],
     handlers.onResume,
@@ -216,6 +222,8 @@ export function createResultsScreen(
   handlers: {
     onRetry: () => void;
     onBack: () => void;
+    /** Save the session's run data as a file, when the game records it. */
+    onSaveRun?: () => void;
     /** The ranks' thresholds in words, under the breakdown. */
     rankRules: string;
   },
@@ -224,6 +232,7 @@ export function createResultsScreen(
     'Song complete',
     [
       { label: 'Retry', primary: true, run: handlers.onRetry },
+      ...saveRun(handlers.onSaveRun),
       { label: 'Back to menu', run: handlers.onBack },
     ],
     null,

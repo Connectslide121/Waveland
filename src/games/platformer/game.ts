@@ -26,6 +26,7 @@ import { generateLevelInWorker, type BoosterKind, type PlatformerLevel } from '.
 import { Controls } from './controls';
 import { solveLevel } from './level/validate';
 import type { PlayerInput } from './physics';
+import { downloadRecording, RunRecorder } from './recording';
 import { musicOf, PlatformerRun, type RunMusic } from './run';
 import { PlatformerScene, type FrameState } from './scene';
 import { chipBinding } from '../shared';
@@ -67,6 +68,8 @@ class PlatformerSession {
   readonly #music: RunMusic;
   /** How far ahead of the heard song each frame is drawn. */
   readonly #lead = new DisplayLead();
+  /** Everything the player does, for "Save run data". */
+  readonly recorder: RunRecorder;
 
   constructor(
     readonly song: AnalysedSong,
@@ -79,6 +82,7 @@ class PlatformerSession {
   ) {
     this.#music = musicOf(map.events);
     this.controls = new Controls(window, undefined, surface);
+    this.recorder = new RunRecorder(window, surface);
     this.clock = new AudioClock(buffer);
     this.clock.onEnded = () => this.run.finish();
     this.hud = createHud({
@@ -98,11 +102,13 @@ class PlatformerSession {
           onClose: () => (this.clock.latencyMs = getLatencyMs()),
         }),
       onQuit: () => this.exit(),
+      onSaveRun: () => this.saveRun(),
       bindings: () => this.#bindings,
     });
     this.results = createResultsScreen(`${song.title} · ${DIFFICULTY_NAMES[level.difficulty]}`, {
       onRetry: () => this.restart(),
       onBack: () => this.exit(),
+      onSaveRun: () => this.saveRun(),
     });
     this.overlay.className = 'game-overlay';
     this.overlay.append(this.hud.element, this.pause.element, this.results.element);
@@ -126,7 +132,13 @@ class PlatformerSession {
     this.run = new PlatformerRun(this.level, this.map.sections, this.#music);
     this.run.autoplay = this.#autoplay;
     this.scene?.reset();
+    this.recorder.begin(this.run.countInFrom);
     this.#seek(this.run.countInFrom);
+  }
+
+  /** Save everything recorded this session (every attempt) as a JSON file. */
+  saveRun(): void {
+    downloadRecording(this.recorder.toRecording(this.song, this.map, this.level));
   }
 
   restart(): void {
@@ -152,7 +164,9 @@ class PlatformerSession {
     this.controls.enabled = true;
     // A short count-in up to where it stopped (or the cut-short count-in again); a death
     // plays on.
-    this.#seek(this.run.phase === 'dying' ? undefined : this.run.holdForResume());
+    const from = this.run.phase === 'dying' ? undefined : this.run.holdForResume();
+    this.recorder.seek(from ?? this.clock.time, 'resume');
+    this.#seek(from);
   }
 
   /** Called by the scene every frame: move the run on, update the HUD, say what to draw. */
@@ -163,15 +177,27 @@ class PlatformerSession {
       else this.doPause();
     }
     // Drawn for when the frame is seen, not for now: a frame or two later.
-    const lead = this.#lead.frame(performance.now());
-    const time = this.clock.time + lead;
+    const now = performance.now();
+    const lead = this.#lead.frame(now);
+    const heard = this.clock.time;
+    const time = heard + lead;
     this.run.inputLead = lead;
     if (!this.#paused && !this.#seeking && this.run.phase !== 'finished') {
+      const pressed = {
+        jump: input.jumpPressed,
+        dash: input.dashPressed,
+        slam: input.slamPressed,
+        overdrive: input.overdrivePressed,
+      };
+      this.recorder.frame(pressed, input.jumpHeld, heard, time, now, lead, this.#lead.interval);
       const { events, respawn } = this.run.update(time, input);
+      this.recorder.update(this.run, events, time);
       this.scene?.effects(events, time, this.run);
       if (respawn) {
         this.scene?.reset();
-        this.#seek(this.run.respawn());
+        const from = this.run.respawn();
+        this.recorder.seek(from, 'respawn');
+        this.#seek(from);
       }
     }
     // The song ends in the run's update or with the clock's own end.
@@ -215,6 +241,7 @@ class PlatformerSession {
     this.clock.onEnded = null;
     this.clock.stop();
     this.controls.destroy();
+    this.recorder.destroy();
     this.pause.destroy();
     this.results.destroy();
     this.#stopSettings();
@@ -263,6 +290,7 @@ class PlatformerSession {
 
   #finish(): void {
     this.controls.enabled = false;
+    this.recorder.finish(this.run);
     this.results.show(this.run.results());
   }
 
