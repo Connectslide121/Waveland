@@ -25,6 +25,8 @@ const MIN_SECTION_BARS = 4;
 const DROP_JUMP = 0.15;
 /** And how high in the song's own range the dropped-into section must sit, 0 to 1. */
 const DROP_LEVEL = 0.6;
+/** How far, in seconds, a drop may move to where the bass comes in. */
+const DROP_SHIFT = 3.5;
 
 /** A frame curve resampled to `ENERGY_RATE`, as 0 to 1 against the song's loud parts. */
 function energyCurve(power: Float32Array, frameRate: number, duration: number): EnergyCurve {
@@ -126,6 +128,35 @@ function boundaries(novelty: number[]): number[] {
   return chosen.sort((a, b) => a - b);
 }
 
+/**
+ * Of the bar lines near `line` (a bar either side, or as many as fit in `DROP_SHIFT` seconds,
+ * inside the sections either side of it), the one where the bass gets loudest compared with
+ * the bar before.
+ */
+function bestBassEntry(
+  bars: [number, number][],
+  low: EnergyCurve,
+  line: number,
+  prevStart: number,
+  nextStart: number,
+): number {
+  const barLow = (b: number) => curveMean(low, bars[b]![0], bars[b]![1]);
+  const [start, end] = bars[line]!;
+  const reach = Math.max(1, Math.floor(DROP_SHIFT / Math.max(0.1, end - start)));
+  let best = line;
+  let bestJump = barLow(line) - barLow(line - 1);
+  const last = Math.min(nextStart - 1, line + reach);
+  for (let b = Math.max(prevStart + 1, line - reach); b <= last; b++) {
+    const jump = barLow(b) - barLow(b - 1);
+    // Only a clearly bigger jump moves the drop off the line the novelty picked.
+    if (jump > bestJump + 0.02) {
+      best = b;
+      bestJump = jump;
+    }
+  }
+  return best;
+}
+
 /** Split the song into sections, name them by their energy, and find the drops. */
 export function findStructure(input: StructureInput): { sections: Section[]; drops: Drop[] } {
   const { duration, energy, bands, onsets } = input;
@@ -175,6 +206,10 @@ export function findStructure(input: StructureInput): { sections: Section[]; dro
     const jump = span.drive - prev.drive;
     if (jump >= DROP_JUMP && level(span) >= DROP_LEVEL) {
       kinds[i] = 'drop';
+      // A build's last bar (a snare roll, a riser) often changes the music the most, a bar
+      // before the bass comes in; the drop is where the bass jumps, so move it there.
+      const first = bestBassEntry(bars, bands.low, edges[i]!, edges[i - 1]!, edges[i + 1]!);
+      span.start = prev.end = bars[first]![0];
       drops.push({ time: span.start, strength: clamp01(jump / 0.4) });
     }
   });

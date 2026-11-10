@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Onset } from '../types';
 import { analyseSamples, toMono } from './analyse';
-import { clickTrack, drumPattern, TEST_RATE } from './test-audio';
+import { clickTrack, drumKit, drumPattern, place, TEST_RATE } from './test-audio';
 
 /** Distance from `t` to the nearest of `times`. */
 function nearest(times: number[], t: number): number {
@@ -134,6 +134,27 @@ describe('analyseSamples: sections and drops', () => {
     expect(Math.abs(analysis.drops[0]!.time - dropAt)).toBeLessThanOrEqual(0.05);
     const quiet = analysis.sections.find((s) => Math.abs(s.start - breakdown) <= 0.05);
     expect(quiet?.kind).toBe('breakdown');
+  });
+
+  it('puts a drop after a snare roll where the kick comes in, not where the roll starts', () => {
+    const bpm = 128;
+    const bar = (4 * 60) / bpm;
+    const start = 0.5;
+    const roll = start + 15 * bar;
+    const dropAt = start + 16 * bar;
+    const groove = drumPattern({
+      bpm,
+      seconds: start + 28 * bar,
+      start,
+      gain: (t) => (t < dropAt - 0.01 ? 0.1 : 1),
+    });
+    // A loud sixteenth-note snare roll through the build's last bar.
+    const { snare } = drumKit();
+    for (let i = 0; i < 16; i++) place(groove.samples, snare, roll + (i * bar) / 16, 0.8);
+    const analysis = analyseSamples(groove.samples, TEST_RATE);
+
+    expect(analysis.drops).toHaveLength(1);
+    expect(Math.abs(analysis.drops[0]!.time - dropAt)).toBeLessThanOrEqual(0.05);
   });
 
   it('finds no drop in a steady groove', () => {

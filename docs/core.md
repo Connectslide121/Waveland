@@ -23,7 +23,7 @@ All in `src/core/analysis`, pure TypeScript with no dependencies, run directly b
 | Downbeats | `rhythm.ts` | 4/4 assumed. Of the four phases, the one where kicks land on 1 (and 3), snares on 2 and 4, and loudness jumps on 1. |
 | Energy | `structure.ts` | Power per band and overall, at 50 samples a second, as 0–1 over the 40 dB below the song's loud parts. |
 | Sections | `structure.ts` | Bar features (energy per band, onset density per band); a novelty curve compares the 4 bars before each bar line with the 4 after; its clear peaks, at least 4 bars apart, start new sections. |
-| Drops | `structure.ts` | A section whose "drive" (energy plus bass energy) jumps by 0.15 or more over the one before, landing in the top part of the song's range. The section before it is a build (energy rising) or a breakdown; quiet first and last sections are intro and outro. |
+| Drops | `structure.ts` | A section whose "drive" (energy plus bass energy) jumps by 0.15 or more over the one before, landing in the top part of the song's range. The drop is then moved to the bar line nearby (within a bar, or about 3.5 s) where the bass gets loudest against the bar before, since a build's last bar (a snare roll, a riser) often changes the music more than the drop itself. The section before it is a build (energy rising) or a breakdown; quiet first and last sections are intro and outro. |
 
 ## Why our own analysis and not Essentia.js
 
