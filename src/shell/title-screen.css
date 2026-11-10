@@ -207,6 +207,7 @@
 /* ---------- song drop zone ---------- */
 
 .dropzone {
+  position: relative;
   display: grid;
   grid-template-columns: clamp(24px, 3vw, 32px) minmax(0, 1fr) auto;
   gap: clamp(12px, 1.4vw, 18px);
@@ -294,11 +295,39 @@
   letter-spacing: 0.2em;
 }
 
+/* The analysis progress, along the bottom edge inside the zone; hidden, not removed, when idle. */
+.dropzone__meter {
+  position: absolute;
+  left: clamp(16px, 2vw, 24px);
+  right: clamp(16px, 2vw, 24px);
+  bottom: 6px;
+  height: 3px;
+  border-radius: 99px;
+  background: rgb(46 242 255 / 0.12);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.dropzone__meter[data-active='true'] {
+  opacity: 1;
+}
+
+.dropzone__meter-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--magenta));
+  box-shadow: 0 0 8px var(--magenta);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.15s linear;
+}
+
 /* ---------- play ---------- */
 
 .play-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
 }
@@ -368,6 +397,38 @@
   color: var(--orange);
 }
 
+/* Song details: its space is always kept, it only shows once the song is analysed. */
+.details-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgb(20 16 44 / 0.75);
+  color: var(--ink);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.details-link svg {
+  width: 16px;
+  height: 16px;
+  color: var(--magenta);
+}
+
+.details-link:hover:not(:disabled) {
+  border-color: var(--cyan);
+}
+
+.details-link[data-shown='false'] {
+  visibility: hidden;
+}
+
 @media (max-width: 560px) {
   .dropzone__key {
     display: none;
@@ -377,4 +438,14 @@
 /* Keep long names clear of the Soon chip. */
 .mode--soon .mode__name {
   padding-right: 64px;
+}
+
+@media (max-width: 560px) {
+  .details-link {
+    padding: 0 10px;
+  }
+
+  .details-link span {
+    display: none;
+  }
 }

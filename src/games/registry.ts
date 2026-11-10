@@ -1,4 +1,4 @@
-import type { Song } from '../core';
+import type { AnalysedSong } from '../core';
 
 /** A running game. The shell stops it when the player goes back to the menu. */
 export interface GameSession {
@@ -19,7 +19,7 @@ interface GameBase {
 export interface ReadyGame extends GameBase {
   status: 'ready';
   /** Start the game for a song inside the container; resolves once it is running. */
-  start(song: Song, container: HTMLElement): Promise<GameSession>;
+  start(song: AnalysedSong, container: HTMLElement): Promise<GameSession>;
 }
 
 /** A game that is shown but can't be played yet. */

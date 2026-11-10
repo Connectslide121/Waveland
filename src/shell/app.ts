@@ -1,8 +1,13 @@
+import { analyseSong, type AnalysedSong } from '../core';
 import { games, type GameSession } from '../games';
 import './base.css';
+import { createSongDetails, type SongDetails } from './song-details';
 import { createTitleScreen } from './title-screen';
 
-/** Wire the title screen to the games: pick a mode and a song, play, and come back with Escape. */
+/**
+ * Wire the title screen to the games and the song details: pick a mode and a song, play,
+ * and come back with Escape.
+ */
 export function startApp(root: HTMLElement): void {
   const stage = document.createElement('div');
   stage.className = 'stage';
@@ -16,9 +21,20 @@ export function startApp(root: HTMLElement): void {
   stage.append(canvas, menu);
 
   let session: GameSession | null = null;
+  let details: SongDetails | null = null;
+
+  const openDetails = (song: AnalysedSong) => {
+    details?.destroy();
+    details = createSongDetails({ song, onBack: backToMenu });
+    title.element.hidden = true;
+    root.append(details.element);
+    details.element.querySelector<HTMLElement>('.crumbs__link')?.focus();
+  };
 
   const title = createTitleScreen({
     games: games.all(),
+    analyse: analyseSong,
+    onDetails: openDetails,
     async onPlay(game, song) {
       // Start under the title screen so the game can size itself, then reveal it.
       stage.hidden = false;
@@ -34,14 +50,21 @@ export function startApp(root: HTMLElement): void {
     },
   });
 
-  const backToMenu = () => {
-    if (!session) return;
-    session.stop();
-    session = null;
-    canvas.replaceChildren();
-    stage.hidden = true;
-    title.element.hidden = false;
-  };
+  function backToMenu(): void {
+    if (details) {
+      details.destroy();
+      details = null;
+      title.element.hidden = false;
+      title.element.querySelector<HTMLElement>('.details-link')?.focus();
+    }
+    if (session) {
+      session.stop();
+      session = null;
+      canvas.replaceChildren();
+      stage.hidden = true;
+      title.element.hidden = false;
+    }
+  }
   menu.addEventListener('click', backToMenu);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') backToMenu();
