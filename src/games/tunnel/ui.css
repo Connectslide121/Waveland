@@ -1,5 +1,15 @@
 /* The tunnel's own HUD pieces, over the shared HUD (src/games/shared/hud.css). */
 
+/* Bright rings pass behind the HUD everywhere on screen, unlike the platformer's dark sky:
+   a night halo keeps its text readable over them. */
+.tn-hud .game-hud__top,
+.tn-hud .game-hud__status {
+  text-shadow:
+    0 0 3px var(--night),
+    0 0 8px var(--night),
+    0 0 16px var(--night);
+}
+
 /* The shield: one slot that is always there, dim until a clean section earns it. */
 .tn-shield {
   display: grid;
