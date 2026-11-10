@@ -324,6 +324,13 @@ kbd {
   height: 14px;
 }
 
+/* A dashed line: dashes of the colour on the background. */
+.legend__swatch--dash {
+  width: 1px;
+  height: 14px;
+  background: repeating-linear-gradient(var(--c) 0 3px, transparent 3px 6px);
+}
+
 .legend__swatch--dot {
   width: 10px;
   height: 10px;

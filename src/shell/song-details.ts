@@ -133,7 +133,13 @@ export function createSongDetails({
     cell.append(el('dt', 'stats__label', label), dd);
     stats.append(cell);
   };
-  stat('Tempo', analysis.tempo.toFixed(1), 'BPM');
+  // A steady song's tempo to a tenth; a changing one's from its slowest to its fastest.
+  const tempos = analysis.segments.map((s) => Math.round(s.tempo));
+  stat(
+    'Tempo',
+    tempos.length > 1 ? `${Math.min(...tempos)}–${Math.max(...tempos)}` : analysis.tempo.toFixed(1),
+    'BPM',
+  );
   stat('Length', formatTime(analysis.duration));
   stat('Beats', String(analysis.beats.length));
   stat('Bars', String(bars));
@@ -174,7 +180,7 @@ export function createSongDetails({
 
   const legend = el('ul', 'legend');
   legend.setAttribute('aria-label', 'Legend');
-  const legendItem = (label: string, colour: string, shape: 'line' | 'dot' | 'block') => {
+  const legendItem = (label: string, colour: string, shape: 'line' | 'dash' | 'dot' | 'block') => {
     const item = el('li', 'legend__item');
     const swatch = el('span', `legend__swatch legend__swatch--${shape}`);
     swatch.style.setProperty('--c', colour);
@@ -184,6 +190,7 @@ export function createSongDetails({
   legendItem('Playhead', palette.cyan, 'line');
   legendItem('Beat', alpha(palette.magenta, 0.45), 'line');
   legendItem('Bar start', palette.magenta, 'line');
+  legendItem('Tempo change', palette.ink, 'dash');
   legendItem('Drop', palette.magenta, 'block');
   for (const lane of LANES) legendItem(lane.label, lane.colour, 'dot');
   legendItem('Bass energy', palette.violet, 'block');
@@ -298,14 +305,34 @@ export function createSongDetails({
     const plotW = w - GUTTER;
     const x = (t: number) => GUTTER + (t / analysis.duration) * plotW;
     const strip = 24;
-    const top = strip + 8;
+    const tempoTop = strip + 4;
+    const tempoH = 18;
+    const top = tempoTop + tempoH + 8;
     const bottom = h - 4;
 
     ctx.font = `600 10px ${FONT}`;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = palette.muted;
     ctx.fillText('SECTIONS', 0, strip / 2);
+    ctx.fillText('TEMPO', 0, tempoTop + tempoH / 2);
     ctx.fillText('ENERGY', 0, (top + bottom) / 2);
+
+    // The tempo map: a band per segment, its BPM at the start, a tick at every change.
+    analysis.segments.forEach((s, i) => {
+      const x0 = x(s.start);
+      const x1 = x(s.end);
+      ctx.fillStyle = alpha(palette.line, i % 2 === 0 ? 0.55 : 0.85);
+      ctx.fillRect(x0 + 1, tempoTop, Math.max(1, x1 - x0 - 2), tempoH);
+      if (i > 0) {
+        ctx.fillStyle = palette.ink;
+        ctx.fillRect(x0 - 1, tempoTop - 2, 2, tempoH + 4);
+      }
+      const label = `${Math.round(s.tempo)} BPM`;
+      if (ctx.measureText(label).width + 10 < x1 - x0) {
+        ctx.fillStyle = palette.ink;
+        ctx.fillText(label, x0 + 6, tempoTop + tempoH / 2);
+      }
+    });
 
     // Sections: a block per section, labelled when it fits.
     for (const s of analysis.sections) {
@@ -456,6 +483,22 @@ export function createSongDetails({
     analysis.downbeats.forEach((d, i) => {
       if (visible(d)) ctx.fillText(String(i + 1), x(d) + 4, ruler / 2);
     });
+
+    // Tempo changes: a dashed line and the new tempo.
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = alpha(palette.ink, 0.8);
+    ctx.lineWidth = 1;
+    for (const s of analysis.segments.slice(1)) {
+      if (!visible(s.start)) continue;
+      const cx = Math.round(x(s.start)) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, ruler);
+      ctx.lineTo(cx, h);
+      ctx.stroke();
+      ctx.fillStyle = palette.ink;
+      ctx.fillText(`${Math.round(s.tempo)} BPM`, cx + 6, ruler + 38);
+    }
+    ctx.setLineDash([]);
 
     // Drops.
     for (const drop of analysis.drops) {
