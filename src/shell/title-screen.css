@@ -481,3 +481,16 @@
 .title__settings:hover {
   border-color: var(--cyan);
 }
+
+/* On a phone the label would run into the logo: the gear alone, named by its aria-label. */
+@media (max-width: 560px) {
+  .title__settings {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .title__settings span {
+    display: none;
+  }
+}
