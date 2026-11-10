@@ -7,6 +7,7 @@ import {
   buildLevelMap,
   decodeSong,
   DIFFICULTY_NAMES,
+  DisplayLead,
   getBindings,
   getDifficulty,
   getLatencyMs,
@@ -64,6 +65,8 @@ class PlatformerSession {
   readonly #state: FrameState;
   /** The kicks and snares accents are judged against. */
   readonly #music: RunMusic;
+  /** How far ahead of the heard song each frame is drawn. */
+  readonly #lead = new DisplayLead();
 
   constructor(
     readonly song: AnalysedSong,
@@ -159,7 +162,10 @@ class PlatformerSession {
       if (this.#paused) this.resume();
       else this.doPause();
     }
-    const time = this.clock.time;
+    // Drawn for when the frame is seen, not for now: a frame or two later.
+    const lead = this.#lead.frame(performance.now());
+    const time = this.clock.time + lead;
+    this.run.inputLead = lead;
     if (!this.#paused && !this.#seeking && this.run.phase !== 'finished') {
       const { events, respawn } = this.run.update(time, input);
       this.scene?.effects(events, time, this.run);

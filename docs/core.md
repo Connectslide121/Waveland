@@ -92,6 +92,8 @@ Whole songs in `analysis/test-songs.ts` are for playtesting and tuning the games
 
 `AudioClock.time` is the song time the player hears: the context's clock since playback started, minus the output latency the browser reports (`outputLatency + baseLatency`) and the player's own offset (`settings.ts`, `getLatencyMs`, ±500 ms, 0 until calibrated). A positive offset means the sound reaches the player later than the browser thinks, as with Bluetooth headphones.
 
+A frame drawn at the heard time is only seen a frame or two later (the browser shows it at the next vsync, the display during the one after), so drawn that way everything trails the music by that much. A game draws for when the frame is seen instead: `AudioClock.time` plus `DisplayLead` (`display-lead.ts`), `DISPLAY_FRAMES` (1.5) times the display's own smoothed frame interval, about 25 ms at 60 Hz. Something judged from a press then acts that much after the song time it was pressed at, so the game judges it that much earlier (the platformer's `PlatformerRun.inputLead`).
+
 ## The level map
 
 `level-map.ts` turns a `SongAnalysis` into the `LevelMap` every game reads (`types.ts`): pure data, the same for the same analysis.

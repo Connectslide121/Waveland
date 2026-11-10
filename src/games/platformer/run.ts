@@ -309,6 +309,12 @@ export class PlatformerRun {
    * for watching a level and timing its frames in dev.
    */
   autoplay: Map<number, PlayerInput> | null = null;
+  /**
+   * How far ahead of the heard song the run is moved on (the session draws for when a
+   * frame is seen). A press acts on the next frame, that much after the song time the
+   * player pressed at, so takeoffs and dashes are judged that much earlier.
+   */
+  inputLead = 0;
   /** Slam plates the player broke through, by solid index: the song time each broke. */
   readonly brokenAt = new Map<number, number>();
   /** Song time a shield last took a hit. */
@@ -686,7 +692,11 @@ export class PlatformerRun {
 
   /** Rate something the player did by how close to a beat or an eighth it is, and score it. */
   #judge(action: BeatAction, t: number, p: PlayerState): RunEvent {
-    const quality = judgeAt(this.level.grid, t);
+    // Takeoffs and dashes come from a press (autoplay's act on their own step); landings
+    // happen where they are drawn.
+    const pressed = !this.autoplay && (action === 'takeoff' || action === 'dash');
+    const at = pressed ? t - this.inputLead : t;
+    const quality = judgeAt(this.level.grid, at);
     this.#counts[quality]++;
     const s = this.#score;
     const x = p.x + PLAYER_WIDTH / 2;
@@ -694,7 +704,7 @@ export class PlatformerRun {
     let accent = false;
     if (quality === 'miss') this.#breakCombo();
     else {
-      accent = this.#isAccent(action, t);
+      accent = this.#isAccent(action, at);
       points = this.#gain(t, POINTS[quality] * (accent ? ACCENT_FACTOR : 1));
       if (quality === 'perfect') {
         this.#fill(t, METER_PERFECT);

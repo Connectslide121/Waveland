@@ -1,5 +1,6 @@
 export { ANALYSIS_VERSION } from './analysis/analyse';
 export * from './audio-clock';
+export * from './display-lead';
 export * from './load';
 export * from './settings';
 export * from './song';

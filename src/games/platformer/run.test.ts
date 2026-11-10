@@ -208,6 +208,18 @@ describe('PlatformerRun', () => {
     expect(run.results().accuracy).toBeCloseTo(2 / 3);
   });
 
+  it('judges a takeoff at the song time it was pressed at, the input lead before it acts', () => {
+    // Moved on 80 ms ahead of the heard song: a jump acting at 1.08 s was pressed on the
+    // beat at 1 s.
+    const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });
+    const run = new PlatformerRun(level, []);
+    run.inputLead = 0.08;
+    run.update(0, NOTHING);
+    play(run, PHYSICS_DT, 1.08 - PHYSICS_DT, NOTHING);
+    const beats = run.update(1.08, JUMP).events.filter((e) => e.type === 'beat');
+    expect(beats[0]).toMatchObject({ action: 'takeoff', quality: 'perfect' });
+  });
+
   it('breaks a slam plate the player slams through, and mends it on a death before it', () => {
     // Standing on a plate 60 px over the ground from the start; a slam an instant after a
     // jump starts just above it and goes through on its first step.
