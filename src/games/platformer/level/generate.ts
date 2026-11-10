@@ -114,7 +114,7 @@ const MIN_BAR_WIDTH = 340;
 /** The drop staircase's steps. */
 const STAIR_STEPS = 5;
 
-/** A stretch to build: one bar, or two for a drop. */
+/** A stretch to build: one bar, or more for a drop or a fast song. */
 interface Stretch {
   start: number;
   end: number;
@@ -529,8 +529,11 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
   let previous: ChunkKind = 'run-in';
   for (let i = 0; i < bars.length;) {
     const isDrop = dropBars.has(i);
-    // Drops, and every stretch of a song whose bars are too short for an obstacle, take two.
-    const span = (isDrop || (narrow && !dropBars.has(i + 1))) && i + 1 < bars.length ? 2 : 1;
+    // Every stretch of a song whose bars are too short for an obstacle takes two bars, and
+    // drops two (four on such a song, for room to climb the staircase), never into a drop.
+    const want = isDrop ? (narrow ? 4 : 2) : narrow ? 2 : 1;
+    let span = 1;
+    while (span < want && i + span < bars.length && !dropBars.has(i + span)) span++;
     const stretch = stretchOf(bars[i]!, barEnd(i + span - 1));
     const section = sectionAt(stretch.start);
     const calmSection = isCalm(section);

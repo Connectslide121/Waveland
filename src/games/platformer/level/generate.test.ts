@@ -80,16 +80,25 @@ describe('generateLevel: always completable', () => {
 
 describe('generateLevel: the music', () => {
   let drops = 0;
-  // Longer songs with drops (one has two, one comes early).
-  for (const seed of [102, 103, 114, 124]) {
-    it(`builds a staircase set piece with gems at every drop (song ${seed})`, () => {
-      const map = buildLevelMap(randomAnalysis(seed, { duration: 80 }));
+  // Longer songs with drops (one has two, one comes early), and fast ones, whose bars are
+  // too short for a staircase in two.
+  const songs: [number, number | undefined][] = [
+    [102, undefined],
+    [103, undefined],
+    [114, undefined],
+    [124, undefined],
+    [102, 174],
+    [103, 174],
+  ];
+  for (const [seed, tempo] of songs) {
+    it(`builds a staircase set piece with gems at every drop (song ${seed}${tempo ? ` at ${tempo} BPM` : ''})`, () => {
+      const map = buildLevelMap(randomAnalysis(seed, { duration: 80, tempo }));
       const l = generateLevel(map, DIFFICULTIES[seed % 3]!);
       const runIn = l.chunks[0]!.end;
       const runOut = l.chunks[l.chunks.length - 1]!.start;
       for (const e of map.events.filter((x) => x.kind === 'drop')) {
-        // Drops with room for a set piece: after the run-in, two bars before the run-out.
-        if (e.time < runIn || e.time > runOut - 8 * map.beatPeriod) continue;
+        // Drops with room for a set piece: after the run-in, four bars before the run-out.
+        if (e.time < runIn || e.time > runOut - 16 * map.beatPeriod) continue;
         drops++;
         const piece = l.chunks.find((c) => c.kind === 'drop' && c.start >= e.time - 1e-6);
         expect(piece, `drop at ${e.time.toFixed(2)} s`).toBeDefined();
@@ -108,7 +117,7 @@ describe('generateLevel: the music', () => {
     }, 20_000);
   }
 
-  it('had drops to check', () => expect(drops).toBeGreaterThanOrEqual(4));
+  it('had drops to check', () => expect(drops).toBeGreaterThanOrEqual(6));
 
   it('keeps breakdowns calm: no spikes, equalisers or bridges', () => {
     for (let seed = 1; seed <= 12; seed++) {

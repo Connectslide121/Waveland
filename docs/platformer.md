@@ -13,10 +13,10 @@ The camera scrolls with song time, at a speed from the tempo (`scrollSpeed` in `
 | Spikes | Off-beats | Strips that are out from each off-beat to the next beat; cross on the beat or jump |
 | Gaps | Beats | Pits to jump, taking off on a beat, landing higher or lower |
 | Coins | Hi-hats | Where the anchored player is on the hat, over the ground or up in the jump over a pit; where there are no hats for a while (a quiet intro), on every other beat instead |
-| Set piece | Drops | Two bars: a staircase of bars to climb on the beat, a plateau, gems on every step |
+| Set piece | Drops | Two bars (four on fast songs): a staircase of bars to climb on the beat, a plateau, gems on every step |
 | Calm stretches | Intros, breakdowns, outros | Plain wide ground, now and then a low step or an easy gap |
 
-Fast songs (bars under 340 px) are laid out two bars per stretch, and on every other beat when beats are under 70 px.
+Fast songs (bars under 340 px) are laid out two bars per stretch, drops four, and on every other beat when beats are under 70 px: two such bars are too short for a staircase.
 
 ## Difficulty
 
