@@ -129,11 +129,35 @@ Obstacles a minute on the synthetic test songs (`level/test-songs.test.ts`); ste
 - `level/generate.test.ts`: each moment of the grammar on its own, every obstacle on its moment, difficulty, determinism, drops, gems, and nine random songs at every difficulty.
 - `level/test-songs.test.ts`: every synthetic test song at every difficulty raced without a crash, busier from easy to hard, repeats on the same beats, and the rock stand-in solved on hard and replayed clean.
 
-Boosters (shield, magnet), if step 4 adds any, are never needed.
+The only booster is the shield a clean section earns (Scoring); the validator never sees it, so it is never needed.
 
 ## Scoring
 
-`TunnelRun` (`run.ts`): pickups score, chains of pickups without a crash build the combo (×4), lane hops and jumps that land on the beat or eighth score perfect/good like the platformer's actions, overdrive doubles, clean sections (no crash) score a bonus, and the result ranks S/A/B/C on pickups taken, timing and crashes. The results screen and pause menu are the shared ones (`src/games/shared/menus.ts`): the run gives the results screen its score, rank, two columns of rows and the rank rules in words (crashes instead of deaths), and the pause menu its actions. The HUD is the shared one too (`src/games/shared/hud.ts`: song, beat dots, score and combo meter with the run's combo step and top multiplier, overdrive with what fills it, progress with the drops, count-in, frame rate), with any tunnel-only slots added after the overdrive meter (`hud.status`).
+`TunnelRun` (`run.ts`) is one race, without any drawing: the scene feeds `update(time, input)` the audio clock's time and the controls every frame, and draws what it says and the events it returns. What both games score alike (judging against the beat or eighth, the multiplier, overdrive, count-ins, ranks and their rules in words) is in `src/games/shared/scoring.ts`.
+
+- **Steps**: `stepRacer` in fixed steps up to the song time, at most 240 a frame (a long stall jumps ahead). The input is presses and holds of left, right and jump, and overdrive. A steer press acts on the next step; held, it hops again every `LANE_REPEAT` (half a beat) after the press, until let go. A jump pressed in the air waits `JUMP_BUFFER` (0.1 s) for the floor.
+- **Count-in and pause**: a bar of count-in before the song (`countInFrom`, `countInBeats`); after a pause, `holdForResume()` keeps the racer where it stopped while the two beats before it play (`RESUME_BEATS`).
+- **Judging**: a hop pressed, or a jump's takeoff, within the shared windows of a beat or eighth is perfect (300) or good (100), judged at the song time it was pressed (`inputLead` before it acts; autoplay's at their own step). Only presses are judged, not a held steer's repeats, and a hop into the side wall isn't one. A miss counts against timing but doesn't break the combo: steering to dodge isn't always on the beat, and only a crash breaks it.
+- **Pickups**: taken when the racer's length passes over one and its middle is within `PICKUP_REACH` (half a lane) of its lane, in the air too. A gem scores 100 and fills the overdrive meter by 1/40, a rail's gem 50 and 1/80.
+- **Combo**: every perfect, good and pickup adds one; every `COMBO_STEP` (8) raises the multiplier, up to ×4.
+- **Overdrive**: the shared one. A perfect fills the meter by 1/12; full, the overdrive button doubles the score for 4 bars, with `DOWNBEAT_BONUS` (1000, times the multiplier) when activated on a downbeat. The meter doesn't fill while it runs.
+- **Crashes**: no deaths, the music never stops. A crash breaks the combo, costs `CRASH_PENALTY` (500, never below zero) and emits a `crash` event with the obstacle, for the scene to flash orange and shake on. With a shield, the shield goes instead of the points (a save); the combo still breaks and it still counts as a crash.
+- **Sections**: each section (`track.looks`) got through without a crash scores `CLEAN_BONUS` (2000) when it ends, and gives the racer a shield if it has none. The shield is the tunnel's only booster: earned, never a pickup, so the validator never needs it.
+- **Finish**: when the song ends; the last section ends with it.
+- **Results** (`results()`, `summaryOf` for the shared results screen, `rankRules()`): score, timing ((perfects + half the goods) / judged), perfects, goods, misses, crashes, shield saves, pickups taken of all, best combo, overdrives, clean sections. The rank:
+
+  | Rank | Timing | Pickups taken | Crashes |
+  |---|---|---|---|
+  | S | 80%+ | 90%+ | none |
+  | A | 65%+ | 75%+ | at most 3 |
+  | B | 50%+ | 50%+ | any |
+  | C | finished | | |
+
+- **Autoplay**: `run.autoplay = solveLevel(track)` plays the solver's presses instead of the player's (dev: `waveland.autoplay()`, step 5).
+
+Tests (`run.test.ts`): count-in and pause, crashes and their cost, hops and jumps judged and buffered, held steering, pickups and the multiplier, overdrive, clean sections and the shield, results and rank, and the 128 BPM electronic test song autoplayed on normal to the end with no crash.
+
+The results screen and pause menu are the shared ones (`src/games/shared/menus.ts`): the run gives the results screen its score, rank, two columns of rows and the rank rules in words (crashes instead of deaths), and the pause menu its actions. The HUD is the shared one too (`src/games/shared/hud.ts`: song, beat dots, score and combo meter with the run's combo step and top multiplier, overdrive with what fills it, progress with the drops, count-in, frame rate), with any tunnel-only slots added after the overdrive meter (`hud.status`).
 
 ## Look
 
@@ -161,6 +185,13 @@ Each step is a queue task with its own chat; each ends green (`npm run typecheck
      - A snare answers the middle of the kick's block.
      - A drop's set piece is never a repeat's source.
    - Left for later steps: the track has no booster pickups (step 4 decides on any), and the renderer reads the looks, pulse and path (step 5).
-4. **The run.** `TunnelRun`: input, collisions against the track, pickups, combo, overdrive, crashes, sections, results and rank, autoplay; tests.
+4. **The run.** ✅ Done. `TunnelRun`: input, collisions against the track, pickups, combo, overdrive, crashes, sections, results and rank, autoplay; tests.
+   - Done as planned; Scoring above describes it as built. Beat judging, the multiplier, overdrive, count-ins and ranks moved to `src/games/shared/scoring.ts`, which the platformer's run re-exports; ranks take faults (deaths or crashes) and, for the tunnel, a share of pickups.
+   - Decided along the way:
+     - A missed hop or jump counts against timing but doesn't break the combo; only a crash does.
+     - Only steer presses are judged, not a held steer's repeats.
+     - The shield is earned by a clean section, not picked up: the track stays as step 3 built it. It takes a crash's points, not the combo.
+     - The rank counts pickups taken as well as timing and crashes. Every number here is a first guess for step 6 to tune.
+   - Left for step 5: the session feeds `update` and draws the events (a crash's flash and shake), and the HUD shows the shield; the run's results go to the shared results screen through `summaryOf` and `rankRules()`.
 5. **The game.** Three.js (`npm i three`), loaded only when the game starts; the session (audio clock, controls, pause, results, HUD), the scene (tunnel, lanes, craft, obstacles, pickups, pulses, bloom, camera following the path), frame monitor, reduced effects; the registry entry turns `ready`. Checked with screenshots on desktop and phone sizes.
 6. **Playtest and tune.** Play the synthetic songs and a few real ones, tune speeds, lane hop timing, density per difficulty and the camera; update this file, `README.md` and `AGENTS.md`.
