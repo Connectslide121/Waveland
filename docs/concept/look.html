@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waveland: look concept</title>
+<style>
+  :root {
+    --bg: #07060f;
+    --ink: #e9e7ff;
+    --muted: #8b87b3;
+    --cyan: #2ef2ff;
+    --magenta: #ff2bd6;
+    --violet: #8a5cff;
+    --orange: #ff8a2b;
+    --beat: .5s;          /* 120 BPM */
+    --bar: 2s;            /* one bar of four beats */
+    --font: "Segoe UI", system-ui, sans-serif;
+    --wide: "Bahnschrift", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #040309; color: var(--ink); font-family: var(--font);
+    padding: 40px clamp(16px, 4vw, 56px) 64px;
+  }
+  header { max-width: 1200px; margin: 0 auto 28px; }
+  header h1 { font-family: var(--wide); font-weight: 600; letter-spacing: .32em; font-size: 14px; color: var(--muted); margin: 0 0 6px; text-transform: uppercase; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 70ch; }
+  .shot { max-width: 1200px; margin: 0 auto 36px; }
+  .shot figcaption { color: var(--muted); font-size: 13px; line-height: 1.5; margin-top: 10px; }
+  .shot figcaption b { color: var(--ink); font-weight: 600; }
+  figure { margin: 0; }
+
+  .frame {
+    position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 14px;
+    background: radial-gradient(120% 90% at 50% 110%, #1a0f3a 0%, var(--bg) 60%);
+    box-shadow: 0 0 0 1px #1d1838, 0 30px 80px -30px #000;
+    container-type: inline-size;
+  }
+
+  /* ---------- shared: synth floor grid ---------- */
+  .floor {
+    position: absolute; left: -50%; right: -50%; bottom: -10%; height: 60%;
+    background:
+      linear-gradient(transparent 0 94%, rgba(138,92,255,.55) 94% 100%) 0 0 / 100% 40px,
+      linear-gradient(90deg, transparent 0 97%, rgba(138,92,255,.4) 97% 100%) 0 0 / 60px 100%;
+    transform: perspective(300px) rotateX(62deg);
+    transform-origin: 50% 100%;
+    mask-image: linear-gradient(to top, #000 30%, transparent 95%);
+    animation: floor var(--beat) linear infinite;
+    opacity: .7;
+  }
+  @keyframes floor { to { background-position: 0 40px, 0 0; } }
+
+  .wave-lines { position: absolute; inset: 0; opacity: .35; }
+
+  /* ---------- scene 1: platformer ---------- */
+  .rings { position: absolute; right: 12%; top: 18%; width: 22cqw; aspect-ratio: 1; }
+  .rings i {
+    position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--violet);
+    animation: ring var(--beat) ease-out infinite; opacity: 0;
+  }
+  .rings i:nth-child(2) { animation-delay: calc(var(--beat) / 3); }
+  .rings i:nth-child(3) { animation-delay: calc(var(--beat) * 2 / 3); }
+  .rings b {
+    position: absolute; inset: 38%; border-radius: 50%;
+    background: radial-gradient(circle, #fff 0, var(--violet) 40%, transparent 70%);
+    animation: thump var(--beat) ease-out infinite;
+  }
+  @keyframes ring { 0% { transform: scale(.3); opacity: .9; } 100% { transform: scale(1.4); opacity: 0; } }
+  @keyframes thump { 0% { transform: scale(1.25); } 40%, 100% { transform: scale(.9); } }
+
+  .eq { position: absolute; bottom: 14%; display: flex; gap: .6cqw; align-items: flex-end; height: 34%; }
+  .eq i {
+    display: block; width: 3.2cqw; height: 100%; border-radius: 3px;
+    background: linear-gradient(to top, transparent 0 calc(100% - 6px), var(--c) calc(100% - 6px));
+    box-shadow: 0 -2px 18px -2px var(--c);
+    transform-origin: bottom; animation: eq var(--beat) cubic-bezier(.2,.8,.3,1) infinite alternate;
+    animation-delay: var(--d);
+  }
+  @keyframes eq { from { transform: scaleY(var(--lo)); } to { transform: scaleY(var(--hi)); } }
+  .eq.a { left: 6%; }
+  .eq.b { left: 58%; height: 26%; }
+
+  .ledge {
+    position: absolute; height: 1.1cqw; border-radius: 99px; background: var(--c);
+    box-shadow: 0 0 14px var(--c), 0 0 40px -6px var(--c);
+  }
+
+  .bridge { position: absolute; left: 30%; bottom: 46%; display: flex; gap: .9cqw; }
+  .bridge i {
+    width: 2.1cqw; height: .9cqw; border-radius: 2px; background: var(--cyan);
+    box-shadow: 0 0 12px var(--cyan); opacity: .08;
+    animation: snare var(--bar) steps(1) infinite; animation-delay: var(--d);
+  }
+  /* appears on beats 2 and 4 (the snare) */
+  @keyframes snare { 0% { opacity: .08; } 25% { opacity: 1; } 50% { opacity: .08; } 75% { opacity: 1; } }
+
+  .spikes { position: absolute; left: 41%; bottom: 14%; width: 13cqw; height: 5cqw; overflow: hidden; }
+  .spikes svg { width: 100%; height: 100%; animation: offbeat var(--beat) ease-in-out infinite; }
+  /* tucked away on the beat, out on the off-beat */
+  @keyframes offbeat { 0%, 30% { transform: translateY(60%); } 55%, 85% { transform: translateY(0); } 100% { transform: translateY(60%); } }
+
+  .hero { position: absolute; left: 21%; bottom: 46%; width: 4.2cqw; aspect-ratio: 1; animation: hop var(--bar) cubic-bezier(.3,.6,.4,1) infinite; }
+  .hero b {
+    position: absolute; inset: 0; border-radius: 26%; background: var(--cyan);
+    box-shadow: 0 0 18px var(--cyan), 0 0 50px -6px var(--cyan), inset 0 0 0 3px #b9fbff;
+    transform-origin: 50% 100%; animation: squash var(--bar) ease-in-out infinite;
+  }
+  .hero b::after { content: ""; position: absolute; top: 30%; right: 18%; width: 18%; height: 22%; border-radius: 2px; background: var(--bg); box-shadow: -.9cqw 0 0 var(--bg); }
+  .hero::before {
+    content: ""; position: absolute; right: 100%; top: 20%; width: 9cqw; height: 60%;
+    background: linear-gradient(90deg, transparent, rgba(46,242,255,.45));
+    border-radius: 99px; filter: blur(4px);
+  }
+  @keyframes hop {
+    0% { transform: translate(0, 0); }
+    25% { transform: translate(8cqw, -13cqw) rotate(90deg); }
+    50% { transform: translate(16cqw, 0) rotate(180deg); }
+    75% { transform: translate(8cqw, -9cqw) rotate(90deg); }
+    100% { transform: translate(0, 0) rotate(0); }
+  }
+  @keyframes squash {
+    0%, 50%, 100% { transform: scale(1.25, .75); }
+    8%, 58% { transform: scale(.82, 1.2); }
+    25%, 75% { transform: scale(1, 1); }
+  }
+
+  .hud { position: absolute; inset: 3cqw 3.4cqw auto; display: flex; justify-content: space-between; align-items: center; font-family: var(--wide); letter-spacing: .18em; font-size: 1.25cqw; text-transform: uppercase; color: var(--muted); }
+  .hud .song b { color: var(--ink); font-weight: 600; letter-spacing: .08em; }
+  .hud .score { color: var(--ink); font-size: 2.2cqw; letter-spacing: .06em; font-variant-numeric: tabular-nums; text-shadow: 0 0 14px var(--magenta); }
+  .beats { display: flex; gap: .7cqw; }
+  .beats i { width: .9cqw; aspect-ratio: 1; border-radius: 50%; background: #2a2450; animation: lit var(--bar) steps(1) infinite; }
+  .beats i:nth-child(2) { animation-delay: calc(var(--beat) * -3); }
+  .beats i:nth-child(3) { animation-delay: calc(var(--beat) * -2); }
+  .beats i:nth-child(4) { animation-delay: calc(var(--beat) * -1); }
+  @keyframes lit { 0% { background: var(--magenta); box-shadow: 0 0 10px var(--magenta); } 25%, 100% { background: #2a2450; box-shadow: none; } }
+  .progress { position: absolute; left: 3.4cqw; right: 3.4cqw; bottom: 2.6cqw; height: 3px; border-radius: 99px; background: #1d1838; }
+  .progress::before { content: ""; position: absolute; inset: 0 62% 0 0; border-radius: inherit; background: linear-gradient(90deg, var(--violet), var(--magenta)); box-shadow: 0 0 10px var(--magenta); }
+  .progress i { position: absolute; top: -4px; width: 2px; height: 11px; background: var(--orange); left: var(--x); }
+
+  /* ---------- scene 2: the drop ---------- */
+  .drop { animation: flash var(--bar) linear infinite; }
+  @keyframes flash {
+    0% { background: radial-gradient(120% 90% at 50% 60%, #5a0f6e 0%, var(--bg) 65%); }
+    12% { background: radial-gradient(120% 90% at 50% 60%, #2a0a52 0%, var(--bg) 60%); }
+    25% { background: radial-gradient(120% 90% at 50% 60%, #6e0f5a 0%, var(--bg) 65%); }
+    37% { background: radial-gradient(120% 90% at 50% 60%, #200a48 0%, var(--bg) 60%); }
+    50% { background: radial-gradient(120% 90% at 50% 60%, #5a0f6e 0%, var(--bg) 65%); }
+    62% { background: radial-gradient(120% 90% at 50% 60%, #2a0a52 0%, var(--bg) 60%); }
+    75% { background: radial-gradient(120% 90% at 50% 60%, #6e0f5a 0%, var(--bg) 65%); }
+    100% { background: radial-gradient(120% 90% at 50% 60%, #200a48 0%, var(--bg) 60%); }
+  }
+  .bigwave { position: absolute; left: 0; right: 0; top: 18%; height: 50%; }
+  .bigwave path { fill: none; stroke-width: 3; stroke-linecap: round; animation: wobble var(--beat) ease-in-out infinite alternate; transform-origin: center; }
+  .bigwave path:nth-child(2) { animation-delay: calc(var(--beat) / -2); }
+  @keyframes wobble { from { transform: scaleY(.4); } to { transform: scaleY(1.15); } }
+
+  .stairs { position: absolute; left: 8%; right: 8%; bottom: 12%; height: 56%; display: flex; gap: .8cqw; align-items: flex-end; }
+  .stairs i {
+    flex: 1; height: var(--h); border-radius: 4px 4px 0 0;
+    background: linear-gradient(to top, transparent, color-mix(in srgb, var(--c) 35%, transparent) 70%, var(--c) calc(100% - 5px));
+    box-shadow: 0 -4px 22px -4px var(--c);
+    transform-origin: bottom; animation: eq var(--beat) cubic-bezier(.2,.8,.3,1) infinite alternate; animation-delay: var(--d);
+  }
+  .burst { position: absolute; left: 50%; top: 40%; }
+  .burst i {
+    position: absolute; width: .8cqw; aspect-ratio: 1; border-radius: 2px; background: var(--c); box-shadow: 0 0 10px var(--c);
+    animation: fly var(--beat) ease-out infinite; --r: 0deg;
+  }
+  @keyframes fly { from { transform: rotate(var(--r)) translateX(0) scale(1.2); opacity: 1; } to { transform: rotate(var(--r)) translateX(22cqw) scale(.2); opacity: 0; } }
+  .drop .hero { left: 46%; bottom: 52%; width: 5cqw; animation: float var(--beat) ease-in-out infinite alternate; }
+  .drop .hero::before { width: 18cqw; }
+  @keyframes float { from { transform: translateY(0) rotate(-8deg); } to { transform: translateY(-2.5cqw) rotate(8deg); } }
+  .callout { position: absolute; left: 50%; top: 8%; transform: translateX(-50%); font-family: var(--wide); font-weight: 700; letter-spacing: .5em; font-size: 2.4cqw; color: #fff; text-shadow: 0 0 18px var(--magenta), 0 0 40px var(--magenta); animation: thump var(--beat) ease-out infinite; }
+
+  /* ---------- scene 3: title + song select ---------- */
+  .title-screen { display: grid; grid-template-rows: auto 1fr auto; justify-items: center; padding: 6cqw 6cqw 4cqw; }
+  .logo { font-family: var(--wide); font-weight: 700; font-size: 7cqw; letter-spacing: .28em; margin-right: -.28em; line-height: 1;
+    background: linear-gradient(90deg, var(--cyan), var(--violet) 50%, var(--magenta)); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 14px rgba(138,92,255,.7)); }
+  .tag { margin-top: 1.4cqw; color: var(--muted); font-size: 1.4cqw; letter-spacing: .3em; text-transform: uppercase; }
+  .horizon { position: absolute; left: 0; right: 0; top: 34%; height: 18%; display: flex; gap: .35cqw; align-items: center; justify-content: center; opacity: .9; }
+  .horizon i { width: .5cqw; height: var(--h); border-radius: 99px; background: linear-gradient(var(--cyan), var(--magenta)); box-shadow: 0 0 8px rgba(255,43,214,.5); animation: eq var(--beat) ease-in-out infinite alternate; animation-delay: var(--d); }
+  .modes { align-self: end; display: grid; grid-template-columns: 1fr 1fr; gap: 2cqw; width: min(100%, 62cqw); position: relative; }
+  .mode { position: relative; border-radius: 1.4cqw; padding: 2cqw; display: grid; grid-template-columns: 6cqw 1fr; gap: 1.6cqw; align-items: center;
+    background: rgba(20,16,44,.75); border: 1px solid #2c2558; }
+  .mode.on { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan), 0 0 40px -10px var(--cyan); }
+  .mode h3 { margin: 0; font-family: var(--wide); letter-spacing: .2em; font-size: 1.7cqw; text-transform: uppercase; }
+  .mode p { margin: .5cqw 0 0; color: var(--muted); font-size: 1.15cqw; line-height: 1.4; }
+  .mode svg { width: 100%; }
+  .mode.soon { opacity: .55; }
+  .soon-chip { position: absolute; top: 1.2cqw; right: 1.2cqw; font-size: .95cqw; letter-spacing: .2em; color: var(--muted); border: 1px solid #3a3370; border-radius: 99px; padding: .2cqw .9cqw; }
+  .dropzone { margin-top: 2.4cqw; width: min(100%, 62cqw); border: 1.5px dashed #4a3f8f; border-radius: 1.4cqw; padding: 1.6cqw 2cqw; display: grid; grid-template-columns: 3cqw 1fr auto; gap: 1.4cqw; align-items: center; color: var(--muted); font-size: 1.3cqw; position: relative; }
+  .dropzone b { color: var(--ink); font-weight: 600; }
+  .dropzone .key { font-variant-numeric: tabular-nums; color: var(--ink); letter-spacing: .08em; }
+
+  /* ---------- palette ---------- */
+  .palette { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 8px; }
+  .sw { border-radius: 10px; border: 1px solid #1d1838; padding: 12px; display: grid; grid-template-columns: 1fr 28px; gap: 2px 10px; align-items: center; background: #0b0918; font-size: 13px; }
+  .sw span { color: var(--muted); grid-column: 1; font-variant-numeric: tabular-nums; }
+  .sw i { grid-column: 2; grid-row: 1 / span 2; width: 28px; height: 28px; border-radius: 6px; background: var(--c); box-shadow: 0 0 14px -2px var(--c); }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-play-state: paused !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Waveland · look concept</h1>
+  <p>Neon geometric, drawn in code. Everything here is plain shapes and glow; every movement is locked to a 120 BPM beat, the way the game will move with your song.</p>
+</header>
+
+<!-- Scene 1: platformer -->
+<figure class="shot">
+  <div class="frame" role="img" aria-label="Platformer scene: a glowing cyan cube jumps between neon equaliser platforms over a synth grid">
+    <svg class="wave-lines" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 260 C 200 200, 400 320, 600 260 S 1000 200, 1200 260 S 1500 320, 1600 260" stroke="#8a5cff" stroke-width="1.5" fill="none"/>
+      <path d="M0 300 C 220 250, 420 350, 640 300 S 1040 250, 1240 300 S 1520 350, 1600 300" stroke="#ff2bd6" stroke-width="1" fill="none" opacity=".6"/>
+    </svg>
+    <div class="floor"></div>
+    <div class="rings" aria-hidden="true"><i></i><i></i><i></i><b></b></div>
+
+    <div class="eq a" aria-hidden="true">
+      <i style="--c:#ff2bd6;--lo:.35;--hi:.55;--d:0s"></i>
+      <i style="--c:#8a5cff;--lo:.45;--hi:.7;--d:-.1s"></i>
+      <i style="--c:#2ef2ff;--lo:.5;--hi:.9;--d:-.2s"></i>
+      <i style="--c:#8a5cff;--lo:.4;--hi:.75;--d:-.3s"></i>
+      <i style="--c:#ff2bd6;--lo:.3;--hi:.5;--d:-.4s"></i>
+    </div>
+    <div class="ledge" style="--c:#8a5cff;left:20%;width:9%;bottom:43%"></div>
+    <div class="bridge" aria-hidden="true">
+      <i style="--d:0s"></i><i style="--d:0s"></i><i style="--d:0s"></i><i style="--d:0s"></i><i style="--d:0s"></i><i style="--d:0s"></i>
+    </div>
+    <div class="spikes" aria-hidden="true">
+      <svg viewBox="0 0 120 40" preserveAspectRatio="none"><g fill="#ff8a2b" style="filter:drop-shadow(0 0 4px #ff8a2b)"><path d="M0 40 L10 4 L20 40Z"/><path d="M20 40 L30 4 L40 40Z"/><path d="M40 40 L50 4 L60 40Z"/><path d="M60 40 L70 4 L80 40Z"/><path d="M80 40 L90 4 L100 40Z"/><path d="M100 40 L110 4 L120 40Z"/></g></svg>
+    </div>
+    <div class="eq b" aria-hidden="true">
+      <i style="--c:#2ef2ff;--lo:.6;--hi:.9;--d:-.25s"></i>
+      <i style="--c:#ff2bd6;--lo:.4;--hi:.8;--d:-.05s"></i>
+      <i style="--c:#8a5cff;--lo:.55;--hi:.95;--d:-.35s"></i>
+      <i style="--c:#2ef2ff;--lo:.35;--hi:.6;--d:-.15s"></i>
+      <i style="--c:#ff2bd6;--lo:.5;--hi:.85;--d:-.45s"></i>
+      <i style="--c:#8a5cff;--lo:.3;--hi:.55;--d:-.2s"></i>
+    </div>
+    <div class="hero"><b></b></div>
+
+    <div class="hud">
+      <div class="song"><b>Midnight Drive</b> &nbsp;·&nbsp; 120 BPM</div>
+      <div class="beats" aria-label="Beat"><i></i><i></i><i></i><i></i></div>
+      <div class="score">048 210</div>
+    </div>
+    <div class="progress" aria-hidden="true"><i style="--x:30%"></i><i style="--x:71%"></i></div>
+  </div>
+  <figcaption><b>Platformer.</b> The violet speaker pulses on every kick. Equaliser platforms rise and fall with the bass, the dotted bridge only exists on the snare (beats 2 and 4), and the orange spikes come out on the off-beats. The cube squashes on landing. The bar at the bottom is the song, with orange marks for the drops.</figcaption>
+</figure>
+
+<!-- Scene 2: the drop -->
+<figure class="shot">
+  <div class="frame drop" role="img" aria-label="The drop: the screen flashes pink and violet, huge waveforms ripple, platforms become a staircase of glowing bars">
+    <svg class="bigwave" viewBox="0 0 1600 400" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0 200 C 100 40, 200 360, 300 200 S 500 40, 600 200 S 800 360, 900 200 S 1100 40, 1200 200 S 1400 360, 1600 200" stroke="#ff2bd6" style="filter:drop-shadow(0 0 8px #ff2bd6)"/>
+      <path d="M0 200 C 100 320, 200 80, 300 200 S 500 320, 600 200 S 800 80, 900 200 S 1100 320, 1200 200 S 1400 80, 1600 200" stroke="#2ef2ff" style="filter:drop-shadow(0 0 8px #2ef2ff)" opacity=".8"/>
+    </svg>
+    <div class="floor"></div>
+    <div class="stairs" aria-hidden="true">
+      <i style="--c:#8a5cff;--h:20%;--lo:.7;--hi:1;--d:0s"></i>
+      <i style="--c:#ff2bd6;--h:30%;--lo:.7;--hi:1;--d:-.06s"></i>
+      <i style="--c:#2ef2ff;--h:40%;--lo:.7;--hi:1;--d:-.12s"></i>
+      <i style="--c:#8a5cff;--h:52%;--lo:.7;--hi:1;--d:-.18s"></i>
+      <i style="--c:#ff2bd6;--h:64%;--lo:.7;--hi:1;--d:-.24s"></i>
+      <i style="--c:#2ef2ff;--h:76%;--lo:.7;--hi:1;--d:-.3s"></i>
+      <i style="--c:#ff2bd6;--h:64%;--lo:.7;--hi:1;--d:-.36s"></i>
+      <i style="--c:#8a5cff;--h:52%;--lo:.7;--hi:1;--d:-.42s"></i>
+      <i style="--c:#2ef2ff;--h:40%;--lo:.7;--hi:1;--d:-.48s"></i>
+      <i style="--c:#ff2bd6;--h:30%;--lo:.7;--hi:1;--d:-.54s"></i>
+      <i style="--c:#8a5cff;--h:20%;--lo:.7;--hi:1;--d:-.6s"></i>
+    </div>
+    <div class="burst" aria-hidden="true">
+      <i style="--c:#2ef2ff;--r:0deg"></i><i style="--c:#ff2bd6;--r:30deg"></i><i style="--c:#8a5cff;--r:60deg"></i>
+      <i style="--c:#ff8a2b;--r:90deg"></i><i style="--c:#2ef2ff;--r:120deg"></i><i style="--c:#ff2bd6;--r:150deg"></i>
+      <i style="--c:#8a5cff;--r:180deg"></i><i style="--c:#2ef2ff;--r:210deg"></i><i style="--c:#ff2bd6;--r:240deg"></i>
+      <i style="--c:#ff8a2b;--r:270deg"></i><i style="--c:#8a5cff;--r:300deg"></i><i style="--c:#2ef2ff;--r:330deg"></i>
+    </div>
+    <div class="hero"><b></b></div>
+    <div class="callout">DROP</div>
+  </div>
+  <figcaption><b>The drop.</b> Where the song analysis finds a drop, the level turns into a set piece: the background flashes on every beat, the platforms become a staircase of bars to climb, and particles burst outward. It's short and intense, then the level calms down again with the song.</figcaption>
+</figure>
+
+<!-- Scene 3: title and song select -->
+<figure class="shot">
+  <div class="frame title-screen" role="img" aria-label="Title screen: Waveland logo, a waveform horizon, two mode cards (Platformer, Tunnel coming soon) and a drop zone for a song">
+    <div class="floor"></div>
+    <div class="horizon" aria-hidden="true">
+      <i style="--h:18%;--lo:.5;--hi:1;--d:0s"></i><i style="--h:30%;--lo:.5;--hi:1;--d:-.05s"></i><i style="--h:46%;--lo:.5;--hi:1;--d:-.1s"></i><i style="--h:62%;--lo:.5;--hi:1;--d:-.15s"></i><i style="--h:80%;--lo:.5;--hi:1;--d:-.2s"></i><i style="--h:95%;--lo:.5;--hi:1;--d:-.25s"></i><i style="--h:70%;--lo:.5;--hi:1;--d:-.3s"></i><i style="--h:52%;--lo:.5;--hi:1;--d:-.35s"></i><i style="--h:84%;--lo:.5;--hi:1;--d:-.4s"></i><i style="--h:100%;--lo:.5;--hi:1;--d:-.45s"></i><i style="--h:76%;--lo:.5;--hi:1;--d:-.5s"></i><i style="--h:58%;--lo:.5;--hi:1;--d:-.55s"></i><i style="--h:88%;--lo:.5;--hi:1;--d:-.6s"></i><i style="--h:64%;--lo:.5;--hi:1;--d:-.65s"></i><i style="--h:42%;--lo:.5;--hi:1;--d:-.7s"></i><i style="--h:60%;--lo:.5;--hi:1;--d:-.75s"></i><i style="--h:36%;--lo:.5;--hi:1;--d:-.8s"></i><i style="--h:24%;--lo:.5;--hi:1;--d:-.85s"></i><i style="--h:14%;--lo:.5;--hi:1;--d:-.9s"></i>
+    </div>
+    <div style="text-align:center;position:relative">
+      <div class="logo">WAVELAND</div>
+      <div class="tag">Every song is a level</div>
+    </div>
+    <div class="modes">
+      <div class="mode on">
+        <svg viewBox="0 0 60 60" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-width="3"><path d="M8 52 V40 M18 52 V34 M28 52 V44 M38 52 V30 M48 52 V38" stroke="#8a5cff"/></g><rect x="22" y="12" width="12" height="12" rx="3" fill="#2ef2ff" style="filter:drop-shadow(0 0 4px #2ef2ff)"/></svg>
+        <div><h3>Platformer</h3><p>Run and jump. The world moves to the beat.</p></div>
+      </div>
+      <div class="mode soon">
+        <span class="soon-chip">SOON</span>
+        <svg viewBox="0 0 60 60" aria-hidden="true"><g fill="none" stroke="#ff2bd6" stroke-width="2.5"><rect x="4" y="4" width="52" height="52" rx="6"/><rect x="16" y="16" width="28" height="28" rx="4" opacity=".7"/><rect x="25" y="25" width="10" height="10" rx="2" opacity=".45"/><path d="M4 4 L25 25 M56 4 L35 25 M4 56 L25 35 M56 56 L35 35" opacity=".5"/></g></svg>
+        <div><h3>Tunnel</h3><p>Race through a tunnel shaped by the melody.</p></div>
+      </div>
+    </div>
+    <div class="dropzone">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13" fill="none" stroke="#8b87b3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" fill="none" stroke="#8b87b3" stroke-width="1.8"/><circle cx="18" cy="16" r="3" fill="none" stroke="#8b87b3" stroke-width="1.8"/></svg>
+      <div><b>Drop a song here</b> &nbsp;or choose one from your computer</div>
+      <div class="key">MP3 · WAV · OGG</div>
+    </div>
+  </div>
+  <figcaption><b>Title and song select.</b> One menu for the whole collection: pick a mode (the tunnel is greyed out with "Soon" until it exists), drop a song, play. The waveform horizon pulses with the menu music.</figcaption>
+</figure>
+
+<!-- Palette -->
+<section class="shot">
+  <figcaption style="margin:0 0 4px"><b>Palette.</b> Dark background, four neon colours with fixed meanings, so the player learns to read them.</figcaption>
+  <div class="palette">
+    <div class="sw" style="--c:#2ef2ff">Cyan <span>you, safe paths</span><i></i></div>
+    <div class="sw" style="--c:#ff2bd6">Magenta <span>beat, score, drops</span><i></i></div>
+    <div class="sw" style="--c:#8a5cff">Violet <span>bass, world</span><i></i></div>
+    <div class="sw" style="--c:#ff8a2b">Orange <span>danger</span><i></i></div>
+    <div class="sw" style="--c:#07060f">Night <span>background</span><i style="box-shadow:inset 0 0 0 1px #2c2558"></i></div>
+  </div>
+</section>
+
+</body>
+</html>
