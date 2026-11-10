@@ -16,6 +16,7 @@ A personal, just-for-fun collection of music games in the browser (see `README.m
 
 ## Rules
 
-- Look: neon geometric, drawn in code (shapes, glow, colour reacting to the music). No sprite art unless asked. Concept images in `docs/concept/`.
+- Look: "Neon arcade" (chosen from three concepts in `docs/concept/concepts.html`; the full mock-up is `docs/concept/look.html`). Neon geometric, drawn in code: thick glow on a dark synth grid, pulse rings on the kick, colour reacting to the music. No sprite art unless asked.
+- Palette with fixed meanings: night `#07060f` background, cyan `#2ef2ff` the player and safe paths, magenta `#ff2bd6` beat, score and drops, violet `#8a5cff` bass and world, orange `#ff8a2b` danger.
 - Generated levels must always be completable: check every jump is reachable.
 - Work directly on `main`; small commits with a message saying what and why. Never push unless asked.
