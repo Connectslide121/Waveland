@@ -78,8 +78,18 @@ function spread(states: PlayerState[], n: number): PlayerState[] {
   return out;
 }
 
+/** How a candidate got where it is: its last press, on which step, and the one before. */
+interface Trail {
+  input: PlayerInput;
+  step: number;
+  prev: Trail | undefined;
+}
+
 /** The candidates at one moment, and how they go on. */
 export class Explorer {
+  /** When kept (`solveLevel`), how each candidate got there. */
+  trails: WeakMap<PlayerState, Trail> | null = null;
+
   constructor(
     readonly world: LevelWorld,
     public states: PlayerState[],
@@ -98,7 +108,15 @@ export class Explorer {
   }
 
   clone(): Explorer {
-    return new Explorer(this.world, this.states, this.step, { ...this.furthest }, this.without);
+    const copy = new Explorer(
+      this.world,
+      this.states,
+      this.step,
+      { ...this.furthest },
+      this.without,
+    );
+    copy.trails = this.trails;
+    return copy;
   }
 
   get alive(): boolean {
@@ -123,7 +141,14 @@ export class Explorer {
             p = stepPlayer(p, i === 1 ? input : NOTHING, this.world, (this.step + i) * PHYSICS_DT);
           if (!p.alive || p.y < floor) continue;
           const key = keyOf(p);
-          if (!seen.has(key)) seen.set(key, p);
+          if (seen.has(key)) continue;
+          seen.set(key, p);
+          if (this.trails && input !== NOTHING)
+            this.trails.set(p, { input, step: this.step + 1, prev: this.trails.get(state) });
+          else if (this.trails) {
+            const trail = this.trails.get(state);
+            if (trail) this.trails.set(p, trail);
+          }
         }
       }
       this.step += steps;
@@ -166,4 +191,20 @@ export function validateLevel(level: PlatformerLevel, without?: Ability): Valida
     reached: ok ? level.duration : explorer.furthest.time,
     furthestX: explorer.furthest.x,
   };
+}
+
+/**
+ * One way through the level, as the presses that make it: the input on each physics step
+ * that has one (every other step is doing nothing). Null when the search finds none. For
+ * playing a level by itself, to watch it or time its frames.
+ */
+export function solveLevel(level: PlatformerLevel): Map<number, PlayerInput> | null {
+  const explorer = Explorer.start(new LevelWorld(level));
+  explorer.trails = new WeakMap();
+  if (!explorer.run(stepAt(level.duration))) return null;
+  // Rather one on the ground: it has landed what it did.
+  const end = explorer.states.find((s) => s.grounded) ?? explorer.states[0]!;
+  const presses = new Map<number, PlayerInput>();
+  for (let t = explorer.trails.get(end); t; t = t.prev) presses.set(t.step, t.input);
+  return presses;
 }

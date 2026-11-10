@@ -23,6 +23,8 @@ import { palette } from '../../theme/palette';
 import type { GameSession } from '../registry';
 import { generateLevelInWorker, type BoosterKind, type PlatformerLevel } from './level';
 import { Controls } from './controls';
+import { solveLevel } from './level/validate';
+import type { PlayerInput } from './physics';
 import { musicOf, PlatformerRun, type RunMusic } from './run';
 import { PlatformerScene, type FrameState } from './scene';
 import { chipBinding, createHud, createPauseMenu, createResultsScreen } from './ui';
@@ -104,9 +106,20 @@ class PlatformerSession {
     this.#state = { time: 0, run: this.run, beatInBar: -1, beatPhase: 0, paused: false };
   }
 
+  /** Presses that play the level by itself, once asked for (dev: `waveland.autoplay()`). */
+  #autoplay: Map<number, PlayerInput> | null = null;
+
+  /** Let the level play itself, as the validator found a way through, or stop it. */
+  autoplay(on = true): boolean {
+    this.#autoplay = on ? (this.#autoplay ?? solveLevel(this.level)) : null;
+    this.run.autoplay = this.#autoplay;
+    return this.#autoplay !== null;
+  }
+
   /** A fresh run from the top, after a one-bar count-in. */
   begin(): void {
     this.run = new PlatformerRun(this.level, this.map.sections, this.#music);
+    this.run.autoplay = this.#autoplay;
     this.scene?.reset();
     this.#seek(this.run.countInFrom);
   }
