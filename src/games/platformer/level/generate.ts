@@ -111,6 +111,8 @@ const RUN_OUT_SECONDS = 3;
 const MIN_STEP_WIDTH = 70;
 /** Bars narrower than this are built two at a time, px. */
 const MIN_BAR_WIDTH = 340;
+/** Coins are at least this far apart, and from gems, px. */
+const COIN_SPACING = 26;
 /** The drop staircase's steps. */
 const STAIR_STEPS = 5;
 
@@ -417,8 +419,13 @@ function coins(level: PlatformerLevel, map: LevelMap, every: number, from: numbe
   const world = new LevelWorld(level);
   const inDrop = (t: number) =>
     level.chunks.some((c) => c.kind === 'drop' && t >= c.start && t < c.end);
+  // Fast hats (sixteenths at 174 BPM are 14 px apart) would pile coins into a clump, and
+  // onto the drop's gems: keep each coin clear of the others and of the gems.
+  const taken = level.pickups.filter((p) => p.kind === 'gem').map((p) => p.x);
+  const clear = (x: number) => taken.every((t) => Math.abs(t - x) >= COIN_SPACING);
   const place = (time: number) => {
     const x = xAtTime(level, time) + PLAYER_WIDTH / 2;
+    if (!clear(x)) return;
     let top: number | null = null;
     let near = -Infinity;
     for (const i of world.solidsBetween(x - 150, x + 150)) {
@@ -429,7 +436,9 @@ function coins(level: PlatformerLevel, map: LevelMap, every: number, from: numbe
       near = Math.max(near, at);
     }
     const y = top !== null ? top + 28 : near + 110;
-    if (Number.isFinite(y)) level.pickups.push({ kind: 'coin', x, y, time });
+    if (!Number.isFinite(y)) return;
+    level.pickups.push({ kind: 'coin', x, y, time });
+    taken.push(x);
   };
 
   const hats = map.events.filter((e) => e.kind === 'hat').map((e) => e.time);

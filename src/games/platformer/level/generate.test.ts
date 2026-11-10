@@ -144,6 +144,19 @@ describe('generateLevel: the music', () => {
       for (const [from] of s.windows!) expect(snares).toContain(from);
   });
 
+  it('keeps coins apart from each other and from the gems, even on fast hats', () => {
+    const map = buildLevelMap(randomAnalysis(102, { duration: 80, tempo: 174 }));
+    const l = generateLevel(map, 'hard');
+    const coins = l.pickups.filter((p) => p.kind === 'coin').map((p) => p.x);
+    const gems = l.pickups.filter((p) => p.kind === 'gem').map((p) => p.x);
+    expect(coins.length).toBeGreaterThan(0);
+    const sorted = [...coins].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++)
+      expect(sorted[i]! - sorted[i - 1]!).toBeGreaterThanOrEqual(26 - 1e-6);
+    for (const c of coins)
+      for (const g of gems) expect(Math.abs(c - g)).toBeGreaterThanOrEqual(26 - 1e-6);
+  });
+
   it('puts coins on the beats of a song with no hi-hats', () => {
     const map = song(5);
     const quiet = { ...map, events: map.events.filter((e) => e.kind !== 'hat') };
