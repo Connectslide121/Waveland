@@ -5,3 +5,5 @@ export * from './settings';
 export * from './song';
 export * from './types';
 export * from './waveform';
+export * from './level-map';
+export * from './random';

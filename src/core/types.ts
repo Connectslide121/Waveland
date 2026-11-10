@@ -60,21 +60,51 @@ export interface SongAnalysis {
   drops: Drop[];
 }
 
-/** What kind of musical event a level moment comes from. */
-export type LevelEventKind = 'kick' | 'snare' | 'offbeat' | 'bass' | 'drop' | 'section';
+/** How hard a game builds its level: density of obstacles, gap sizes and so on. */
+export type Difficulty = 'easy' | 'normal' | 'hard';
 
-/** One moment in the level that a game turns into something (a platform, a bridge, a gate…). */
+export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+
+/**
+ * What kind of musical moment a level event is: a kick (low band), a snare (mid band), an
+ * off-beat (halfway between two beats), a hi-hat (high band), a drop, or a section start.
+ */
+export type LevelEventKind = 'kick' | 'snare' | 'offbeat' | 'hat' | 'drop' | 'section';
+
+/** One moment in the level that a game turns into something (a bridge, a coin, a gate…). */
 export interface LevelEvent {
   time: number;
   kind: LevelEventKind;
   /** How strong the moment is, 0 to 1. */
   intensity: number;
+  /** Index of the grid beat at or just before the moment (`LevelMap.beats`). */
+  beat: number;
+  /** What the section starting here is like (only on `section` events). */
+  section?: SectionKind;
 }
 
-/** The level built from a song: what every game reads, each in its own way. */
+/**
+ * The level built from a song: what every game reads, each in its own way. Pure data,
+ * the same for the same analysis; the beat grid is regular and covers the whole song.
+ */
 export interface LevelMap {
+  /** Derived from the analysis, so games seed their own randomness from the song. */
+  seed: number;
   duration: number;
   tempo: number;
+  /** Seconds per beat on the grid. */
+  beatPeriod: number;
+  /** A regular beat grid from the start of the song to its end. */
+  beats: number[];
+  /** The beats that start a bar (4/4), a subset of `beats`. */
+  downbeats: number[];
+  /** Index in `beats` of the first downbeat (0 to 3). */
+  barPhase: number;
+  /** Bass energy per grid beat, 0 to 1 over the song's own range. */
+  bass: number[];
+  /** Overall energy per grid beat, 0 to 1 over the song's own range. */
+  energy: number[];
+  /** Every moment, sorted by time. */
   events: LevelEvent[];
   sections: Section[];
   drops: Drop[];
