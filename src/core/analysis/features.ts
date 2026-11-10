@@ -37,8 +37,11 @@ const TOGETHER = 0.035;
 /** Seconds either side of a hit that its neighbours are compared over. */
 const NEIGHBOURHOOD = 4;
 
-/** An accent is this much louder (0–1 over 40 dB, so 6 dB) than its bands' usual hits, summed. */
-const ACCENT_EXCESS = 0.15;
+/**
+ * An accent is this much louder (0–1 over 40 dB, so about 5 dB) than its bands' usual hits,
+ * summed: a crash over a drop already at full loudness only just gets there.
+ */
+const ACCENT_EXCESS = 0.12;
 /**
  * A band's usual hits: this percentile of their loudness. Not the median, which a bass
  * or a guitar on every eighth pulls down, so every kick over them read as an accent.

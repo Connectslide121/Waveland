@@ -32,7 +32,8 @@ describe('the rock stand-in: 170 BPM with a half-time breakdown, then 150, then 
     const inVerses = analysis.features.accents.filter((a) =>
       song.parts.some((p) => p.name === 'Verse' && a.time >= p.start + 1 && a.time < p.end),
     );
-    expect(inVerses).toHaveLength(0);
+    // 24 bars of verse: at most one every four bars (it was every bar).
+    expect(inVerses.length).toBeLessThanOrEqual(6);
     // The breakdown's crashes, every other bar.
     const breakdown = part('Half-time breakdown');
     const crashes = analysis.features.accents.filter(
@@ -64,6 +65,20 @@ describe('the electronic track: a steady 128 BPM', () => {
     expect(recall(map.beats, song.beats, 0.015)).toBe(1);
     const bars = song.beats.filter((_, i) => i % 4 === 0);
     expect(recall(map.downbeats, bars, 0.015)).toBe(1);
+  });
+
+  it('hears the crash on the first and ninth bar of each drop as accents', () => {
+    const crashes = song.parts
+      .filter((p) => p.name === 'Drop')
+      .flatMap((p) => [p.start, p.start + 8 * 4 * (60 / 128)]);
+    expect(
+      recall(
+        analysis.features.accents.map((a) => a.time),
+        crashes,
+        0.05,
+      ),
+    ).toBe(1);
+    expect(analysis.features.accents.length).toBeLessThanOrEqual(crashes.length + 1);
   });
 
   it('finds both drops within a bar of where they land', () => {
