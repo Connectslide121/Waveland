@@ -82,6 +82,17 @@ const FILL_SPAN = 2;
 /** Syncopations: kicks or snares at least this strong, at least this far off the beat (beats). */
 const SYNC_STRENGTH = 0.5;
 const SYNC_OFF = 0.2;
+/**
+ * A syncopation's spot in the bar (its sixteenth) played in more than this share of the
+ * bars around it is the groove (eighth-note chugs, a busy kick), not a syncopation.
+ */
+const SYNC_GROOVE = 0.5;
+/** Bars either side compared for the groove. */
+const SYNC_GROOVE_BARS = 4;
+/** A hit's loudness is its bands' peak over this long after it, s. */
+const SYNC_LOUD = 0.06;
+/** A syncopation may be this much quieter (0–1 over 40 dB) than the beats beside it. */
+const SYNC_LOUD_SLACK = 0.02;
 
 /** Bars at least this alike repeat each other. */
 export const REPEAT_SIMILARITY = 0.95;
@@ -350,14 +361,77 @@ function findFills(input: FeatureInput, hits: Hit[]): Fill[] {
   return fills;
 }
 
-/** Syncopations: strong kicks or snares well off the beat, outside fills. */
+/** Index of the last of the sorted `times` at or before `t`, or -1. */
+function lastAtOrBefore(times: readonly number[], t: number): number {
+  let lo = 0;
+  let hi = times.length - 1;
+  if (hi < 0 || times[0]! > t) return -1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (times[mid]! <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/**
+ * Syncopations: strong kicks or snares well off the beat, outside fills, that push against
+ * the groove. A hit off the beat only counts when it is accented (at least as strong as the
+ * drums on the beats either side of it) and its spot in the bar isn't one the drums play in
+ * most bars around it: a punk song's eighth-note chugs or a busy kick are the groove, and
+ * read as syncopations they put an obstacle on nearly every beat.
+ */
 function findSyncopations(input: FeatureInput, hits: Hit[], fills: Fill[]): Syncopation[] {
+  const drums = hits.filter((h) => drumOf(h) > 0);
+  const times = drums.map((h) => h.time);
+  /** The strongest kick or snare within `TOGETHER` of `t`. */
+  const drumAt = (t: number) => {
+    let best = 0;
+    for (let i = Math.max(0, lastAtOrBefore(times, t - TOGETHER)); i < drums.length; i++) {
+      const h = drums[i]!;
+      if (h.time > t + TOGETHER) break;
+      if (h.time >= t - TOGETHER) best = Math.max(best, drumOf(h));
+    }
+    return best;
+  };
+  const { beats, downbeats } = input;
+  /** Whether the spot `t` is in is played in most bars around it. */
+  const inGroove = (t: number) => {
+    const bar = lastAtOrBefore(downbeats, t);
+    if (bar < 0 || bar + 1 >= downbeats.length) return false;
+    const where = (t - downbeats[bar]!) / (downbeats[bar + 1]! - downbeats[bar]!);
+    const sixteenth = Math.round(where * 16) / 16;
+    let played = 0;
+    let compared = 0;
+    for (let b = bar - SYNC_GROOVE_BARS; b <= bar + SYNC_GROOVE_BARS; b++) {
+      if (b === bar || b < 0 || b + 1 >= downbeats.length) continue;
+      compared++;
+      const at = downbeats[b]! + sixteenth * (downbeats[b + 1]! - downbeats[b]!);
+      if (drumAt(at) >= SYNC_STRENGTH) played++;
+    }
+    return compared > 0 && played / compared > SYNC_GROOVE;
+  };
+  /** How loud the kick and snare bands get just after `t` (0–1 over 40 dB). */
+  const loudness = (t: number) =>
+    Math.max(peak(input.bands.low, t, t + SYNC_LOUD), peak(input.bands.mid, t, t + SYNC_LOUD));
+  /**
+   * As loud as the drums on the beats either side, or louder: loudness, not onset strength,
+   * which is capped at the band's usual loud hits and so ties nearly every hit.
+   */
+  const accented = (h: Hit) => {
+    const i = lastAtOrBefore(beats, h.time);
+    const before = i >= 0 ? loudness(beats[i]!) : 0;
+    const after = i + 1 < beats.length ? loudness(beats[i + 1]!) : 0;
+    return loudness(h.time) >= Math.max(before, after) - SYNC_LOUD_SLACK;
+  };
   return hits
     .filter(
       (h) =>
         drumOf(h) >= SYNC_STRENGTH &&
         offBeat(input.beats, input.segments, h.time) >= SYNC_OFF &&
-        !fills.some((f) => h.time >= f.time - 0.02 && h.time < f.end),
+        !fills.some((f) => h.time >= f.time - 0.02 && h.time < f.end) &&
+        accented(h) &&
+        !inGroove(h.time),
     )
     .map((h) => ({ time: h.time, strength: drumOf(h) }));
 }

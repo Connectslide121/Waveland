@@ -11,7 +11,7 @@ import { findTempoSegments, framePeriods, refineChanges, type FrameSegment } fro
  * Bumped whenever the analysis changes what it finds, so cached results from older
  * versions are ignored and the song is analysed again.
  */
-export const ANALYSIS_VERSION = 7;
+export const ANALYSIS_VERSION = 8;
 
 /** Share of the progress bar the spectrum takes; the rest is quick. */
 const SPECTRUM_SHARE = 0.85;
