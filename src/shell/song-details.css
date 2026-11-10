@@ -157,6 +157,18 @@ kbd {
   }
 }
 
+/* On a phone a tempo range ("150–180") fills its cell: the label says it is a tempo, so
+   the unit goes, and the value never breaks across lines. */
+@media (max-width: 460px) {
+  .stats__value {
+    white-space: nowrap;
+  }
+
+  .stats__unit {
+    display: none;
+  }
+}
+
 /* ---------- transport ---------- */
 
 .transport {
