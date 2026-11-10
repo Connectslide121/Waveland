@@ -1,4 +1,5 @@
 import { noFeatures } from './analysis/features';
+import { fitGrid } from './analysis/grid-fit';
 import { moodCurves, sectionMoods } from './mood';
 import { hashOf } from './random';
 import { beatAt, beatIndexAt, FALLBACK_TEMPO, periodAt, snapToGrid } from './tempo-map';
@@ -43,21 +44,11 @@ export function fitBeatGrid(beats: number[], tempo: number): { start: number; pe
   const first = beats[0];
   if (first === undefined || beats.length < 2)
     return { start: (first ?? 0) % guess, period: guess };
-  // Number the beats on the guessed period (a skipped beat keeps its place), then fit.
-  const ks = beats.map((t) => Math.round((t - first) / guess));
-  const n = beats.length;
-  const meanK = ks.reduce((a, b) => a + b, 0) / n;
-  const meanT = beats.reduce((a, b) => a + b, 0) / n;
-  let num = 0;
-  let den = 0;
-  for (let i = 0; i < n; i++) {
-    num += (ks[i]! - meanK) * (beats[i]! - meanT);
-    den += (ks[i]! - meanK) ** 2;
-  }
-  const period = den > 0 && num > 0 ? num / den : guess;
-  const at0 = meanT - period * meanK;
+  // The grid the beats agree on: a skipped beat keeps its place, beats on the off-beats
+  // for a while don't tilt it.
+  const { at, period } = fitGrid(beats, guess);
   // Extend back to the first beat at or after the song's start.
-  const start = at0 - Math.floor(at0 / period) * period;
+  const start = at - Math.floor(at / period) * period;
   return { start, period };
 }
 

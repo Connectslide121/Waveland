@@ -1,3 +1,4 @@
+import { fitGrid } from './grid-fit';
 import { BANDS, type Band } from '../types';
 import { frameTime, refinePeak } from './onsets';
 import type { Frames } from './spectrum';
@@ -171,20 +172,14 @@ export function trackBeats(env: Float32Array, period: number | Float64Array): nu
   });
 }
 
-/** Tempo in BPM from beat times: the slope of a straight line through them. */
+/**
+ * Tempo in BPM from beat times: the slope of the grid they agree on near `fallback`
+ * (`fitGrid`), so a skipped beat or a stretch on the off-beats doesn't tilt it.
+ */
 export function tempoFromBeats(beats: number[], fallback: number): number {
-  const n = beats.length;
-  if (n < 4) return fallback;
-  const meanIndex = (n - 1) / 2;
-  const meanTime = mean(beats);
-  let num = 0;
-  let den = 0;
-  for (let i = 0; i < n; i++) {
-    num += (i - meanIndex) * (beats[i]! - meanTime);
-    den += (i - meanIndex) ** 2;
-  }
-  const secondsPerBeat = num / den;
-  return secondsPerBeat > 0 ? 60 / secondsPerBeat : fallback;
+  if (beats.length < 4) return fallback;
+  const { period } = fitGrid(beats, 60 / fallback);
+  return period > 0 ? 60 / period : fallback;
 }
 
 /**
