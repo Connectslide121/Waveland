@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildLevelMap, DIFFICULTIES, type Difficulty, type LevelMap } from '../../../core';
+import {
+  buildLevelMap,
+  DIFFICULTIES,
+  type Difficulty,
+  type LevelEvent,
+  type LevelMap,
+} from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
 import { bridgeWindows, DIFFICULTY, generateLevel, MAX_JUMP, MAX_TOP, MIN_TOP } from './generate';
 import { solidTop, type PlatformerLevel } from './level';
@@ -191,16 +197,17 @@ describe('generateLevel: bridges come and go', () => {
   /** A rock song: the snare exactly on 2 and 4 of every bar, doubled on the "and" of 4 when asked. */
   function backbeat(seed: number, doubled: boolean): LevelMap {
     const map = buildLevelMap(randomAnalysis(seed, { duration: 60, tempo: 150 }));
-    const snares = map.beats.flatMap((t, i) => {
-      const inBar = (((i - map.barPhase) % 4) + 4) % 4;
-      if (inBar === 1) return [t];
-      if (inBar === 3) return doubled ? [t, t + map.beatPeriod / 2] : [t];
+    const snares = map.beats.flatMap((time, beat): LevelEvent[] => {
+      const inBar = (((beat - map.barPhase) % 4) + 4) % 4;
+      const snare = (t: number): LevelEvent => ({ kind: 'snare', time: t, intensity: 1, beat });
+      if (inBar === 1) return [snare(time)];
+      if (inBar === 3)
+        return doubled ? [snare(time), snare(time + map.beatPeriod / 2)] : [snare(time)];
       return [];
     });
-    const events = [
-      ...map.events.filter((e) => e.kind !== 'snare'),
-      ...snares.map((time) => ({ kind: 'snare' as const, time, intensity: 1 })),
-    ].sort((a, b) => a.time - b.time);
+    const events = [...map.events.filter((e) => e.kind !== 'snare'), ...snares].sort(
+      (a, b) => a.time - b.time,
+    );
     return { ...map, events };
   }
 
