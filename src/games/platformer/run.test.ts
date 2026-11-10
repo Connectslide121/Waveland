@@ -543,7 +543,7 @@ describe('PlatformerRun: checkpoints', () => {
     expect(run.isCollected(1)).toBe(false);
     expect(run.results().bestCombo).toBe(7);
     run.respawn();
-    expect(run.player.x).toBeCloseTo(688);
+    expect(run.player.x).toBeCloseTo(400 + ANCHOR_X);
   });
 });
 
@@ -561,13 +561,14 @@ describe('rankOf', () => {
 
 describe('checkpointsOf', () => {
   it('puts one at the start and one where each section’s stretch starts, on its ground', () => {
-    const { level } = testLevel([ground(-40, 600, 10), ground(600, 2000, 50)], { speed: 100 });
+    // At 3 s the anchored player is at 100 · 3 + ANCHOR_X; the box reaches over the step
+    // 12 px past that, so they stand on the higher ground.
+    const step = 300 + ANCHOR_X + 12;
+    const { level } = testLevel([ground(-40, step, 10), ground(step, 2000, 50)], { speed: 100 });
     level.chunks.push(chunk(0, 3, 'run-in'), chunk(3, 5), chunk(5, 7));
     const points = checkpointsOf(level, [section(0, 4), section(4, 6), section(6, 9)]);
     expect(points.map((p) => p.time)).toEqual([0, 3, 5]);
-    // At 3 s the anchored player is at 100 · 3 + 288 = 588; the box reaches over the step
-    // at 600, so they stand on the higher ground.
-    expect(points[1]).toMatchObject({ x: 588, y: 50 });
+    expect(points[1]).toMatchObject({ x: 300 + ANCHOR_X, y: 50 });
   });
 });
 

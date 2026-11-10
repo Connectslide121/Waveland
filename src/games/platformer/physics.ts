@@ -49,7 +49,7 @@ export const STEP_UP = 6;
 export const VIEW_WIDTH = 960;
 export const VIEW_HEIGHT = 540;
 /** Where in the view the player always is, px from its left. */
-export const ANCHOR_X = 288;
+export const ANCHOR_X = 384;
 /** Feet below this height mean the player fell into a pit. */
 export const DEATH_Y = -160;
 /** How far spikes stick out of the surface, px. */
