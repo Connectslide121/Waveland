@@ -14,28 +14,42 @@ Depth comes from abilities, not walking:
 
 Running into the side of a column, a hurdle or an overhang is a death ("wall"): there is no stopping. So is falling into a pit, touching spikes that are out, and passing a dash gate without dashing. Surviving until the song ends finishes the level.
 
-| Element | From the music | In the level |
+## The music-to-obstacle grammar
+
+Every obstacle comes from a musical moment the core found (`LevelMap.features` and the events, `docs/core.md`), and the music sizes it, so someone who knows the song recognises its moments in the level. `momentsOf` in `generate.ts` turns each moment into a candidate obstacle with the beats it takes up; `planBars` picks each bar's; `compose` builds them on the ground one after another.
+
+| Musical moment | Obstacle | Sized by |
 |---|---|---|
-| Equaliser columns | Bass energy per beat | Columns, one per beat, whose height eases to the bass level on every beat; they carry the player, and one that has risen above the feet is a wall to time a jump over |
-| Bridges | Snares | Slabs over a pit that come out on a snare and stay a beat or two, then are gone for at least a beat (`BRIDGE_GAP`) before the next snare brings them back, so a backbeat never keeps them out for good |
-| Spikes | Off-beats | Strips that are out from each off-beat to the next beat; cross on the beat or jump |
-| Gaps | Beats | Pits to jump, taking off on a beat, landing higher or lower; sized by the air time they need (a share of a full jump's, `JUMP_AIR`) |
-| Dash gaps | Beats | Pits too wide for a jump: their air time is between a jump's reach (`JUMP_REACH`, with coyote time) and a jump and a dash at its top, so they take both |
-| Dash gates | Snares, else strong kicks, else beats | Orange barriers from the ground into the sky. The player meets one `GATE_GRACE` (0.1 s) after its beat, so a dash pressed on the beat, or a little either side, gets through |
-| Overhangs | Beats | A thin low hurdle to jump on a beat, then an overhang hanging from the sky that comes before a full jump has come down: slam after the hurdle (or hop short) to get under it |
-| Coins | Hi-hats | Where the anchored player is on the hat, over the ground or up in the jump over a pit; where there are no hats for a while (a quiet intro), on every other beat instead. Never closer than 26 px to another coin or a gem, so fast hats don't pile up |
-| Set piece | Drops | Two bars (four on fast songs): a staircase of bars to climb on the beat, a plateau, gems on every step |
-| Calm stretches | Intros, breakdowns, outros | Plain wide ground, now and then a low step or an easy gap |
+| Held sound (a note, a chord, a ringing cymbal: `Sustain`) | A pit taking off on its hit: a jump, then a dash held over the note | Its length: the player is in the air as long as it holds and lands as it ends, up to what the difficulty lets a jump and a dash reach (`held`, between `JUMP_REACH` and a jump and dash's). Shorter than a jump's reach, it is a plain pit |
+| Stop or break (`Stop`) | The floor drops out while the band does: a pit landing as the band comes back in | Its length: off on its start when a jump (and a dash) reaches that far, else on the latest sixteenth that does; wide stops need the dash |
+| Kick | A short gap, taking off on the kick | Air a share of a full jump's (`gap`), a little more for a harder kick; it lands toward the height of the song's energy (`contourTop`), at most `rise` up or down |
+| Snare | A bridge over a pit that comes out on that snare and stays a beat or two (`bridgeHold`), then is gone for at least a beat (`BRIDGE_GAP`) | How long it stays |
+| Accent (several bands at once, louder than the beats around) | A dash gate. The player meets it `GATE_GRACE` (0.1 s) after its beat, so a dash pressed on the beat, or a little either side, gets through | — |
+| Syncopation (a strong kick or snare off the beat) | Spikes the player is over on the hit (spikes are out from each off-beat to the next beat): jump it | Strip length (`spike` beats) |
+| Heavy kick (clearly stronger than every kick in the two bars before) | A low ceiling to slam under: a thin hurdle to jump half a second before, then an overhang from the kick, before a full jump has come down | How long the ceiling lasts (`overhang`), how much room it leaves (`clearance`) |
+| Fill (a dense run of kicks, snares or toms into a bar line) | A raised run of steps going down one per hit; once slam is taught, its last step is too high to fall from in time under a low ceiling on the bar line after it | Step height (half of `stepRise`), up to `RISER_MAX` in all |
+| Hi-hats | Coins where the anchored player is on the hat, over the ground or up in the jump over a pit; on every other beat where there are no hats for a while. Never closer than 26 px to another coin or a gem | `coinEvery` |
+| Bass under the kicks | Equaliser columns, one per beat, whose height eases to the bass level on every beat, taller on louder kicks; one risen above the feet is a wall to time a jump over | `eqRange`, `eqGap` |
+| Drop | Two bars (four on fast songs): a staircase of bars to climb on the beat, a plateau, gems on every step | `stepRise` |
+| Energy contour | The ground climbs where the song gets louder and comes down where it gets quieter: gaps land toward it, and plain stretches take a low step toward it on a kick | `CONTOUR_RANGE` |
 
-The obstacle builders take their moments from outside (`pitAt(x, takeoff, air)`, `gateAt(x, time, top)`, `overhangAt(x, from, to, h, clearance)`), so the music can size them. Which obstacle a bar gets is still chosen per section (`PLANS`), weighted at random from the section's kinds.
+**How many.** The rare moments (stops, held sounds, fills, accents, heavy kicks) always become obstacles when they fit. How many common ones (kicks, snares, syncopations) a bar gets follows how busy the music is: its kicks and snares per beat and its energy, times the difficulty's `hazard`, the fractions carried from bar to bar. A quiet part is sparse because the music is: there are no dice. Strongest first (`SALIENCE`: stop, held, fill, accent, heavy kick, equaliser, syncopation, snare, kick), never overlapping; a rare moment pushes out a common one planned in the bar before. The only randomness left breaks the one tie the music leaves open: a bar of kicks alone over pumping bass gets a gap on its strongest kick or the equalisers, seeded by the bar.
 
-**Teaching.** Dash and slam are taught before anything else needs them: the first easy spot (a calm section, or a bar that would be plain ground) gets a dash gate, the next one an overhang, built easier. Obstacles that need an ability (`CHUNK_NEEDS`) only come after its lesson. The level keeps the lessons (`PlatformerLevel.lessons`), and the HUD shows a one-line hint with the current bindings ("Right click / Shift: dash") from a bar before the lesson until the player is past it, once per session.
+**Repeats.** When the song plays a bar again (`BarInfo.repeats`: a riff, a chorus), the level gives it the first bar's obstacles again, each on its own moment there (one the repeat doesn't have is left out), so the player learns the pattern as they learn the song. A repeated obstacle says so (`Obstacle.repeats`, "as in bar 12"). On hard, a bar played a third time or more gets one common obstacle of its own as well.
 
-Each stretch is laid out with the period of the tempo segment it starts in, on the grid's own beats: bars under 340 px (fast songs) are laid out two bars per stretch, drops four, and on every other beat when beats are under 70 px, decided per bar, so a song that speeds up changes how it is laid out where it does.
+**Section mood.** Calm sections (intro, breakdown, outro) leave out the busy music's obstacles (spikes, bridges, equalisers), halve the common ones and make them easier (`CALM_EASE`); the rare moments keep their size.
+
+**Stretches.** A moment belongs to the bar its beat is in (a low ceiling or a fill to the bar its approach starts in). A stretch is a bar (two on fast songs, whose bars are under 340 px; a drop's two or four); when an obstacle runs past its last bar it takes the next bar in, a few at most. Each stretch is laid out with the period of the tempo segment it starts in, on the grid's own beats, and on every other beat when beats are under 70 px.
+
+**Teaching.** Dash and slam are taught on the first moment that needs them: dash on the first accent, or held sound or stop too long for a jump; slam on the first heavy kick (a fill's slam ending can be fallen through from a well-timed jump, so it doesn't teach it). The lesson is built at full size first, so it really needs its ability; around it goes everything that needs nothing new, so a lesson never changes a riff's repeat. Before an ability is taught nothing needs it: accents get no gate, held sounds and stops a pit a jump clears, heavy kicks nothing, fills no slam ending. The level keeps the lessons (`PlatformerLevel.lessons`), and the HUD shows a one-line hint with the current bindings ("Right click / Shift: dash") from a bar before the lesson until the player is past it, once per session.
+
+**Reasons.** Every obstacle is kept with its moment and its reason (`PlatformerLevel.obstacles`: "Dash pit: held chord, 1.75 beats"), which the song details view shows.
+
+The obstacle builders take their moments from outside (`pitAt(x, takeoff, air)`, `gateAt(x, time, top)`, `overhangAt(x, from, to, h, clearance)`).
 
 ## Difficulty
 
-`DIFFICULTY` in `generate.ts`: easy, normal and hard change how often a bar in a busy section gets an obstacle, gap air times (a share of a full jump's), where dash gaps sit between a jump's reach and a dash's, how many gates a stretch gets, how long overhangs are and how much room they leave, height changes, spike lengths, how long bridges stay, how far equalisers move, the staircase's step height and how many hats get a coin.
+`DIFFICULTY` in `generate.ts`: easy, normal and hard change the sizes and how many of the common moments become obstacles, never which moment an obstacle belongs to: the share of kicks, snares and syncopations used (`hazard`), gap air times (a share of a full jump's), how far a held sound's or a stop's pit may reach between a jump's and a jump and dash's (`held`), how long overhangs are and how much room they leave, height changes, spike lengths, how long bridges stay, how far equalisers move, step heights, how many hats get a coin, and on hard a variation on bars played a third time.
 
 ## Always completable
 
@@ -43,7 +57,7 @@ Each stretch is laid out with the period of the tempo segment it starts in, on t
 
 The validator (`validate.ts`) is a search over the player's inputs. With x fixed by time, every candidate at a moment is at the same x, so a candidate is only its height, speed, ground, dash charge and timer and slam. Every three steps each candidate tries doing nothing, jumping, letting go of jump (a lower jump, so the game's variable height is in the search), dashing and slamming, whichever can change something. Candidates in the same state are merged, and the rest thinned evenly by height within each kind (on the ground, dash ready, dashing, dash spent, slamming), so those with a dash still to use aren't crowded out. Feet more than a step below the lowest surface (`LOWEST_TOP`) can never land again and are dropped. It can only miss ways through, never invent one, so a level it passes can really be finished. `validateLevel(level, without)` can leave dash or slam out, so tests prove a lesson needs its ability.
 
-The generator builds a bar (or two) at a time and runs the search through it before going on. Each stretch's search stops on a decision step while the player's box is still wholly inside the stretch, so every candidate has only met what is built, just as in the finished level, and the incremental proof agrees with `validateLevel`. A stretch nobody gets through, or that leaves nobody on the ground, is built again easier: narrower gaps and lower steps, then longer bridges and shorter spikes, then a ledge in each gap, and at last plain ground at the height the last stretch ended, which is always passable. `Chunk.repairs` counts the tries; the song details view shows them as "eased". A three-minute song builds in about a second.
+The generator builds a bar (or two) at a time and runs the search through it before going on. Each stretch's search stops on a decision step while the player's box is still wholly inside the stretch, so every candidate has only met what is built, just as in the finished level, and the incremental proof agrees with `validateLevel`. A stretch nobody gets through, or that leaves nobody on the ground, is built again easier, every obstacle shrunk on its own moment, never moved to another beat: narrower pits, lower steps, longer bridges and shorter spikes (`ease` 0.7, then 0.45), then a ledge in each pit, then only its most salient obstacle, and at last plain ground at the height the last stretch ended, which is always passable. `Chunk.repairs` counts the tries; the song details view shows them as "eased". A three-minute song builds in about a second.
 
 Deterministic: the generator's randomness is seeded by the song's map seed, the difficulty and the bar, so the same song at the same difficulty always gives the same level, and a repair never changes the bars after it.
 
@@ -66,5 +80,5 @@ Deterministic: the generator's randomness is seeded by the song's map seed, the 
 ## Where to look
 
 - Profiling: in dev (`npm run dev`) the running session is `window.waveland` (its `scene`, `run`, `clock`), for timing frames from the browser's console.
-- Song details view, below the analysis: a side-on preview of the level at a picked difficulty, following the playhead (`src/shell/level-preview.ts`).
+- Song details view, below the analysis: a side-on preview of the level at a picked difficulty, following the playhead (`src/shell/level-preview.ts`). Each obstacle in the camera's view gets a numbered mark; pointing at one (or tapping it) says what it is and why, and the list under the canvas ("In view, and why") gives the same for every numbered obstacle, since hover isn't enough. The timelines above show the moments the level is built from (a MOMENTS lane and strip, and a REPEATS strip lettering the bars the song plays again).
 - `generateLevelInWorker(map, difficulty)` builds it off the main thread; a three-minute song takes about a second.

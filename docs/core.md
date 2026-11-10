@@ -25,6 +25,25 @@ All in `src/core/analysis`, pure TypeScript with no dependencies, run directly b
 | Energy | `structure.ts` | Power per band and overall, at 50 samples a second, as 0–1 over the 40 dB below the song's loud parts. |
 | Sections | `structure.ts` | Bar features (energy per band, onset density per band); a novelty curve compares the 4 bars before each bar line with the 4 after; its clear peaks, at least 4 bars apart, start new sections. |
 | Drops | `structure.ts` | A section whose "drive" (energy plus bass energy) jumps by 0.15 or more over the one before, landing in the top part of the song's range. The drop is then moved to the bar line nearby (within a bar, or about 3.5 s) where the bass gets loudest against the bar before, since a build's last bar (a snare roll, a riser) often changes the music more than the drop itself. The section before it is a build (energy rising) or a breakdown; quiet first and last sections are intro and outro. |
+| Chroma | `spectrum.ts` | Power per pitch class (C to B) from 110 Hz to 2 kHz, per frame: what notes and chords sound, for telling bars apart. |
+| Musical moments | `features.ts` | Held sounds, stops, accents, fills, syncopations and repeated bars: see [The musical moments](#the-musical-moments) below. |
+
+## The musical moments
+
+`features.ts` finds the moments the games build their obstacles from (`SongAnalysis.features`, `MusicFeatures` in `types.ts`), from what the analysis already has: the hits per band (merged into one hit when bands hit within 35 ms), the loudness curves (0–1 over 40 dB, so 0.1 is 4 dB) and the beats. It runs on the hand-made analyses of the level tests too.
+
+| Moment | How |
+|---|---|
+| Held sound (`Sustain`) | After a strong hit (0.55 in its band), the loudness stays within 8 dB of where it was just after the hit, with at most one kick or snare a beat, for 0.9 beats or more. It ends where the sound fades or the next strong kick or snare comes. What holds: a ringing cymbal when the highs outweigh the rest, a chord when three pitch classes or more sound (35% of the loudest), else a note. |
+| Stop (`Stop`) | The loudness nearly silent (under 0.3, 28 dB below the song's loud parts) and 0.3 below the upper quartile of the music around it, for 0.9 beats or more with no hit in it, with the band playing just before and coming back after. It ends on the first hit as the band comes back. |
+| Accent (`Accent`) | A hit in two bands or more whose bands are, between them, 6 dB or more louder than that band's usual hits within 4 s (a crash over the hats, a kick over the kicks). Loudness, not onset strength: strengths are capped at the band's loud hits, so a crash would read as just another hat. A beat apart at least. |
+| Fill (`Fill`) | A run of kicks and snares (or toms) leading into a bar line: hits no more than 0.55 beats apart, the last within 0.75 beats of the line, at least 4 hits and 2.5 a beat, and 1.75 times as many as the same span of the bar before. |
+| Syncopation (`Syncopation`) | A kick or snare of strength 0.5 or more at least 0.2 beats off the beat, outside a fill. |
+| Repeated bars (`BarInfo`) | Each bar's fingerprint: its mean chroma, its hits on a sixteenth grid per band (a hit counts a little in the slots either side, so a few ms off doesn't make a bar different) and its loudness. Two bars are alike by the cosine of their chroma and of their patterns, less what their loudness differs. A bar repeats the first bar of a group it is 0.95 alike or more with (`REPEAT_SIMILARITY`); a bar that repeats nothing repeats itself. |
+
+The level map puts them on the grid (`gridFeatures`): hits snapped as the events are, held sounds' and stops' ends on the sixteenths, a fill's hits on the sixteenths ending on the grid's bar line, and one `BarInfo` per grid bar, repeating the first grid bar its analysis bar's group starts in.
+
+They follow the tempo map but not swing or rubato any better than the beats do, and a held sound under drums that keep hitting hard reads as no held sound: the drums end it.
 
 ## Why our own analysis and not Essentia.js
 
@@ -49,7 +68,7 @@ The tests render songs with known changes (120 → 150 BPM, 140 → 100 → 140,
 
 ## Tests
 
-`analysis/test-audio.ts` renders clicks, kicks, snares and hats at known times (seeded noise, so runs are repeatable). The tests check tempo within ±1 BPM at 90–150 BPM, beats within 25 ms, one tempo segment for steady songs, tempo changes found within a beat with beats within 30 ms on both sides (`tempoChangeSong`), downbeats on bar starts, kicks, snares and hats each heard in their own band, and drops where a quiet passage turns loud.
+`analysis/test-audio.ts` renders clicks, kicks, snares and hats at known times (seeded noise, so runs are repeatable). The tests check tempo within ±1 BPM at 90–150 BPM, beats within 25 ms, one tempo segment for steady songs, tempo changes found within a beat with beats within 30 ms on both sides (`tempoChangeSong`), downbeats on bar starts, kicks, snares and hats each heard in their own band, and drops where a quiet passage turns loud. `momentsSong` is a 120 BPM song with one of each moment at known times (crash accents, a held A minor chord, a full-band stop, a sixteenth-note snare fill, a four-bar riff of its own chords and drum patterns played twice): every moment is found on its time, nothing else is, and the riff's second time repeats its first bar for bar.
 
 ## Timing and latency
 
@@ -63,6 +82,7 @@ The tests render songs with known changes (120 → 150 BPM, 140 → 100 → 140,
 - **Reading the grid** (`tempo-map.ts`): `beatAt(map, t)` (fractional beat number), `timeOfBeat(map, b)`, `periodAt`, `tempoAt`, `segmentAt`, `barAt`, `beatInBar`, `beatIndexAt`, `beatsBefore` and `snapToGrid`. Every game uses these, never start + k × period: inside a segment they are exactly that arithmetic (so a steady song reads number for number as before), and across a change they go through the one interval between the segments. `steadyGrid` builds a one-tempo grid for tests.
 - **Levels per beat**: bass and overall energy averaged over each beat, spread to 0–1 over the song's own range.
 - **Events**, sorted by time: kicks, snares and hats (onsets moved onto the eighth-note grid when within 0.15 beats of it), an off-beat halfway through every beat, drops moved onto the nearest bar line, and section starts with their kind.
+- **Musical moments** (`features`): the analysis' held sounds, stops, accents, fills, syncopations and repeated bars on the grid; see [The musical moments](#the-musical-moments).
 - **Beat fit** (`beatFit`): `none` with fewer than 8 beats; `loose` when fewer than 80% of the tracked beats sit on their segment's grid (swing, rubato, a gradual speed-up); otherwise `changing` with more than one tempo segment and `steady` with one. Games follow the tempo map either way; the title screen says so under the song's name ("Tempo changes, 120 → 150 BPM · the level follows it"), and the song details view shows the segments on its timeline (a TEMPO strip with the BPM of each, a dashed line at each change in the close-up).
 - **Seed**: a hash of the analysis, so games seed their randomness from the song (`random.ts` has the seeded generator).
 

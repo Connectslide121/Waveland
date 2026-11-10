@@ -9,7 +9,7 @@ A personal, just-for-fun collection of music games in the browser (see `README.m
 ## Stack and structure
 
 - TypeScript + Vite, no UI framework.
-- `src/core/`: song loading, audio analysis (beats, tempo, energy, sections, drops), analysis cache, level-map generation shared by all games. How the analysis works, and why it is our own code rather than Essentia.js, is in `docs/core.md`; bump `ANALYSIS_VERSION` whenever it changes what it finds, so cached analyses are redone.
+- `src/core/`: song loading, audio analysis (beats, tempo, energy, sections, drops, and the musical moments: held sounds, stops, accents, fills, syncopations, repeated bars), analysis cache, level-map generation shared by all games. How the analysis works, and why it is our own code rather than Essentia.js, is in `docs/core.md`; bump `ANALYSIS_VERSION` whenever it changes what it finds, so cached analyses are redone.
 - `src/games/<game>/`: one folder per game. The platformer uses Phaser; the tunnel will use Three.js. A game only reads the core's level map, never analyses audio itself. The platformer's level generator, physics and validator are described in `docs/platformer.md`.
 - `src/shell/`: menus (song picker, mode select, settings) in plain HTML/CSS over the canvas.
 - `src/games/index.ts`: the game registry. A game plugs in with `{ id, name, blurb, icon, status }`; a `ready` game has `start(song, container, exit)` (an `AnalysedSong`: the song with its `SongAnalysis`), a `soon` game a plain-words `reason`. A running game owns its keys, Escape included (its own pause menu), and calls `exit` to go back to the menu.
