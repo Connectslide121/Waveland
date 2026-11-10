@@ -17,10 +17,10 @@ You need Node.js 22 or newer.
 
 ```sh
 npm install
-npm run dev
+npm start
 ```
 
-Then open the address Vite prints, normally <http://localhost:5173>. `npm run build` makes a static site in `dist/` (`npm run preview` serves it).
+That starts the dev server and opens the game in your browser, normally at <http://localhost:5173>. `npm run dev` starts it without opening a browser. `npm run build` makes a static site in `dist/` (`npm run preview` serves it).
 
 ## Play
 

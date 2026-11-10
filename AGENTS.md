@@ -14,7 +14,7 @@ A personal, just-for-fun collection of music games in the browser (see `README.m
 - `src/shell/`: menus (song picker, mode select, settings) in plain HTML/CSS over the canvas.
 - `src/games/index.ts`: the game registry. A game plugs in with `{ id, name, blurb, icon, status }`; a `ready` game has `start(song, container, exit)` (an `AnalysedSong`: the song with its `SongAnalysis`), a `soon` game a plain-words `reason`. A running game owns its keys, Escape included (its own pause menu), and calls `exit` to go back to the menu.
 - `src/theme/`: the palette, as CSS variables (`palette.css`) and TS constants for Phaser (`palette.ts`); a test keeps them identical. Use these, never hard-coded colours.
-- Scripts: `npm run dev`, `build`, `typecheck`, `test`, `lint` (ESLint and Prettier; `npm run format` fixes formatting). TypeScript stays on 6.0 until typescript-eslint supports 7.
+- Scripts: `npm start` (dev server, opens the browser), `npm run dev` (dev server only), `build`, `typecheck`, `test`, `lint` (ESLint and Prettier; `npm run format` fixes formatting). TypeScript stays on 6.0 until typescript-eslint supports 7.
 - Timing comes from the audio clock (`AudioContext.currentTime`), never from frame time.
 
 ## Rules
