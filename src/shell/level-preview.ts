@@ -15,6 +15,7 @@ import {
   timeAtX,
   xAtTime,
   type ChunkKind,
+  type Obstacle,
   type PlatformerLevel,
   type Solid,
 } from '../games/platformer/level';
@@ -82,6 +83,29 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** A flat line with a dot on it: plain ground, for the empty list. */
+const FLAT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="12" r="2.5" fill="currentColor"/></svg>`;
+
+/** Rows the list of obstacles in view keeps room for. */
+const REASON_ROWS = 5;
+/** How far beside an obstacle the pointer still points at it, px on the canvas. */
+const POINT_SLACK = 10;
+/** The numbered marks over the obstacles: radius, and how far below the strip, px. */
+const BADGE_R = 8;
+const BADGE_Y = 14;
+
+/** m:ss.s */
+function clockText(seconds: number): string {
+  const tenths = Math.round(Math.max(0, seconds) * 10);
+  const minutes = Math.floor(tenths / 600);
+  return `${minutes}:${((tenths - minutes * 600) / 10).toFixed(1).padStart(4, '0')}`;
+}
+
+/** What an obstacle is and why it is there, in a line: "Dash pit: held chord, 1.75 beats". */
+export function obstacleText(o: Obstacle): string {
+  return `${o.label}: ${o.reason}${o.repeats ? ` · as in bar ${o.repeats}` : ''}`;
+}
+
 /** True for stretches with something to get past. */
 const isObstacle = (kind: ChunkKind) =>
   kind !== 'flat' && kind !== 'calm' && kind !== 'run-in' && kind !== 'run-out';
@@ -145,7 +169,31 @@ export function createLevelPreview({
   spinner.innerHTML = SPINNER_ICON;
   const status = el('p', 'level-preview__status');
   status.setAttribute('aria-live', 'polite');
-  figure.append(canvas, spinner, status);
+  // What the obstacle under the pointer (or the finger) is there for.
+  const tip = el('p', 'level-preview__tip');
+  tip.hidden = true;
+  tip.setAttribute('role', 'tooltip');
+  figure.append(canvas, spinner, status, tip);
+
+  // The obstacles in the camera's view, numbered as on the canvas, each with its reason:
+  // the same as the hover says, for those who can't hover.
+  const inView = el('section', 'reasons');
+  inView.setAttribute('aria-label', 'Obstacles in view and why they are there');
+  const reasonsHead = el('h3', 'reasons__title', 'In view, and why');
+  const reasons = el('ol', 'reasons__list');
+  const rows = Array.from({ length: REASON_ROWS }, () => {
+    const row = el('li', 'reasons__row');
+    const badge = el('span', 'reasons__badge');
+    const label = el('span', 'reasons__label');
+    const why = el('span', 'reasons__why');
+    const time = el('span', 'reasons__time');
+    row.append(badge, label, why, time);
+    reasons.append(row);
+    return { row, badge, label, why, time };
+  });
+  const reasonsEmpty = el('p', 'reasons__empty');
+  reasonsEmpty.innerHTML = `${FLAT_ICON}<span>Plain ground in view</span>`;
+  inView.append(reasonsHead, reasons, reasonsEmpty);
 
   const legend = el('ul', 'legend');
   legend.setAttribute('aria-label', 'Level legend');
@@ -158,13 +206,16 @@ export function createLevelPreview({
   };
   legendItem('Player in time with the music', palette.cyan, 'block');
   legendItem('Camera view', palette.cyan, 'line');
-  legendItem('Ground and equalisers', palette.violet, 'block');
-  legendItem('Bridge (on snares)', palette.cyan, 'line');
-  legendItem('Spikes (on off-beats)', palette.orange, 'block');
+  legendItem('Ground, steps and equalisers', palette.violet, 'block');
+  legendItem('Bridge (on a snare)', palette.cyan, 'line');
+  legendItem('Spikes (on an off-beat hit)', palette.orange, 'block');
+  legendItem('Dash gate (on an accent)', palette.orange, 'line');
+  legendItem('Low ceiling (slam under it)', palette.violet, 'line');
   legendItem('Drop staircase', palette.magenta, 'block');
   legendItem('Coins and gems', palette.magenta, 'dot');
+  legendItem('Numbered obstacle, explained in the list', palette.ink, 'dot');
 
-  root.append(head, figure, legend);
+  root.append(head, figure, inView, legend);
 
   function renderState(): void {
     const busy = level === null && status.textContent === '';
@@ -179,7 +230,7 @@ export function createLevelPreview({
     const set = (key: string, value: number | null) => {
       statValues.get(key)!.textContent = value === null ? '—' : String(value);
     };
-    set('obstacles', level ? chunks.filter((c) => isObstacle(c.kind)).length : null);
+    set('obstacles', level ? (level.obstacles ?? []).length : null);
     set('repaired', level ? chunks.filter((c) => c.repairs > 0).length : null);
     set('coins', level ? level.pickups.filter((p) => p.kind === 'coin').length : null);
     set('gems', level ? level.pickups.filter((p) => p.kind === 'gem').length : null);
@@ -219,9 +270,101 @@ export function createLevelPreview({
 
   pick(difficulty);
 
+  // ---------- the obstacles' reasons ----------
+
+  /** Where the last frame put the world: its left edge, px per world px, and how wide. */
+  let view: { from: number; scale: number; width: number } | null = null;
+  /** The obstacles numbered in the camera's view, in time order. */
+  let shown: Obstacle[] = [];
+  let shownKey = '';
+  /** The obstacle pointed at, and whether a tap pinned its tooltip. */
+  let pointed: Obstacle | null = null;
+  let pinned = false;
+
+  /** The obstacle nearest a point on the canvas, if one is there. */
+  function obstacleAt(clientX: number): Obstacle | null {
+    if (!level || !view) return null;
+    const rect = canvas.getBoundingClientRect();
+    const wx = view.from + (clientX - rect.left) / view.scale;
+    const slack = POINT_SLACK / view.scale;
+    let best: Obstacle | null = null;
+    let distance = Infinity;
+    for (const o of level.obstacles ?? []) {
+      if (wx < o.x0 - slack || wx > o.x1 + slack) continue;
+      const d = Math.abs(wx - (o.x0 + o.x1) / 2);
+      if (d < distance) {
+        best = o;
+        distance = d;
+      }
+    }
+    return best;
+  }
+
+  function point(o: Obstacle | null, clientX: number): void {
+    pointed = o;
+    tip.hidden = o === null;
+    if (o) {
+      tip.textContent = obstacleText(o);
+      const rect = figure.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const width = tip.offsetWidth;
+      tip.style.left = `${Math.max(8, Math.min(rect.width - width - 8, x - width / 2))}px`;
+    }
+    renderReasons();
+  }
+
+  canvas.addEventListener('pointermove', (event) => {
+    if (event.pointerType === 'mouse') point(obstacleAt(event.clientX), event.clientX);
+  });
+  canvas.addEventListener('pointerleave', (event) => {
+    if (event.pointerType === 'mouse' && !pinned) point(null, 0);
+  });
+  // A tap says what is under the finger, until the next tap.
+  canvas.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse') return;
+    const o = obstacleAt(event.clientX);
+    pinned = o !== null;
+    point(o, event.clientX);
+  });
+
+  /** The list of numbered obstacles in view, with their reasons. */
+  function renderReasons(): void {
+    const more = shown.length > REASON_ROWS ? shown.length - (REASON_ROWS - 1) : 0;
+    rows.forEach((r, i) => {
+      const o = more > 0 && i === REASON_ROWS - 1 ? null : shown[i];
+      r.row.hidden = !o && !(more > 0 && i === REASON_ROWS - 1);
+      r.row.classList.toggle('reasons__row--more', !o);
+      r.row.classList.toggle('reasons__row--on', o !== undefined && o === pointed);
+      r.badge.textContent = o ? String(i + 1) : '';
+      r.label.textContent = o ? o.label : `${more} more in view`;
+      r.why.textContent = o ? `${o.reason}${o.repeats ? ` · as in bar ${o.repeats}` : ''}` : '';
+      r.time.textContent = o ? clockText(o.time) : '';
+    });
+    reasonsEmpty.hidden = shown.length > 0 || level === null;
+  }
+
   // ---------- drawing ----------
 
+  /**
+   * Number the obstacles in the camera's view (as far as the canvas shows it, narrower on
+   * a phone), and list them when they change.
+   */
+  function updateShown(time: number): void {
+    const camera = level ? cameraAt(level, time) : 0;
+    const shows = view ? camera - BEHIND + view.width / view.scale : Infinity;
+    const right = Math.min(camera + VIEW_WIDTH, shows);
+    const next = level
+      ? (level.obstacles ?? []).filter((o) => o.x1 >= camera && o.x0 <= right)
+      : [];
+    const key = level ? next.map((o) => `${o.time}:${o.x0}`).join() : '-';
+    if (key === shownKey) return;
+    shownKey = key;
+    shown = next;
+    renderReasons();
+  }
+
   function draw(time: number): void {
+    updateShown(time);
     const sized = sizedCanvas(canvas);
     if (!sized) return;
     const { ctx, w, h } = sized;
@@ -231,6 +374,7 @@ export function createLevelPreview({
     const scale = (h - STRIP) / (WORLD_TOP - WORLD_BOTTOM);
     const camera = cameraAt(l, time);
     const from = camera - BEHIND;
+    view = { from, scale, width: w };
     const to = from + w / scale;
     const px = (x: number) => (x - from) * scale;
     const py = (y: number) => STRIP + (WORLD_TOP - y) * scale;
@@ -356,6 +500,34 @@ export function createLevelPreview({
       ctx.strokeRect(px(left), py(80) - bh, bw, bh);
     }
     ctx.shadowBlur = 0;
+
+    // The obstacle pointed at: its span, faintly, so the tooltip's subject is plain.
+    if (pointed && pointed.x1 >= from && pointed.x0 <= to) {
+      const x0 = px(pointed.x0) - 2;
+      const x1 = Math.max(x0 + 4, px(pointed.x1) + 2);
+      ctx.fillStyle = alpha(palette.cyan, 0.12);
+      ctx.fillRect(x0, STRIP, x1 - x0, h - STRIP);
+    }
+
+    // The numbered marks over the obstacles in view, matching the list below.
+    ctx.font = `700 10px ${CANVAS_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    shown.forEach((o, i) => {
+      const x = px(Math.max(o.x0, Math.min(o.x1, (o.x0 + o.x1) / 2)));
+      const y = STRIP + BADGE_Y;
+      const on = o === pointed;
+      ctx.beginPath();
+      ctx.arc(x, y, BADGE_R, 0, Math.PI * 2);
+      ctx.fillStyle = on ? palette.cyan : palette.ink;
+      ctx.fill();
+      ctx.fillStyle = palette.night;
+      ctx.fillText(String(i + 1), x, y + 0.5);
+      // A hairline down to what it marks.
+      ctx.fillStyle = alpha(on ? palette.cyan : palette.ink, 0.35);
+      ctx.fillRect(x - 0.5, y + BADGE_R, 1, Math.max(0, py(WORLD_TOP - 60) - y - BADGE_R));
+    });
+    ctx.textAlign = 'start';
   }
 
   return {

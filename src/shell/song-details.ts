@@ -194,6 +194,12 @@ export function createSongDetails({
   legendItem('Drop', palette.magenta, 'block');
   for (const lane of LANES) legendItem(lane.label, lane.colour, 'dot');
   legendItem('Bass energy', palette.violet, 'block');
+  legendItem('Held sound', palette.ink, 'block');
+  legendItem('Stop', alpha(palette.muted, 0.6), 'block');
+  legendItem('Accent', palette.magenta, 'dot');
+  legendItem('Fill', palette.violet, 'line');
+  legendItem('Off-beat hit', palette.ink, 'dot');
+  legendItem('Repeated bar (same letter; "= 12" repeats bar 12)', palette.violet, 'block');
 
   // The platformer level built from the song, following the playhead.
   const levelPreview = createLevelPreview({ analysis, build: buildLevel });
@@ -292,6 +298,28 @@ export function createSongDetails({
 
   // ---------- drawing ----------
 
+  /**
+   * A letter for each bar the song plays more than once (A for the first such riff, B for
+   * the next…), keyed by the index of the bar it first plays in.
+   */
+  function repeatLetters(): Map<number, string> {
+    const { bars } = analysis.features;
+    const counts = new Map<number, number>();
+    for (const b of bars) counts.set(b.repeats, (counts.get(b.repeats) ?? 0) + 1);
+    const letters = new Map<number, string>();
+    for (const b of bars) {
+      if ((counts.get(b.repeats) ?? 0) < 2 || letters.has(b.repeats)) continue;
+      const n = letters.size;
+      // A to Z, then AA, AB…
+      letters.set(
+        b.repeats,
+        (n >= 26 ? String.fromCharCode(64 + Math.floor(n / 26)) : '') +
+          String.fromCharCode(65 + (n % 26)),
+      );
+    }
+    return letters;
+  }
+
   /** The overview without the playhead, redrawn only when its size changes. */
   let overviewLayer: HTMLCanvasElement | null = null;
 
@@ -307,7 +335,11 @@ export function createSongDetails({
     const strip = 24;
     const tempoTop = strip + 4;
     const tempoH = 18;
-    const top = tempoTop + tempoH + 8;
+    const repeatsTop = tempoTop + tempoH + 4;
+    const repeatsH = 14;
+    const momentsTop = repeatsTop + repeatsH + 4;
+    const momentsH = 14;
+    const top = momentsTop + momentsH + 8;
     const bottom = h - 4;
 
     ctx.font = `600 10px ${FONT}`;
@@ -315,7 +347,41 @@ export function createSongDetails({
     ctx.fillStyle = palette.muted;
     ctx.fillText('SECTIONS', 0, strip / 2);
     ctx.fillText('TEMPO', 0, tempoTop + tempoH / 2);
+    ctx.fillText('REPEATS', 0, repeatsTop + repeatsH / 2);
+    ctx.fillText('MOMENTS', 0, momentsTop + momentsH / 2);
     ctx.fillText('ENERGY', 0, (top + bottom) / 2);
+
+    // Repeated bars: a cell per bar, those the song plays more than once lettered by what
+    // they repeat, faint the first time and bright when it comes again.
+    const letters = repeatLetters();
+    ctx.textAlign = 'center';
+    analysis.features.bars.forEach((b, i) => {
+      const x0 = x(b.start);
+      const x1 = x(b.end);
+      const letter = letters.get(b.repeats);
+      ctx.fillStyle = letter
+        ? alpha(palette.violet, b.repeats === i ? 0.4 : 0.85)
+        : alpha(palette.line, 0.5);
+      ctx.fillRect(x0 + 0.5, repeatsTop, Math.max(1, x1 - x0 - 1), repeatsH);
+      if (letter && x1 - x0 >= 9) {
+        ctx.fillStyle = palette.ink;
+        ctx.fillText(letter, (x0 + x1) / 2, repeatsTop + repeatsH / 2 + 0.5);
+      }
+    });
+    ctx.textAlign = 'start';
+
+    // The moments a level is built from: held sounds, stops and fills as spans, accents as
+    // ticks.
+    const { sustains, stops, fills, accents } = analysis.features;
+    const span = (from: number, to: number, colour: string) => {
+      ctx.fillStyle = colour;
+      ctx.fillRect(x(from), momentsTop + 3, Math.max(2, x(to) - x(from)), momentsH - 6);
+    };
+    for (const s of stops) span(s.time, s.end, alpha(palette.muted, 0.6));
+    for (const s of sustains) span(s.time, s.end, palette.ink);
+    for (const f of fills) span(f.time, f.end, palette.violet);
+    ctx.fillStyle = palette.magenta;
+    for (const a of accents) ctx.fillRect(x(a.time) - 1, momentsTop, 2, momentsH);
 
     // The tempo map: a band per segment, its BPM at the start, a tick at every change.
     analysis.segments.forEach((s, i) => {
@@ -431,8 +497,11 @@ export function createSongDetails({
     const ruler = 22;
     const laneH = 30;
     const lanesTop = h - LANES.length * laneH;
+    const momentsH = 34;
+    const momentsTop = lanesTop - momentsH;
+    const momentsMid = momentsTop + momentsH / 2;
     const waveTop = ruler + 6;
-    const waveBottom = lanesTop - 8;
+    const waveBottom = momentsTop - 8;
     const waveMid = (waveTop + waveBottom) / 2;
 
     ctx.save();
@@ -479,9 +548,18 @@ export function createSongDetails({
       ctx.fillStyle = alpha(palette.magenta, down ? 0.9 : 0.4);
       ctx.fillRect(x(b) - (down ? 1 : 0.5), ruler, down ? 2 : 1, h - ruler);
     }
-    ctx.fillStyle = palette.magenta;
+    // Bar numbers, and for a bar the song played before, the bar it repeats.
+    const { bars } = analysis.features;
     analysis.downbeats.forEach((d, i) => {
-      if (visible(d)) ctx.fillText(String(i + 1), x(d) + 4, ruler / 2);
+      if (!visible(d)) return;
+      const label = String(i + 1);
+      ctx.fillStyle = palette.magenta;
+      ctx.fillText(label, x(d) + 4, ruler / 2);
+      const repeats = bars[i]?.repeats;
+      if (repeats !== undefined && repeats !== i) {
+        ctx.fillStyle = palette.violet;
+        ctx.fillText(`= ${repeats + 1}`, x(d) + 8 + ctx.measureText(label).width, ruler / 2);
+      }
     });
 
     // Tempo changes: a dashed line and the new tempo.
@@ -509,6 +587,67 @@ export function createSongDetails({
       ctx.fillRect(x(drop.time) - 2, 0, 4, h);
       ctx.shadowBlur = 0;
       ctx.fillText('DROP', x(drop.time) + 6, ruler + 24);
+    }
+
+    // The moments a level is built from, in their own lane: stops as a shaded gap through
+    // the waveform, held sounds as bars as long as they hold, fills as a bracket with a
+    // tick per hit, accents as diamonds and off-beat hits as small triangles.
+    const { sustains, stops, fills, accents, syncopations } = analysis.features;
+    ctx.fillStyle = alpha(palette.line, 0.6);
+    ctx.fillRect(GUTTER, momentsMid, plotW, 1);
+    const named = (text: string, from: number, colour: string) => {
+      ctx.fillStyle = colour;
+      ctx.fillText(text, x(from) + 2, momentsTop + 7);
+    };
+    for (const s of stops) {
+      if (s.end < start || s.time > end) continue;
+      ctx.fillStyle = alpha(palette.muted, 0.16);
+      ctx.fillRect(x(s.time), ruler, x(s.end) - x(s.time), lanesTop - ruler);
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = alpha(palette.muted, 0.8);
+      ctx.strokeRect(x(s.time) + 0.5, momentsMid - 5.5, x(s.end) - x(s.time) - 1, 11);
+      ctx.setLineDash([]);
+      named('STOP', s.time, palette.muted);
+    }
+    for (const s of sustains) {
+      if (s.end < start || s.time > end) continue;
+      ctx.fillStyle = alpha(palette.ink, 0.85);
+      ctx.beginPath();
+      ctx.roundRect(x(s.time), momentsMid - 4, Math.max(4, x(s.end) - x(s.time)), 8, 4);
+      ctx.fill();
+      named(`HELD ${s.sound === 'ring' ? 'RING' : s.sound.toUpperCase()}`, s.time, palette.ink);
+    }
+    for (const f of fills) {
+      if (f.end < start || f.time > end) continue;
+      ctx.fillStyle = palette.violet;
+      ctx.fillRect(x(f.time), momentsMid + 5, x(f.end) - x(f.time), 2);
+      for (const t of f.hits) ctx.fillRect(x(t) - 1, momentsMid - 3, 2, 10);
+      named('FILL', f.time, palette.violet);
+    }
+    for (const a of accents) {
+      if (!visible(a.time)) continue;
+      const since = time - a.time;
+      const lit = since >= 0 && since < FLASH_SECONDS;
+      const r = lit ? 8 : 6;
+      ctx.fillStyle = palette.magenta;
+      ctx.shadowColor = palette.magenta;
+      ctx.shadowBlur = lit ? 14 : 0;
+      ctx.beginPath();
+      ctx.moveTo(x(a.time), momentsMid - r);
+      ctx.lineTo(x(a.time) + r * 0.7, momentsMid);
+      ctx.lineTo(x(a.time), momentsMid + r);
+      ctx.lineTo(x(a.time) - r * 0.7, momentsMid);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = palette.ink;
+    for (const s of syncopations) {
+      if (!visible(s.time)) continue;
+      ctx.beginPath();
+      ctx.moveTo(x(s.time) - 4, momentsMid + 8);
+      ctx.lineTo(x(s.time) + 4, momentsMid + 8);
+      ctx.lineTo(x(s.time), momentsMid + 2);
+      ctx.fill();
     }
 
     // Hits per band: dots sized by strength, lit as the playhead passes.
@@ -546,6 +685,7 @@ export function createSongDetails({
     ctx.fillStyle = palette.muted;
     ctx.fillText('BAR', 0, ruler / 2);
     ctx.fillText('WAVE', 0, waveMid);
+    ctx.fillText('MOMENTS', 0, momentsMid);
     LANES.forEach((lane, row) => {
       ctx.fillStyle = lane.colour;
       ctx.fillText(lane.label.toUpperCase(), 0, lanesTop + row * laneH + laneH / 2);

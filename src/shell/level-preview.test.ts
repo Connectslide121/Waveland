@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Difficulty, LevelMap } from '../core';
+import { buildLevelMap, type Difficulty, type LevelMap } from '../core';
 import { randomAnalysis } from '../core/test-analysis';
 import { generateLevel } from '../games/platformer/level';
-import { createLevelPreview, type LevelPreview } from './level-preview';
+import { createLevelPreview, obstacleText, type LevelPreview } from './level-preview';
 
 const analysis = randomAnalysis(3, { duration: 30, tempo: 120 });
 let preview: LevelPreview | null = null;
@@ -80,5 +80,33 @@ describe('level preview', () => {
       ),
     );
     expect(q<HTMLElement>('.timeline__spinner').hidden).toBe(true);
+  });
+
+  it('lists the obstacles in view, numbered, each with its musical reason', async () => {
+    const { q } = mount((map, d) => Promise.resolve(generateLevel(map, d)));
+    await vi.waitFor(() => expect(q('figure').getAttribute('aria-busy')).toBe('false'));
+    const level = generateLevel(buildLevelMap(analysis), 'normal');
+    const first = level.obstacles.find((o) => o.time > 3)!;
+    preview!.draw(first.time - 0.5);
+    const rows = [...preview!.element.querySelectorAll<HTMLElement>('.reasons__row')].filter(
+      (r) => !r.hidden,
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    // The room for every row is kept, filled or not, so the page never shifts.
+    expect(preview!.element.querySelectorAll('.reasons__row')).toHaveLength(5);
+    const texts = rows.map((r) => r.textContent);
+    expect(texts.some((t) => t!.includes(first.label) && t!.includes(first.reason))).toBe(true);
+    expect(rows[0]!.querySelector('.reasons__badge')!.textContent).toBe('1');
+    expect(q<HTMLElement>('.reasons__empty').hidden).toBe(true);
+  });
+
+  it('says what an obstacle is, why, and which bar it repeats', () => {
+    const o = { kind: 'held', time: 1, end: 2, x0: 0, x1: 1, label: 'Dash pit' } as const;
+    expect(obstacleText({ ...o, reason: 'held chord, 1.75 beats' })).toBe(
+      'Dash pit: held chord, 1.75 beats',
+    );
+    expect(obstacleText({ ...o, reason: 'held chord, 1.75 beats', repeats: 12 })).toBe(
+      'Dash pit: held chord, 1.75 beats · as in bar 12',
+    );
   });
 });

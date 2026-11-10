@@ -260,7 +260,7 @@ kbd {
 }
 
 .timeline--overview {
-  height: 150px;
+  height: 186px;
 }
 
 .timeline--overview .timeline__canvas {
@@ -270,7 +270,7 @@ kbd {
 
 .timeline--close {
   /* A fixed height: the canvas sizes its pixels from it, so it must not size itself. */
-  height: clamp(260px, 42vh, 440px);
+  height: clamp(294px, 46vh, 474px);
 }
 
 .timeline--close .timeline__canvas {
