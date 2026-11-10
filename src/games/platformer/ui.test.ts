@@ -57,9 +57,51 @@ describe('createHud', () => {
     const dots = [...hud.element.querySelectorAll('.pf-hud__beats i')];
     expect(dots.map((d) => d.classList.contains('on'))).toEqual([false, false, true, false]);
     expect(hud.element.querySelector('.pf-hud__score')!.textContent).toBe('048 210');
-    expect(hud.element.querySelector('.pf-hud__combo')!.textContent).toBe('9 combo · ×2');
+    // ×2, one of eight steps to ×3, and the count.
+    expect(hud.element.querySelector('.pf-hud__mult')!.textContent).toBe('×2');
+    expect(hud.element.querySelectorAll('.pf-hud__steps i.on')).toHaveLength(1);
+    expect(hud.element.querySelector('.pf-hud__combo-count')!.textContent).toBe('9');
     expect(hud.element.querySelector<HTMLElement>('.pf-hud__fill')!.style.width).toBe('25%');
     expect(hud.element.querySelector('.pf-hud__count')!.classList.contains('on')).toBe(false);
+  });
+
+  it('shows the overdrive meter with its key, and the boosters in fixed slots', () => {
+    const base = {
+      time: 50,
+      beatInBar: 0,
+      score: 0,
+      combo: 0,
+      multiplier: 1,
+      countIn: null,
+      perf: null,
+      hint: null,
+      overdriveKey: 'E',
+    };
+    const od = hud.element.querySelector('.pf-od')!;
+    const fill = hud.element.querySelector<HTMLElement>('.pf-od__fill')!;
+    const state = () => hud.element.querySelector('.pf-od__state')!.textContent;
+    hud.update({ ...base, meter: 0.5, overdrive: null });
+    expect(fill.style.width).toBe('50%');
+    expect(state()).toBe('Perfects and gems fill it');
+    expect(hud.element.querySelector('.pf-od__key')!.textContent).toBe('E');
+    hud.update({ ...base, meter: 1, overdrive: null });
+    expect(state()).toBe('Ready · press E');
+    expect(od.classList.contains('ready')).toBe(true);
+    hud.update({ ...base, meter: 0, overdrive: 0.25 });
+    expect(state()).toBe('Score ×2');
+    expect(fill.style.width).toBe('25%');
+    expect(od.classList.contains('on')).toBe(true);
+
+    const slots = [...hud.element.querySelectorAll('.pf-boost')];
+    expect(slots).toHaveLength(3);
+    hud.update({ ...base, boosters: { shield: 1, magnet: 0.4, dash: null } });
+    expect(slots.map((s) => s.classList.contains('on'))).toEqual([true, true, false]);
+    expect(slots.map((s) => s.getAttribute('aria-label'))).toEqual([
+      'Shield: ready',
+      'Magnet: on, 40% left',
+      'Extra dash: off',
+    ]);
+    expect(slots[1]!.querySelector<HTMLElement>('.pf-boost__bar')!.style.width).toBe('40%');
   });
 
   it('shows the count-in', () => {
@@ -161,7 +203,7 @@ describe('createPauseMenu', () => {
 });
 
 describe('createResultsScreen', () => {
-  it('shows the score, accuracy, deaths and pickups, with Retry and Back to menu', () => {
+  it('shows the score, rank and breakdown, with Retry and Back to menu', () => {
     const handlers = { onRetry: vi.fn(), onBack: vi.fn() };
     const results = createResultsScreen('Midnight Drive', handlers);
     document.body.append(results.element);
@@ -183,16 +225,26 @@ describe('createResultsScreen', () => {
       sections: 9,
     });
     expect(results.element.querySelector('.pf-results__score')!.textContent).toBe('012 345');
-    const stats = [...results.element.querySelectorAll('.pf-results__stat')].map((s) => [
+    expect(results.element.querySelector('.pf-results__rank')!.textContent).toBe('B');
+    const stats = [...results.element.querySelectorAll('.pf-results__row')].map((s) => [
       s.querySelector('dt')!.textContent,
       s.querySelector('dd')!.textContent,
     ]);
     expect(stats).toEqual([
-      ['Accuracy', '50%'],
+      ['Perfect', '30'],
+      ['Good', '20'],
+      ['Miss', '50'],
+      ['Timing', '55%'],
       ['Deaths', '3'],
-      ['Pickups', '40 / 52'],
       ['Best combo', '17'],
+      ['Overdrives', '2'],
+      ['Clean sections', '4 / 9'],
+      ['Pickups', '40 / 52'],
+      ['Shield saves', '1'],
     ]);
+    expect(results.element.querySelector('.pf-results__ranks')!.textContent).toBe(
+      'S: timing 85%+, no deaths · A: timing 70%+, at most 2 deaths · B: timing 50%+ · C: finished. Timing counts a good as half a perfect.',
+    );
     const [retry, back] = [...results.element.querySelectorAll('button')];
     retry!.click();
     back!.click();

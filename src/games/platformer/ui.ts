@@ -9,7 +9,8 @@ import {
   type Bindings,
   type ControlAction,
 } from '../../core';
-import type { RunResults } from './run';
+import type { BoosterKind } from './level';
+import { COMBO_STEP, MAX_MULTIPLIER, RANKS, type RunResults } from './run';
 import './ui.css';
 
 /**
@@ -63,7 +64,36 @@ export interface HudState {
   perf: { fps: number; cpuMs: number } | null;
   /** A one-line hint for an ability met for the first time ("Right click / Shift: dash"), or null. */
   hint: string | null;
+  /** The overdrive meter, 0 to 1. */
+  meter?: number;
+  /** While overdrive runs, the share of it left, 0 to 1; null otherwise. */
+  overdrive?: number | null;
+  /** What overdrive is bound to, as a key chip shows it ("E"). */
+  overdriveKey?: string;
+  /** Each booster's share of its time left, 0 to 1 (1 until used), or null when off. */
+  boosters?: Record<BoosterKind, number | null>;
 }
+
+/** The boosters' HUD slots, in order, with their names. */
+export const BOOSTER_NAMES: Record<BoosterKind, string> = {
+  shield: 'Shield',
+  magnet: 'Magnet',
+  dash: 'Extra dash',
+};
+const BOOSTER_SHORT: Record<BoosterKind, string> = {
+  shield: 'Shield',
+  magnet: 'Magnet',
+  dash: 'Dash +1',
+};
+
+/** Each booster's icon: a shield with a core, a horseshoe magnet, a double chevron. */
+export const BOOSTER_ICONS: Record<BoosterKind, string> = {
+  shield:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 19.5 5.6v5.6c0 4.6-3.1 8.2-7.5 10-4.4-1.8-7.5-5.4-7.5-10V5.6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="11.4" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+  magnet:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5v8.5a6 6 0 0 0 12 0V3.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M4.4 3.5h3.2M16.4 3.5h3.2M4.4 7.6h3.2M16.4 7.6h3.2" stroke="currentColor" stroke-width="2"/></svg>',
+  dash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4.5 6 6 6-6 6M12.5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
 
 /** The frame rate readout: 60 FPS · 4.2 MS, or dashes before the first half second. */
 export function formatPerf(fps: number, cpuMs: number): string {
@@ -91,10 +121,51 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
   const scoreBox = el('div', 'pf-hud__score-box');
   const score = el('div', 'pf-hud__score', formatScore(0));
   score.setAttribute('aria-label', 'Score');
-  // The combo line is always there, so the score never moves when it appears.
-  const combo = el('div', 'pf-hud__combo', ' ');
+  // The combo meter is always there, so the score never moves: the multiplier, the steps
+  // to the next one, and the combo count.
+  const combo = el('div', 'pf-hud__combo none');
+  combo.setAttribute('role', 'status');
+  const mult = el('b', 'pf-hud__mult', '×1');
+  const steps = el('span', 'pf-hud__steps');
+  const ticks = Array.from({ length: COMBO_STEP }, () => steps.appendChild(el('i')));
+  const comboCount = el('span', 'pf-hud__combo-count', '0');
+  combo.append(mult, steps, comboCount);
   scoreBox.append(score, combo);
   top.append(song, beats, scoreBox);
+
+  // Overdrive and the boosters, bottom left over the progress bar, in fixed places.
+  const status = el('div', 'pf-hud__status');
+  const od = el('div', 'pf-od');
+  const odHead = el('div', 'pf-od__head');
+  const odState = el('span', 'pf-od__state', 'Perfects and gems fill it');
+  odHead.append(el('span', 'pf-od__name', 'Overdrive'), odState);
+  const odRow = el('div', 'pf-od__row');
+  const odBar = el('div', 'pf-od__bar');
+  odBar.setAttribute('role', 'meter');
+  odBar.setAttribute('aria-label', 'Overdrive');
+  odBar.setAttribute('aria-valuemin', '0');
+  odBar.setAttribute('aria-valuemax', '100');
+  odBar.setAttribute('aria-valuenow', '0');
+  const odFill = el('div', 'pf-od__fill');
+  odBar.append(odFill);
+  const odKey = el('kbd', 'pf-od__key', '');
+  odRow.append(odBar, odKey);
+  od.append(odHead, odRow);
+  const boosts = el('div', 'pf-boosts');
+  const slotOf = {} as Record<BoosterKind, { box: HTMLElement; bar: HTMLElement }>;
+  for (const kind of Object.keys(BOOSTER_NAMES) as BoosterKind[]) {
+    const box = el('div', `pf-boost pf-boost--${kind}`);
+    box.setAttribute('role', 'img');
+    box.setAttribute('aria-label', `${BOOSTER_NAMES[kind]}: off`);
+    const icon = el('span', 'pf-boost__icon');
+    icon.innerHTML = BOOSTER_ICONS[kind];
+    const track = el('span', 'pf-boost__track');
+    const bar = track.appendChild(el('i', 'pf-boost__bar'));
+    box.append(icon, track, el('span', 'pf-boost__name', BOOSTER_SHORT[kind]));
+    boosts.append(box);
+    slotOf[kind] = { box, bar };
+  }
+  status.append(od, boosts);
 
   const progress = el('div', 'pf-hud__progress');
   progress.setAttribute('role', 'progressbar');
@@ -121,7 +192,7 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
   const hint = el('div', 'pf-hud__hint');
   hint.setAttribute('aria-live', 'polite');
 
-  element.append(top, progress, count, perf, hint);
+  element.append(top, status, progress, count, perf, hint);
 
   // What is on screen, so each frame only touches what changed.
   const shown = {
@@ -133,6 +204,9 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
     perf: '',
     hint: null as string | null,
     tempo: Math.round(tempo),
+    mult: 0,
+    od: '',
+    boosts: { shield: -2, magnet: -2, dash: -2 } as Record<BoosterKind, number>,
   };
   return {
     element,
@@ -145,8 +219,51 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
       if (state.beatInBar !== shown.beat)
         dots.forEach((dot, i) => dot.classList.toggle('on', i === state.beatInBar));
       if (state.score !== shown.score) score.textContent = formatScore(state.score);
-      if (state.combo !== shown.combo)
-        combo.textContent = state.combo > 1 ? `${state.combo} combo · ×${state.multiplier}` : ' ';
+      if (state.combo !== shown.combo || state.multiplier !== shown.mult) {
+        mult.textContent = `×${state.multiplier}`;
+        const maxed = state.multiplier >= MAX_MULTIPLIER;
+        const filled = maxed ? COMBO_STEP : state.combo % COMBO_STEP;
+        ticks.forEach((tick, i) => tick.classList.toggle('on', i < filled));
+        combo.classList.toggle('max', maxed);
+        combo.classList.toggle('none', state.combo === 0);
+        comboCount.textContent = String(state.combo);
+        combo.setAttribute('aria-label', `Combo ${state.combo}, ×${state.multiplier}`);
+        shown.mult = state.multiplier;
+      }
+      // Overdrive: filling, ready (with the key to press), or running down.
+      const meter = state.meter ?? 0;
+      const running = state.overdrive ?? null;
+      const key = state.overdriveKey ?? '';
+      const share = Math.round(100 * (running ?? meter));
+      const ready = running === null && meter >= 1;
+      const odText =
+        running !== null
+          ? 'Score ×2'
+          : ready
+            ? `Ready · press ${key}`
+            : 'Perfects and gems fill it';
+      const odShown = `${share}|${odText}|${key}`;
+      if (odShown !== shown.od) {
+        odFill.style.width = `${share}%`;
+        odBar.setAttribute('aria-valuenow', String(share));
+        odState.textContent = odText;
+        odKey.textContent = key;
+        od.classList.toggle('ready', ready);
+        od.classList.toggle('on', running !== null);
+        shown.od = odShown;
+      }
+      if (state.boosters)
+        for (const kind of Object.keys(slotOf) as BoosterKind[]) {
+          const left = state.boosters[kind];
+          const percent = left === null ? -1 : Math.round(100 * left);
+          if (percent === shown.boosts[kind]) continue;
+          const { box, bar } = slotOf[kind];
+          box.classList.toggle('on', left !== null);
+          bar.style.width = `${Math.max(0, percent)}%`;
+          const what = left === null ? 'off' : kind === 'magnet' ? `on, ${percent}% left` : 'ready';
+          box.setAttribute('aria-label', `${BOOSTER_NAMES[kind]}: ${what}`);
+          shown.boosts[kind] = percent;
+        }
       if (state.countIn !== shown.count) {
         count.textContent = state.countIn === null ? '' : String(state.countIn);
         count.classList.toggle('on', state.countIn !== null);
@@ -282,6 +399,18 @@ export function bindingsText(bindings: Bindings, action: ControlAction): string 
   return parts.length > 0 ? parts.join(' · ') : 'Not bound';
 }
 
+/** An action's binding for a key chip: its first key, else its first gamepad or mouse button. */
+export function chipBinding(bindings: Bindings, action: ControlAction): string {
+  const b = bindings[action];
+  const key = b.keys.find((k) => k !== null);
+  if (key) return keyLabel(key);
+  const pad = b.pad.find((p) => p !== null);
+  if (pad !== undefined && pad !== null) return padName(padLabel(pad));
+  const mouse = b.mouse.find((m) => m !== null);
+  if (mouse) return bindingLabel('mouse', mouse);
+  return 'Unbound';
+}
+
 /** The controls as a list: each action with what it is bound to, and pause. */
 export function controlsList(bindings: Bindings): HTMLElement {
   const list = el('dl', 'pf-controls');
@@ -336,6 +465,21 @@ export function createPauseMenu(handlers: {
   };
 }
 
+/**
+ * The ranks' thresholds in words, from `RANKS`: "S: timing 85%+, no deaths · A: 70%+, at
+ * most 2 deaths · B: 50%+ · C: finished". Timing counts a good as half a perfect.
+ */
+export function rankRules(): string {
+  const parts = RANKS.map(({ rank, timing, deaths }) => {
+    if (timing === 0) return `${rank}: finished`;
+    const t = `${Math.round(timing * 100)}%+`;
+    const d =
+      deaths === 0 ? ', no deaths' : Number.isFinite(deaths) ? `, at most ${deaths} deaths` : '';
+    return `${rank}: timing ${t}${d}`;
+  });
+  return `${parts.join(' · ')}. Timing counts a good as half a perfect.`;
+}
+
 export interface ResultsScreen extends Modal {
   show(results: RunResults): void;
 }
@@ -354,14 +498,22 @@ export function createResultsScreen(
   );
   menu.element.classList.add('pf-modal--results');
   const song = el('p', 'pf-results__song', title);
+  // The score with the rank beside it.
+  const head = el('div', 'pf-results__head');
   const score = el('p', 'pf-results__score');
-  const stats = el('dl', 'pf-results__stats');
-  menu.body.append(song, score, stats);
+  const rank = el('p', 'pf-results__rank');
+  head.append(score, rank);
+  // Two columns of rows, names left and numbers right-aligned.
+  const stats = el('div', 'pf-results__stats');
+  const columns = [el('dl', 'pf-results__col'), el('dl', 'pf-results__col')];
+  stats.append(...columns);
+  const thresholds = el('p', 'pf-results__ranks', rankRules());
+  menu.body.append(song, head, stats, thresholds);
 
-  const stat = (name: string, value: string) => {
-    const box = el('div', 'pf-results__stat');
-    box.append(el('dt', undefined, name), el('dd', undefined, value));
-    return box;
+  const row = (name: string, value: string, kind = '') => {
+    const item = el('div', `pf-results__row${kind ? ` pf-results__row--${kind}` : ''}`);
+    item.append(el('dt', undefined, name), el('dd', undefined, value));
+    return item;
   };
 
   return {
@@ -373,14 +525,23 @@ export function createResultsScreen(
     destroy: () => menu.destroy(),
     show(results: RunResults) {
       score.textContent = formatScore(results.score);
-      stats.replaceChildren(
-        stat('Accuracy', formatAccuracy(results.accuracy)),
-        stat('Deaths', String(results.deaths)),
-        stat(
-          'Pickups',
-          results.totalPickups > 0 ? `${results.pickups} / ${results.totalPickups}` : '—',
-        ),
-        stat('Best combo', String(results.bestCombo)),
+      rank.textContent = results.rank;
+      rank.dataset.rank = results.rank;
+      rank.setAttribute('aria-label', `Rank ${results.rank}`);
+      const r = results;
+      columns[0]!.replaceChildren(
+        row('Perfect', String(r.perfect), 'perfect'),
+        row('Good', String(r.good)),
+        row('Miss', String(r.miss)),
+        row('Timing', formatAccuracy(r.timing)),
+        row('Deaths', String(r.deaths)),
+      );
+      columns[1]!.replaceChildren(
+        row('Best combo', String(r.bestCombo)),
+        row('Overdrives', String(r.overdrives)),
+        row('Clean sections', `${r.clean} / ${r.sections}`),
+        row('Pickups', r.totalPickups > 0 ? `${r.pickups} / ${r.totalPickups}` : '—'),
+        row('Shield saves', String(r.saves)),
       );
       menu.show();
     },

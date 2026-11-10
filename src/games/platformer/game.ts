@@ -19,11 +19,11 @@ import {
 import { openSettings } from '../../shell/settings';
 import { palette } from '../../theme/palette';
 import type { GameSession } from '../registry';
-import { generateLevelInWorker, type PlatformerLevel } from './level';
+import { generateLevelInWorker, type BoosterKind, type PlatformerLevel } from './level';
 import { Controls } from './controls';
 import { musicOf, PlatformerRun, type RunMusic } from './run';
 import { PlatformerScene, type FrameState } from './scene';
-import { createHud, createPauseMenu, createResultsScreen } from './ui';
+import { chipBinding, createHud, createPauseMenu, createResultsScreen } from './ui';
 
 /** No difficulty picker yet: every song plays at normal. */
 const DIFFICULTY = 'normal';
@@ -176,6 +176,10 @@ class PlatformerSession {
       countIn,
       perf: this.#showFps && this.scene ? this.scene.monitor : null,
       hint: this.#hint(time),
+      meter: this.run.meter,
+      overdrive: this.#left(this.run.overdrive.from, this.run.overdrive.until, time),
+      overdriveKey: chipBinding(this.#bindings, 'overdrive'),
+      boosters: this.#boosters(time),
     });
     const state = this.#state;
     state.time = time;
@@ -195,6 +199,27 @@ class PlatformerSession {
     this.#stopSettings();
     setEffectsLowered(false);
     document.removeEventListener('visibilitychange', this.#hidden);
+  }
+
+  /** The share of a span of song time left at `t`, or null outside it. */
+  #left(from: number, until: number, t: number): number | null {
+    return t >= from && t < until ? (until - t) / (until - from) : null;
+  }
+
+  /** The boosters for the HUD: each one's share of its time left, or null when off. */
+  readonly #boosterState: Record<BoosterKind, number | null> = {
+    shield: null,
+    magnet: null,
+    dash: null,
+  };
+
+  #boosters(t: number): Record<BoosterKind, number | null> {
+    const b = this.run.boosters;
+    const state = this.#boosterState;
+    state.shield = b.shield ? 1 : null;
+    state.magnet = this.#left(b.magnetFrom, b.magnetUntil, t);
+    state.dash = b.extraDash ? 1 : null;
+    return state;
   }
 
   /**

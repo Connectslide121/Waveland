@@ -80,11 +80,241 @@
   text-shadow: 0 0 14px var(--magenta);
 }
 
+/* The combo meter: the multiplier, eight steps to the next one, the count. Fixed widths,
+   so nothing moves as it counts. */
 .pf-hud__combo {
-  margin-top: 2px;
+  display: inline-grid;
+  grid-template-columns: 3ch auto 4ch;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
   color: var(--magenta);
   font-size: clamp(10px, 1cqw, 13px);
   font-variant-numeric: tabular-nums;
+  transition: opacity 0.2s;
+}
+
+.pf-hud__combo.none {
+  opacity: 0.45;
+}
+
+.pf-hud__mult {
+  font-weight: 700;
+  text-align: left;
+  letter-spacing: 0.04em;
+}
+
+.pf-hud__steps {
+  display: flex;
+  gap: 3px;
+}
+
+.pf-hud__steps i {
+  width: clamp(5px, 0.55cqw, 8px);
+  height: clamp(8px, 0.8cqw, 11px);
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.pf-hud__steps i.on {
+  background: var(--magenta);
+  box-shadow: 0 0 6px var(--magenta);
+}
+
+.pf-hud__combo.max .pf-hud__steps i {
+  background: var(--flare);
+  box-shadow: 0 0 8px var(--magenta);
+}
+
+.pf-hud__combo-count {
+  text-align: right;
+  color: var(--ink);
+}
+
+/* Overdrive and the boosters, bottom left over the progress bar. */
+.pf-hud__status {
+  position: absolute;
+  left: clamp(16px, 3.4cqw, 48px);
+  bottom: calc(clamp(14px, 2.6cqw, 36px) + 14px);
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(14px, 1.6cqw, 24px);
+  font-size: clamp(9px, 0.85cqw, 12px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.pf-od {
+  width: clamp(190px, 19cqw, 280px);
+}
+
+.pf-od__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+}
+
+.pf-od__name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pf-od__state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+
+.pf-od__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf-od__bar {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: rgb(7 6 15 / 0.6);
+}
+
+.pf-od__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: rgb(255 43 214 / 0.55);
+}
+
+/* Its key chip keeps one width, bound or not. */
+.pf-od__key {
+  min-width: 2.4em;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font: inherit;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--muted);
+}
+
+.pf-od.ready .pf-od__state,
+.pf-od.on .pf-od__state {
+  color: var(--magenta);
+}
+
+.pf-od.ready .pf-od__fill,
+.pf-od.on .pf-od__fill {
+  background: var(--magenta);
+  box-shadow: 0 0 12px var(--magenta);
+}
+
+.pf-od.ready .pf-od__bar {
+  border-color: var(--magenta);
+  box-shadow: 0 0 14px -2px var(--magenta);
+  animation: pf-ready var(--beat) ease-in-out infinite alternate;
+}
+
+.pf-od.ready .pf-od__key {
+  border-color: var(--magenta);
+  color: var(--ink);
+}
+
+.pf-od.on .pf-od__fill {
+  background: linear-gradient(90deg, var(--magenta), var(--flare));
+}
+
+@keyframes pf-ready {
+  to {
+    box-shadow: 0 0 22px 1px var(--magenta);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-od.ready .pf-od__bar {
+    animation: none;
+  }
+}
+
+/* The boosters: three slots that are always there, dim when off. */
+.pf-boosts {
+  display: flex;
+  gap: 8px;
+}
+
+.pf-boost {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: clamp(48px, 4.6cqw, 64px);
+  color: var(--line);
+  transition: color 0.15s;
+}
+
+.pf-boost__icon {
+  display: grid;
+  place-items: center;
+  width: clamp(30px, 2.8cqw, 40px);
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgb(7 6 15 / 0.55);
+}
+
+.pf-boost__icon svg {
+  width: 70%;
+  height: 70%;
+}
+
+.pf-boost__track {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.pf-boost__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: currentColor;
+}
+
+.pf-boost__name {
+  font-size: 0.85em;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.pf-boost.on .pf-boost__name {
+  color: var(--ink);
+  opacity: 1;
+}
+
+.pf-boost--shield.on,
+.pf-boost--dash.on {
+  color: var(--cyan);
+}
+
+.pf-boost--magnet.on {
+  color: var(--magenta);
+}
+
+.pf-boost.on .pf-boost__icon {
+  border-color: currentColor;
+  box-shadow:
+    0 0 14px -3px currentColor,
+    inset 0 0 10px -4px currentColor;
 }
 
 .pf-hud__progress {
@@ -232,6 +462,8 @@
 
 .pf-modal__panel {
   width: min(420px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
   padding: 32px 32px 28px;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -336,8 +568,17 @@
   font-size: 14px;
 }
 
+/* The score, with the rank beside it in a square of its own. */
+.pf-results__head {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin: 20px 0 0;
+}
+
 .pf-results__score {
-  margin: 22px 0 0;
+  margin: 0;
   font-family: var(--wide);
   font-size: 48px;
   font-weight: 600;
@@ -347,38 +588,98 @@
   text-shadow: 0 0 22px var(--magenta);
 }
 
+.pf-results__rank {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0;
+  border: 2px solid var(--violet);
+  border-radius: 14px;
+  font-family: var(--wide);
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--ink);
+  box-shadow: 0 0 20px -4px var(--violet);
+}
+
+.pf-results__rank[data-rank='S'] {
+  border-color: var(--magenta);
+  color: var(--flare);
+  text-shadow: 0 0 16px var(--magenta);
+  box-shadow: 0 0 28px -2px var(--magenta);
+}
+
+.pf-results__rank[data-rank='A'] {
+  border-color: var(--cyan);
+  box-shadow: 0 0 22px -4px var(--cyan);
+}
+
+/* The breakdown: two columns of rows, names left and numbers right-aligned. */
 .pf-results__stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
   margin: 22px 0 0;
-}
-
-.pf-results__stat {
-  padding: 12px 6px;
+  padding: 10px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
+  text-align: left;
 }
 
-.pf-results__stat dt {
+.pf-results__col {
+  margin: 0;
+}
+
+.pf-results__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid rgb(138 92 255 / 0.12);
+}
+
+.pf-results__row:first-child {
+  border-top: 0;
+}
+
+.pf-results__row dt {
   font-family: var(--wide);
   font-size: 10px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--muted);
+  white-space: nowrap;
 }
 
-.pf-results__stat dd {
-  margin: 6px 0 0;
+.pf-results__row dd {
+  margin: 0;
   font-family: var(--wide);
-  font-size: 20px;
+  font-size: 17px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
   color: var(--ink);
+}
+
+.pf-results__row--perfect dd {
+  color: var(--magenta);
+}
+
+.pf-results__ranks {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 @media (max-width: 520px) {
   .pf-results__stats {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
+  }
+
+  .pf-results__col + .pf-results__col .pf-results__row:first-child {
+    border-top: 1px solid rgb(138 92 255 / 0.12);
   }
 
   /* Side by side, "Back to menu" would wrap: stack the buttons, Retry on top. */
