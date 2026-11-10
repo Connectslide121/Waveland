@@ -29,14 +29,20 @@ Then open the address Vite prints, normally <http://localhost:5173>. `npm run bu
 3. You run by yourself, always in time with the music: you can't speed up or stop. Stay alive until the song ends:
    - **jump** the pits and onto higher ground (hold for higher, tap for a short hop);
    - **dash** to hold your height for half a beat: smash through the orange dash gates (on the snares), or jump and then dash over a pit too wide for a jump;
-   - **slam** to drop fast from the air, to get under an overhang in time; a slam landing on the beat is an accent, worth double;
+   - **slam** to drop fast from the air, to get under an overhang in time;
    - violet equaliser columns carry you up and down with the bass; one that rises in front of you is a wall to jump;
    - dotted cyan bridges are only there for a beat or two after each snare;
    - orange spikes come out on every off-beat and go back in on the beat: cross on the beat or jump them;
-   - coins sit on the hi-hats; on a drop a magenta staircase rises, with gems on every step.
+   - coins sit on the hi-hats; on a drop a magenta staircase rises, with gems on every step;
+   - boosters float at the top of a full jump, some over pits: a **shield** (a cyan ring: survive one hit or fall, and bounce back onto safe ground), a **magnet** (pulls coins in for 4 bars) and an **extra dash** (a second dash in the air until you land). You never need one to finish.
    The first gate and the first overhang come in a calm spot, with a hint on screen saying which button to press.
-4. Falling, running into a wall, touching spikes that are out, or hitting a gate without dashing sends you back to the start of the section, a bar before it, with your score as it was there.
-5. Coins, gems and jumps, landings, dashes and slams on the beat build a combo (a perfect one is within 60 ms of the beat): every 8 in a row raises the multiplier, up to ×4. The results screen shows your score, accuracy, deaths and pickups.
+4. Falling, running into a wall, touching spikes that are out, or hitting a gate without dashing sends you back to the start of the section, a bar before it, with your score, combo, overdrive meter and boosters as they were there.
+5. Scoring:
+   - every jump takeoff, landing, dash and slam landing is judged against the nearest beat or eighth: **Perfect** (within 50 ms), **Good** (within 100 ms) or **Miss**, shown as a word at the cube. On fast songs the windows get tighter. A dash on a snare, or a slam landing on a kick or a downbeat, is an **accent**, worth double;
+   - judged actions and pickups build a **combo**; a miss or a hit breaks it. Every 8 in a row raises the multiplier, up to ×4 (the meter under the score);
+   - perfects and gems fill the **overdrive** meter (bottom left). When it's full, press overdrive (E): for 4 bars your score is doubled on top of the combo, and the cube burns magenta. Starting it on a downbeat earns a bonus;
+   - 10 perfects in a row burst for a bonus, and a section without a hit earns a **clean section** bonus;
+   - the results screen shows your score and rank with the perfect, good and miss counts, timing, best combo, overdrives, clean sections, pickups and shield saves. Rank S needs 85% timing and no deaths, A 70% and at most 2 deaths, B 50%; C is finishing. Timing counts a good as half a perfect.
 
 Use **Song details** on the title screen to see what the analysis found and a preview of the level. If the music feels late against the picture (Bluetooth headphones), set the audio offset in **Settings**: nudge it, or tap along to calibrate.
 
@@ -49,6 +55,7 @@ The defaults:
 | Jump (hold for higher) | Space, W or ↑ | | A |
 | Dash | Shift, J or X | Right click | X or RB |
 | Slam | S or ↓ | Left click | B, or down on the d-pad or left stick |
+| Overdrive | E or L | | Y |
 | Pause | Esc | | Start |
 
 Change them in **Settings → Controls**: click a slot, then press the key or button to use (Escape cancels, Backspace clears). Each action has three key slots and two mouse and gamepad slots; an input another action had moves over, and Settings says so. Esc and Start always pause. The pause menu shows the controls as they are bound now, and has Resume, Restart, Settings and Quit. Switching to another tab pauses too. There are no touch controls yet: play on a computer.
