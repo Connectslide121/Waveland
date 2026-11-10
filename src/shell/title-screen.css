@@ -1,0 +1,380 @@
+/* Title and song select, after scene 3 of docs/concept/look.html. */
+
+.title {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(72px, 1fr) auto;
+  justify-items: center;
+  gap: clamp(12px, 2vh, 24px);
+  padding: clamp(32px, 7vh, 88px) clamp(16px, 5vw, 64px) clamp(24px, 5vh, 56px);
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 110%, var(--dusk) 0%, var(--night) 60%);
+}
+
+.title[hidden] {
+  display: none;
+}
+
+/* Synth floor grid rolling toward the player, one row per beat. */
+.title__floor {
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: -4%;
+  height: 60%;
+  background:
+    linear-gradient(transparent 0 92%, rgb(138 92 255 / 0.7) 92% 100%) 0 0 / 100% 40px,
+    linear-gradient(90deg, transparent 0 96%, rgb(138 92 255 / 0.55) 96% 100%) 0 0 / 60px 100%;
+  transform: perspective(520px) rotateX(64deg);
+  transform-origin: 50% 100%;
+  mask-image: linear-gradient(to top, #000 40%, transparent 95%);
+  animation: floor var(--beat) linear infinite;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+@keyframes floor {
+  to {
+    background-position:
+      0 40px,
+      0 0;
+  }
+}
+
+.title__head {
+  position: relative;
+  text-align: center;
+}
+
+.logo {
+  margin: 0 -0.28em 0 0;
+  font-family: var(--wide);
+  font-weight: 700;
+  font-size: clamp(34px, 7vw, 112px);
+  letter-spacing: 0.28em;
+  line-height: 1;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--cyan), var(--violet) 50%, var(--magenta));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px rgb(138 92 255 / 0.7));
+}
+
+.tag {
+  margin: clamp(10px, 1.4vw, 20px) 0 0;
+  color: var(--muted);
+  font-size: clamp(12px, 1.4vw, 18px);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* The waveform horizon, pulsing on the beat. */
+.horizon {
+  position: relative;
+  align-self: center;
+  width: 100%;
+  height: clamp(64px, 18vh, 190px);
+  display: flex;
+  gap: clamp(4px, 0.35vw, 7px);
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+}
+
+.horizon i {
+  width: clamp(5px, 0.5vw, 9px);
+  height: var(--h);
+  border-radius: 99px;
+  background: linear-gradient(var(--cyan), var(--magenta));
+  box-shadow: 0 0 8px rgb(255 43 214 / 0.5);
+  animation: pulse var(--beat) ease-in-out infinite alternate;
+  animation-delay: var(--d);
+}
+
+@keyframes pulse {
+  from {
+    transform: scaleY(0.5);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.title__panel {
+  position: relative;
+  width: min(100%, 780px);
+  display: grid;
+  gap: clamp(14px, 2vh, 22px);
+}
+
+/* ---------- mode cards ---------- */
+
+.modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: clamp(12px, 2vw, 24px);
+}
+
+.mode {
+  position: relative;
+  display: grid;
+  grid-template-columns: clamp(44px, 5vw, 64px) 1fr;
+  gap: clamp(12px, 1.6vw, 20px);
+  align-items: center;
+  padding: clamp(14px, 2vw, 24px);
+  border-radius: clamp(12px, 1.4vw, 18px);
+  border: 1px solid var(--line);
+  background: rgb(20 16 44 / 0.75);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.mode--ready:hover {
+  border-color: rgb(46 242 255 / 0.5);
+}
+
+.mode:has(input:checked) {
+  border-color: var(--cyan);
+  box-shadow:
+    0 0 0 1px var(--cyan),
+    0 0 40px -10px var(--cyan);
+}
+
+.mode:has(input:focus-visible) {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+.mode--soon {
+  cursor: not-allowed;
+}
+
+.mode--soon .mode__icon,
+.mode--soon .mode__name,
+.mode--soon .mode__blurb {
+  opacity: 0.55;
+}
+
+.mode__icon svg {
+  display: block;
+  width: 100%;
+}
+
+.mode__text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mode__name {
+  font-family: var(--wide);
+  font-size: clamp(15px, 1.7vw, 20px);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.mode__blurb,
+.mode__reason {
+  color: var(--muted);
+  font-size: clamp(13px, 1.15vw, 15px);
+  line-height: 1.4;
+}
+
+.mode__reason {
+  color: var(--ink);
+  opacity: 0.8;
+}
+
+.mode__chip {
+  position: absolute;
+  top: clamp(10px, 1.2vw, 14px);
+  right: clamp(10px, 1.2vw, 14px);
+  padding: 2px 10px;
+  border: 1px solid #3a3370;
+  border-radius: 99px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* ---------- song drop zone ---------- */
+
+.dropzone {
+  display: grid;
+  grid-template-columns: clamp(24px, 3vw, 32px) minmax(0, 1fr) auto;
+  gap: clamp(12px, 1.4vw, 18px);
+  align-items: center;
+  padding: clamp(14px, 1.6vw, 20px) clamp(16px, 2vw, 24px);
+  border: 1.5px dashed #4a3f8f;
+  border-radius: clamp(12px, 1.4vw, 18px);
+  background: rgb(7 6 15 / 0.55);
+  color: var(--muted);
+  font-size: clamp(13px, 1.3vw, 16px);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.dropzone:hover,
+.dropzone--over {
+  border-color: var(--cyan);
+  background: rgb(46 242 255 / 0.06);
+}
+
+.dropzone:has(input:focus-visible) {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+.dropzone[data-state='ready'] {
+  border-style: solid;
+  border-color: rgb(46 242 255 / 0.55);
+}
+
+.dropzone[data-state='error'] {
+  border-color: var(--orange);
+}
+
+.dropzone__icon {
+  color: var(--muted);
+}
+
+.dropzone[data-state='ready'] .dropzone__icon {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 4px var(--cyan));
+}
+
+.dropzone[data-state='error'] .dropzone__icon {
+  color: var(--orange);
+}
+
+.dropzone__icon svg {
+  display: block;
+  width: 100%;
+}
+
+/* Two fixed lines, so loading a song never changes the zone's height. */
+.dropzone__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dropzone__main,
+.dropzone__sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dropzone__main {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.dropzone__key {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.dropzone[data-state='ready'] .dropzone__key {
+  color: var(--cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+/* ---------- play ---------- */
+
+.play-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 30px 0 24px;
+  border: 1px solid var(--cyan);
+  border-radius: 99px;
+  background: var(--cyan);
+  color: var(--night);
+  font-family: var(--wide);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  box-shadow: 0 0 32px -6px var(--cyan);
+  cursor: pointer;
+  transition:
+    box-shadow 0.15s,
+    background-color 0.15s;
+}
+
+.play:hover:not(:disabled) {
+  box-shadow: 0 0 44px -4px var(--cyan);
+}
+
+.play:disabled {
+  border-color: #3a3370;
+  background: rgb(20 16 44 / 0.9);
+  color: var(--muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.play[aria-busy='true'] {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  cursor: progress;
+}
+
+.play__icon {
+  width: 18px;
+  height: 18px;
+}
+
+.play__icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.play-row__hint {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.play-row__hint--error {
+  color: var(--orange);
+}
+
+@media (max-width: 560px) {
+  .dropzone__key {
+    display: none;
+  }
+}
+
+/* Keep long names clear of the Soon chip. */
+.mode--soon .mode__name {
+  padding-right: 64px;
+}

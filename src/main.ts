@@ -1,1 +1,3 @@
-document.querySelector<HTMLDivElement>('#app')!.textContent = 'Waveland';
+import { startApp } from './shell/app';
+
+startApp(document.querySelector<HTMLElement>('#app')!);
