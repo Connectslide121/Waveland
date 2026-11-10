@@ -1,4 +1,5 @@
 import { hashOf } from './random';
+import { beatAt, beatIndexAt, FALLBACK_TEMPO, periodAt, snapToGrid } from './tempo-map';
 import type {
   Band,
   BeatFit,
@@ -8,12 +9,11 @@ import type {
   LevelMap,
   Onset,
   SongAnalysis,
+  TempoSegment,
 } from './types';
 
 /** Onsets this close to the eighth-note grid (in beats) are moved onto it. */
 const SNAP_BEATS = 0.15;
-/** The tempo used when a song has no beat at all. */
-const FALLBACK_TEMPO = 120;
 
 /** Ties in time are sorted by kind in this order, so the event list is stable. */
 const KIND_ORDER: Record<LevelEventKind, number> = {
@@ -56,6 +56,61 @@ export function fitBeatGrid(beats: number[], tempo: number): { start: number; pe
   return { start, period };
 }
 
+/**
+ * The analysis' tempo segments, or one over the whole song at its tempo when it has none
+ * (an analysis from before the tempo map, or a hand-made one in a test).
+ */
+function tempoSegmentsOf(analysis: Pick<SongAnalysis, 'segments' | 'tempo' | 'duration'>) {
+  if (analysis.segments?.length) return analysis.segments;
+  const tempo = analysis.tempo > 0 ? analysis.tempo : FALLBACK_TEMPO;
+  return [{ start: 0, end: analysis.duration, tempo, beatPeriod: 60 / tempo }];
+}
+
+/** The tracked beats of a segment: from its start up to the next one's. */
+function beatsIn(beats: number[], segment: TempoSegment, last: boolean): number[] {
+  return beats.filter((t) => t >= segment.start - 1e-6 && (last ? true : t < segment.end - 1e-6));
+}
+
+/**
+ * The beat grid over the whole song: a straight line fitted through each tempo segment's
+ * tracked beats. The first is extended back to the song's start and the last on to its
+ * end; each later segment starts on its own grid's beat nearest the change, and the
+ * segment before stops a half beat before it, so no beat is doubled at a change.
+ */
+export function fitTempoGrid(
+  analysis: Pick<SongAnalysis, 'segments' | 'tempo' | 'duration' | 'beats'>,
+): { segments: TempoSegment[]; beats: number[] } {
+  const { duration } = analysis;
+  const found = tempoSegmentsOf(analysis);
+  const fits = found.map((s, i) =>
+    fitBeatGrid(beatsIn(analysis.beats, s, i === found.length - 1), s.tempo),
+  );
+  // Where each segment's grid starts.
+  const starts = fits.map((fit, i) => {
+    if (i === 0) return fit.start;
+    const k = Math.round((found[i]!.start - fit.start) / fit.period);
+    return fit.start + k * fit.period;
+  });
+  const beats: number[] = [];
+  const segments: TempoSegment[] = [];
+  fits.forEach(({ period }, i) => {
+    const start = starts[i]!;
+    const next = starts[i + 1];
+    const end = next === undefined ? duration : next - period / 2;
+    // A segment too short for a beat of its own: the one before goes on through it.
+    if (i > 0 && (start <= beats[beats.length - 1]! + 1e-6 || start >= end)) return;
+    for (let t = start, k = 0; t < end - 1e-6; t = start + ++k * period) beats.push(t);
+    segments.push({
+      start: i === 0 ? 0 : start,
+      end: duration,
+      tempo: 60 / period,
+      beatPeriod: period,
+    });
+  });
+  segments.forEach((s, i) => (s.end = segments[i + 1]?.start ?? duration));
+  return { segments, beats };
+}
+
 /** The mean of a curve over [from, to). */
 function curveMean(curve: EnergyCurve, from: number, to: number): number {
   const i0 = Math.max(0, Math.floor(from / curve.step));
@@ -75,72 +130,85 @@ function spread(values: number[]): number[] {
   return values.map((v) => Math.max(0, Math.min(1, (v - lo) / (hi - lo))));
 }
 
-/** Index of the grid beat at or just before `time`. */
-export function beatIndexAt(map: Pick<LevelMap, 'beats' | 'beatPeriod'>, time: number): number {
-  const start = map.beats[0] ?? 0;
-  const i = Math.floor((time - start) / map.beatPeriod + 1e-6);
-  return Math.max(0, Math.min(map.beats.length - 1, i));
-}
-
 /** Fewer tracked beats than this, and the song has no beat to play to. */
 const MIN_BEATS = 8;
-/** At least this share of the tracked beats on the grid, and the tempo is steady. */
+/** At least this share of the tracked beats on the grid, and the beat is tight. */
 const STEADY_SHARE = 0.8;
 
 /**
- * How well one steady beat grid fits the song: `steady` when most tracked beats sit on it,
- * `changing` when they drift off it (the tempo changes, or swings), `none` when there is
- * hardly a beat at all. Games keep to one grid either way; the menus say so.
+ * How the song's beat reads: `none` when there is hardly a beat at all, `loose` when the
+ * tracked beats drift off their segment's grid (swing, rubato), else `changing` when the
+ * tempo map has more than one segment and `steady` when it has one. Games follow the
+ * tempo map either way; the menus say what it is.
  */
-export function beatFit(analysis: Pick<SongAnalysis, 'beats' | 'tempo'>): BeatFit {
+export function beatFit(
+  analysis: Pick<SongAnalysis, 'beats' | 'tempo' | 'duration'> &
+    Partial<Pick<SongAnalysis, 'segments'>>,
+): BeatFit {
   if (analysis.beats.length < MIN_BEATS) return 'none';
-  const { start, period } = fitBeatGrid(analysis.beats, analysis.tempo);
-  const tolerance = Math.min(0.05, 0.12 * period);
+  const grid = fitTempoGrid({ ...analysis, segments: analysis.segments ?? [] });
   const on = analysis.beats.filter((t) => {
-    const k = (t - start) / period;
-    return Math.abs(k - Math.round(k)) * period <= tolerance;
+    const b = beatAt(grid, t);
+    const period = periodAt(grid, t);
+    return Math.abs(b - Math.round(b)) * period <= Math.min(0.05, 0.12 * period);
   }).length;
-  return on / analysis.beats.length >= STEADY_SHARE ? 'steady' : 'changing';
+  if (on / analysis.beats.length < STEADY_SHARE) return 'loose';
+  return grid.segments.length > 1 ? 'changing' : 'steady';
 }
 
 /**
- * The level map for a song: the analysis put on a regular beat grid, as time-based events
- * every game can read. Pure and deterministic.
+ * The level map for a song: the analysis put on a beat grid that follows its tempo map,
+ * as time-based events every game can read. Pure and deterministic.
  */
 export function buildLevelMap(analysis: SongAnalysis): LevelMap {
   const { duration } = analysis;
-  const { start, period } = fitBeatGrid(analysis.beats, analysis.tempo);
-  const beats: number[] = [];
-  for (let t = start; t < duration - 1e-6; t = start + beats.length * period) beats.push(t);
+  const { segments, beats } = fitTempoGrid(analysis);
+  const grid = { segments, beats };
 
-  // The bar phase most of the analysis' downbeats agree on.
-  const votes = [0, 0, 0, 0];
-  for (const d of analysis.downbeats) {
-    const k = Math.round((d - start) / period);
-    votes[((k % 4) + 4) % 4]! += 1;
-  }
-  const barPhase = votes.indexOf(Math.max(...votes));
-  const downbeats = beats.filter((_, i) => i >= barPhase && (i - barPhase) % 4 === 0);
+  // Each segment's bar phase: the one most of the analysis' downbeats in it agree on, or
+  // the bars going on from the segment before when it has none.
+  const downbeats: number[] = [];
+  let barPhase = 0;
+  segments.forEach((s, i) => {
+    // Its beats: [from, to). A later segment starts on its first beat exactly.
+    const from = i === 0 ? 0 : beatIndexAt(grid, s.start);
+    const last = i === segments.length - 1;
+    const to = last ? beats.length : beatIndexAt(grid, segments[i + 1]!.start);
+    const votes = [0, 0, 0, 0];
+    for (const d of analysis.downbeats) {
+      if (i > 0 && d < s.start - s.beatPeriod / 2) continue;
+      if (!last && d >= s.end - s.beatPeriod / 2) continue;
+      const k = Math.round(beatAt(grid, d)) - from;
+      votes[((k % 4) + 4) % 4]! += 1;
+    }
+    let phase = votes.indexOf(Math.max(...votes));
+    if (Math.max(...votes) === 0 && downbeats.length > 0) {
+      const since = from - Math.round(beatAt(grid, downbeats[downbeats.length - 1]!));
+      phase = (((4 - since) % 4) + 4) % 4;
+    }
+    if (i === 0) barPhase = phase;
+    for (let k = from + phase; k < to; k += 4) downbeats.push(beats[k]!);
+  });
 
-  const bass = spread(beats.map((t) => curveMean(analysis.bands.low, t, t + period)));
-  const energy = spread(beats.map((t) => curveMean(analysis.energy, t, t + period)));
+  // How long each beat lasts: its segment's period, or up to the next beat at a change.
+  const span = (i: number) => {
+    const period = periodAt(grid, beats[i]!);
+    const gap = (beats[i + 1] ?? Infinity) - beats[i]!;
+    return Math.abs(gap - period) < 1e-6 || gap === Infinity ? period : gap;
+  };
+  const bass = spread(beats.map((t, i) => curveMean(analysis.bands.low, t, t + span(i))));
+  const energy = spread(beats.map((t, i) => curveMean(analysis.energy, t, t + span(i))));
 
-  const grid = { beats, beatPeriod: period };
   const events: LevelEvent[] = [];
   const add = (time: number, kind: LevelEventKind, intensity: number, extra = {}) => {
     if (time < 0 || time >= duration) return;
     events.push({ time, kind, intensity, beat: beatIndexAt(grid, time), ...extra });
   };
-  // Hits move onto the eighth-note grid when they are close to it, so games stay on the beat.
-  const snap = (time: number) => {
-    const eighths = (time - start) / (period / 2);
-    const nearest = Math.round(eighths);
-    return Math.abs(eighths - nearest) / 2 <= SNAP_BEATS ? start + (nearest * period) / 2 : time;
-  };
   for (const [band, kind] of ONSET_KINDS) {
     const seen = new Set<number>();
     for (const onset of analysis.onsets[band] as Onset[]) {
-      const time = snap(onset.time);
+      // Hits move onto the eighth-note grid when they are close to it, so games stay on the beat.
+      const time = snapToGrid(grid, onset.time, 2, SNAP_BEATS);
       // Two hits snapped onto the same spot are one.
       const key = Math.round(time * 1000);
       if (seen.has(key)) continue;
@@ -148,12 +216,16 @@ export function buildLevelMap(analysis: SongAnalysis): LevelMap {
       add(time, kind, onset.strength);
     }
   }
-  beats.forEach((t, i) => add(t + period / 2, 'offbeat', energy[i] ?? 0));
+  beats.forEach((t, i) => add(t + span(i) / 2, 'offbeat', energy[i] ?? 0));
   for (const drop of analysis.drops) {
     // On the nearest bar line, when there is one within a beat.
     let time = drop.time;
     for (const d of downbeats) if (Math.abs(d - drop.time) < Math.abs(time - drop.time)) time = d;
-    add(Math.abs(time - drop.time) <= period ? time : drop.time, 'drop', drop.strength);
+    add(
+      Math.abs(time - drop.time) <= periodAt(grid, drop.time) ? time : drop.time,
+      'drop',
+      drop.strength,
+    );
   }
   for (const s of analysis.sections) add(s.start, 'section', s.energy, { section: s.kind });
   events.sort((a, b) => a.time - b.time || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
@@ -170,11 +242,13 @@ export function buildLevelMap(analysis: SongAnalysis): LevelMap {
     analysis.drops.length,
   );
 
+  // The tempo the song spends most of its time at.
+  const main = segments.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
   return {
     seed,
     duration,
-    tempo: 60 / period,
-    beatPeriod: period,
+    tempo: main.tempo,
+    segments,
     beats,
     downbeats,
     barPhase,

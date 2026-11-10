@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  beatAt,
   buildLevelMap,
   DIFFICULTIES,
+  periodAt,
   type Difficulty,
   type LevelEvent,
   type LevelMap,
 } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
-import { PHYSICS_DT, PLAYER_WIDTH, stepPlayer } from '../physics';
+import { PHYSICS_DT, PLAYER_WIDTH, scrollSpeed, stepPlayer } from '../physics';
 import {
   bridgeWindows,
   DASH_REACH,
@@ -17,7 +19,15 @@ import {
   MAX_TOP,
   MIN_TOP,
 } from './generate';
-import { GATE_GRACE, LevelWorld, solidTop, type PlatformerLevel } from './level';
+import {
+  GATE_GRACE,
+  LevelWorld,
+  solidTop,
+  speedAt,
+  timeAtX,
+  xAtTime,
+  type PlatformerLevel,
+} from './level';
 import { Explorer, stepAt, validateLevel } from './validate';
 
 const maps = new Map<number, LevelMap>();
@@ -50,7 +60,7 @@ function pitAirs(l: PlatformerLevel, kind: 'gap' | 'dash-gap' = 'gap'): number[]
     for (let i = 1; i < inside.length; i++) {
       const pit = inside[i]!.x0 - inside[i - 1]!.x1;
       if (pit > 1 && inside[i]!.kind !== 'ledge' && inside[i - 1]!.kind !== 'ledge')
-        airs.push((pit - PLAYER_WIDTH) / l.speed);
+        airs.push((pit - PLAYER_WIDTH) / speedAt(l, c.start));
     }
   }
   return airs;
@@ -113,11 +123,11 @@ describe('generateLevel: the music', () => {
       const runOut = l.chunks[l.chunks.length - 1]!.start;
       for (const e of map.events.filter((x) => x.kind === 'drop')) {
         // Drops with room for a set piece: after the run-in, four bars before the run-out.
-        if (e.time < runIn || e.time > runOut - 16 * map.beatPeriod) continue;
+        if (e.time < runIn || e.time > runOut - 16 * periodAt(map, e.time)) continue;
         drops++;
         const piece = l.chunks.find((c) => c.kind === 'drop' && c.start >= e.time - 1e-6);
         expect(piece, `drop at ${e.time.toFixed(2)} s`).toBeDefined();
-        expect(piece!.start - e.time).toBeLessThan(4 * map.beatPeriod + 1e-6);
+        expect(piece!.start - e.time).toBeLessThan(4 * periodAt(map, e.time) + 1e-6);
         const steps = l.solids.filter(
           (s) => s.kind === 'step' && s.x0 >= piece!.x0 && s.x1 <= piece!.x1 + 1e-6,
         );
@@ -155,7 +165,7 @@ describe('generateLevel: the music', () => {
       if (hats.has(p.time)) continue;
       // Not on a hat: on a beat with no hat within a beat of it.
       expect(map.beats).toContain(p.time);
-      expect(hatTimes.every((t) => Math.abs(t - p.time) > map.beatPeriod)).toBe(true);
+      expect(hatTimes.every((t) => Math.abs(t - p.time) > periodAt(map, p.time))).toBe(true);
     }
     expect(l.pickups.some((p) => p.kind === 'coin' && hats.has(p.time))).toBe(true);
     const snares = map.events.filter((e) => e.kind === 'snare').map((e) => e.time);
@@ -215,7 +225,7 @@ describe('generateLevel: bridges come and go', () => {
       const snare = (t: number): LevelEvent => ({ kind: 'snare', time: t, intensity: 1, beat });
       if (inBar === 1) return [snare(time)];
       if (inBar === 3)
-        return doubled ? [snare(time), snare(time + map.beatPeriod / 2)] : [snare(time)];
+        return doubled ? [snare(time), snare(time + periodAt(map, time) / 2)] : [snare(time)];
       return [];
     });
     const events = [...map.events.filter((e) => e.kind !== 'snare'), ...snares].sort(
@@ -238,7 +248,7 @@ describe('generateLevel: bridges come and go', () => {
           expect(windows.length).toBeGreaterThan(0);
           for (let i = 1; i < windows.length; i++) {
             const gone = windows[i]![0] - windows[i - 1]![1];
-            expect(gone).toBeGreaterThanOrEqual(map.beatPeriod - 1e-6);
+            expect(gone).toBeGreaterThanOrEqual(periodAt(map, windows[i - 1]![1]) - 1e-6);
             // Not there anywhere in the gap.
             for (let k = 1; k < 8; k++)
               expect(solidTop(bridge, windows[i - 1]![1] + (gone * k) / 8)).toBeNull();
@@ -279,7 +289,7 @@ describe('generateLevel: seeds and difficulty', () => {
       return {
         hazards: chunks.filter((c) => HAZARDS.has(c.kind)).length / chunks.length,
         gap: mean(ls.flatMap((l) => pitAirs(l))),
-        spikes: mean(ls.flatMap((l) => l.spikes.map((s) => (s.x1 - s.x0) / l.speed))),
+        spikes: mean(ls.flatMap((l) => l.spikes.map((s) => (s.x1 - s.x0) / speedAt(l, 0)))),
       };
     };
     const easy = stats('easy');
@@ -400,9 +410,58 @@ describe('generateLevel: abilities', () => {
         expect(moments.has(g.time)).toBe(true);
         // Met a grace after the beat, so a dash pressed on it is in time.
         expect(g.at).toBeCloseTo(g.time + GATE_GRACE, 9);
-        expect(g.x).toBeCloseTo(l.speed * g.at + l.start.x + PLAYER_WIDTH, 6);
+        expect(g.x).toBeCloseTo(xAtTime(l, g.at) + PLAYER_WIDTH, 6);
       }
     }
     expect(gates).toBeGreaterThan(0);
+  });
+});
+
+describe('generateLevel: songs whose tempo changes', () => {
+  // 120 BPM, then 150 (a faster scroll), then a half-time 75 (the same scroll as 150).
+  const analysis = randomAnalysis(31, {
+    tempo: 120,
+    duration: 70,
+    changes: [
+      { time: 25, tempo: 150 },
+      { time: 48, tempo: 75 },
+    ],
+  });
+  const map = buildLevelMap(analysis);
+  const levels = DIFFICULTIES.map((d) => generateLevel(map, d));
+
+  it('builds levels that can be finished at every difficulty', () => {
+    expect(map.segments).toHaveLength(3);
+    for (const l of levels) expect(validateLevel(l).ok).toBe(true);
+  });
+
+  it("scrolls at each segment's speed, easing over a beat at every change", () => {
+    const l = levels[1]!;
+    const [slow, fast, half] = map.segments;
+    expect(speedAt(l, slow!.start + 1)).toBeCloseTo(scrollSpeed(slow!.tempo), 6);
+    expect(speedAt(l, fast!.start + fast!.beatPeriod + 0.01)).toBeCloseTo(
+      scrollSpeed(fast!.tempo),
+      6,
+    );
+    // Half time folds to the same speed: no change there.
+    expect(speedAt(l, half!.start + 1)).toBeCloseTo(scrollSpeed(fast!.tempo), 6);
+    // No jump in speed or place anywhere, and the speed only moves during the easing.
+    for (let t = 0; t < map.duration; t += 0.01) {
+      const dv = Math.abs(speedAt(l, t + 0.01) - speedAt(l, t));
+      expect(dv).toBeLessThan(2);
+      const dx = xAtTime(l, t + 0.01) - xAtTime(l, t);
+      expect(dx).toBeCloseTo(0.01 * speedAt(l, t + 0.005), 3);
+      expect(timeAtX(l, xAtTime(l, t))).toBeCloseTo(t, 9);
+    }
+  });
+
+  it('lays each stretch out on the grid beats of its own tempo', () => {
+    for (const l of levels)
+      for (const c of l.chunks.filter((x) => x.kind !== 'run-in' && x.kind !== 'run-out')) {
+        // Stretches start on bar lines, and the drop staircase's steps are beats apart.
+        expect(map.downbeats).toContain(c.start);
+        const b = beatAt(map, c.end);
+        expect(Math.abs(b - Math.round(b))).toBeLessThan(1e-6);
+      }
   });
 });

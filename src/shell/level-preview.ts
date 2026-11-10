@@ -1,6 +1,8 @@
 import {
+  beatAt,
   buildLevelMap,
   DIFFICULTIES,
+  timeOfBeat,
   type Difficulty,
   type LevelMap,
   type SongAnalysis,
@@ -10,6 +12,7 @@ import {
   generateLevelInWorker,
   solidTop,
   spikesOut,
+  timeAtX,
   xAtTime,
   type ChunkKind,
   type PlatformerLevel,
@@ -231,10 +234,9 @@ export function createLevelPreview({
     const py = (y: number) => STRIP + (WORLD_TOP - y) * scale;
 
     // The beat grid: bars brighter, in the beat colour.
-    const period = l.beatPeriod;
-    const firstBeat = Math.ceil(((from - xAtTime(l, 0)) / l.speed - l.gridStart) / period);
+    const firstBeat = Math.ceil(beatAt(l.grid, timeAtX(l, from)));
     for (let k = firstBeat; ; k++) {
-      const t = l.gridStart + k * period;
+      const t = timeOfBeat(l.grid, k);
       const x = px(xAtTime(l, t));
       if (x > w) break;
       const bar = map.downbeats.some((d) => Math.abs(d - t) < 1e-6);

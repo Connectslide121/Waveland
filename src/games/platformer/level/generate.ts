@@ -1,7 +1,11 @@
 import {
+  beatAt,
   beatIndexAt,
   hashOf,
+  periodAt,
   Random,
+  segmentAt,
+  timeOfBeat,
   type Difficulty,
   type LevelMap,
   type SectionKind,
@@ -14,7 +18,6 @@ import {
   PHYSICS_DT,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
-  scrollSpeed,
   SPIKE_MERCY,
   VIEW_WIDTH,
 } from '../physics';
@@ -23,6 +26,7 @@ import {
   GATE_GRACE,
   LevelWorld,
   LOWEST_TOP,
+  scrollFor,
   solidTop,
   xAtTime,
   type Ability,
@@ -170,6 +174,8 @@ const ACCENT = 0.75;
 interface Stretch {
   start: number;
   end: number;
+  /** Seconds per beat where it starts: the tempo segment's period. */
+  period: number;
   /** The beats it is laid out on (every beat, or every other one for fast songs). */
   steps: number[];
 }
@@ -327,7 +333,7 @@ export function gateAt(x: (t: number) => number, time: number, top: number): Gat
 /** Dash gates on the snares (or accents, or the beats), on plain ground. */
 function gates(ctx: BuildContext): Built {
   const { stretch, x, settings, map, h, rng } = ctx;
-  const period = map.beatPeriod;
+  const period = stretch.period;
   // Not in the stretch's first beat, nor its last half: it starts and ends on plain ground.
   const inside = (t: number) => t >= stretch.start + period - 1e-6 && t <= stretch.end - period / 2;
   const snares = map.events.filter((e) => e.kind === 'snare' && inside(e.time));
@@ -372,8 +378,8 @@ export function overhangAt(
  * the next beat at most tempos).
  */
 function overhang(ctx: BuildContext): Built {
-  const { stretch, x, settings, ease, map, h } = ctx;
-  const period = map.beatPeriod;
+  const { stretch, x, settings, ease, h } = ctx;
+  const period = stretch.period;
   const half = period / 2;
   const takeoff = stretch.steps[1];
   if (takeoff === undefined || h + HURDLE_RISE > MAX_TOP) return flat(ctx);
@@ -463,8 +469,8 @@ export const BRIDGE_GAP = 1;
 /** Pits spanned by bridges that come out on the snares and stay a beat or two. */
 function bridges(ctx: BuildContext): Built {
   const { stretch, x, settings, ease, map, h } = ctx;
-  const period = map.beatPeriod;
-  const beatWidth = x(period) - x(0);
+  const period = stretch.period;
+  const beatWidth = x(stretch.start + period) - x(stretch.start);
   const hold = Math.min(3, settings.bridgeHold / ease) * period;
   const snares = map.events.filter((e) => e.kind === 'snare').map((e) => e.time);
   const inStretch = snares.filter(
@@ -497,8 +503,8 @@ function bridges(ctx: BuildContext): Built {
 
 /** Ground with spike strips that come out on the off-beats: cross on the beat, or jump. */
 function spikes(ctx: BuildContext): Built {
-  const { stretch, x, rng, settings, ease, h, map } = ctx;
-  const beatWidth = x(map.beatPeriod) - x(0);
+  const { stretch, x, rng, settings, ease, h } = ctx;
+  const beatWidth = x(stretch.start + stretch.period) - x(stretch.start);
   const length = Math.max(16, settings.spike * ease * beatWidth);
   const end = x(stretch.end);
   const strips: SpikeStrip[] = [];
@@ -522,7 +528,7 @@ function spikes(ctx: BuildContext): Built {
 
 /** The drop's set piece: a staircase of bars to climb on the beat, and gems on top. */
 function drop(ctx: BuildContext): Built {
-  const { stretch, x, settings, ease, map } = ctx;
+  const { stretch, x, settings, ease } = ctx;
   const steps = stretch.steps;
   const count = Math.min(STAIR_STEPS, steps.length - 3);
   if (count < 2) return flat(ctx);
@@ -544,7 +550,7 @@ function drop(ctx: BuildContext): Built {
   const plateau = x(steps[count + 1]!);
   solids.push({ kind: 'step', x0: plateau, x1: end, top });
   for (let i = 0; i < 3; i++) {
-    const t = steps[count + 1]! + (i + 0.5) * (map.beatPeriod / 2);
+    const t = steps[count + 1]! + (i + 0.5) * (stretch.period / 2);
     pickups.push({ kind: 'gem', x: x(t), y: top + 70 + (i === 1 ? 30 : 0), time: t });
   }
   return built('drop', solids, top, { pickups });
@@ -685,8 +691,9 @@ function coins(level: PlatformerLevel, map: LevelMap, every: number, from: numbe
   let quiet = 0;
   for (const time of map.beats) {
     if (time < from || time > to) continue;
-    while (h < hats.length && hats[h]! < time - map.beatPeriod) h++;
-    if (h < hats.length && hats[h]! <= time + map.beatPeriod) continue;
+    const period = periodAt(map, time);
+    while (h < hats.length && hats[h]! < time - period) h++;
+    if (h < hats.length && hats[h]! <= time + period) continue;
     if (quiet++ % (2 * every) === 0) place(time);
   }
   level.pickups.sort((a, b) => a.time - b.time);
@@ -714,16 +721,13 @@ export class LevelGenerationError extends Error {}
 export function generateLevel(map: LevelMap, difficulty: Difficulty): PlatformerLevel {
   const settings = DIFFICULTY[difficulty];
   const seed = hashOf(map.seed, difficulty);
-  const speed = scrollSpeed(map.tempo);
-  const period = map.beatPeriod;
   const level: PlatformerLevel = {
     seed,
     difficulty,
     duration: map.duration,
     tempo: map.tempo,
-    gridStart: map.beats[0] ?? 0,
-    beatPeriod: period,
-    speed,
+    grid: { segments: map.segments, beats: map.beats, downbeats: map.downbeats },
+    scroll: scrollFor(map),
     solids: [],
     spikes: [],
     gates: [],
@@ -731,8 +735,9 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     chunks: [],
     lessons: [],
     start: { x: ANCHOR_X, y: START_TOP },
-    finishX: xAtTime({ speed }, map.duration),
+    finishX: 0,
   };
+  level.finishX = xAtTime(level, map.duration);
   const x = (t: number) => xAtTime(level, t);
   const world = new LevelWorld(level);
   const sectionAt = (t: number): SectionKind =>
@@ -744,12 +749,23 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
   const runOut = lastBar !== undefined && lastBar > runIn ? lastBar : runIn;
   const bars = map.downbeats.filter((d) => d >= runIn && d < runOut);
   const barEnd = (i: number) => map.downbeats.find((d) => d > bars[i]!) ?? runOut;
-  const stepTime = x(period) - x(0) >= MIN_STEP_WIDTH ? period : 2 * period;
-  const narrow = x(4 * period) - x(0) < MIN_BAR_WIDTH;
+  // Each bar is laid out with the period of the tempo segment it starts in: wide enough
+  // beats one step each, narrow ones (fast songs) every other beat.
+  const width = (t: number, dt: number) => x(t + dt) - x(t);
+  const narrowAt = (t: number) => width(t, 4 * periodAt(map, t)) < MIN_BAR_WIDTH;
   const stretchOf = (start: number, end: number): Stretch => {
+    const period = periodAt(map, start);
+    const stride = width(start, period) >= MIN_STEP_WIDTH ? 1 : 2;
     const steps: number[] = [];
-    for (let t = start; t < end - 1e-6; t += stepTime) steps.push(t);
-    return { start, end, steps };
+    if (segmentAt(map, start) === segmentAt(map, end - 1e-6)) {
+      for (let t = start; t < end - 1e-6; t += stride * period) steps.push(t);
+    } else {
+      // Across a tempo change, on the grid's own beats.
+      const first = Math.round(beatAt(map, start));
+      for (let b = first; timeOfBeat(map, b) < end - 1e-6; b += stride)
+        steps.push(timeOfBeat(map, b));
+    }
+    return { start, end, period, steps };
   };
 
   const snares = map.events.filter((e) => e.kind === 'snare').map((e) => e.time);
@@ -789,6 +805,7 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     const isDrop = dropBars.has(i);
     // Every stretch of a song whose bars are too short for an obstacle takes two bars, and
     // drops two (four on such a song, for room to climb the staircase), never into a drop.
+    const narrow = narrowAt(bars[i]!);
     const want = isDrop ? (narrow ? 4 : 2) : narrow ? 2 : 1;
     let span = 1;
     while (span < want && i + span < bars.length && !dropBars.has(i + span)) span++;

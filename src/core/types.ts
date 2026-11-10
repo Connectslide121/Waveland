@@ -75,8 +75,12 @@ export interface SongAnalysis {
   drops: Drop[];
 }
 
-/** How well one steady beat grid fits a song (`beatFit` in `level-map.ts`). */
-export type BeatFit = 'steady' | 'changing' | 'none';
+/**
+ * How the song's beat reads (`beatFit` in `level-map.ts`): one steady tempo, a tempo that
+ * changes (several segments, which the games follow), a loose beat that drifts off even
+ * its own segment's grid (swing, rubato), or hardly a beat at all.
+ */
+export type BeatFit = 'steady' | 'changing' | 'loose' | 'none';
 
 /** How hard a game builds its level: density of obstacles, gap sizes and so on. */
 export type Difficulty = 'easy' | 'normal' | 'hard';
@@ -102,20 +106,30 @@ export interface LevelEvent {
 }
 
 /**
- * The level built from a song: what every game reads, each in its own way. Pure data,
- * the same for the same analysis; the beat grid is regular and covers the whole song.
+ * The beat grid games time things by: regular within each tempo segment, covering the
+ * whole song. Read it with the helpers in `tempo-map.ts` (`beatAt`, `timeOfBeat`,
+ * `periodAt`, `tempoAt`, `barAt`), never with start + k × period arithmetic.
  */
-export interface LevelMap {
-  /** Derived from the analysis, so games seed their own randomness from the song. */
-  seed: number;
-  duration: number;
-  tempo: number;
-  /** Seconds per beat on the grid. */
-  beatPeriod: number;
-  /** A regular beat grid from the start of the song to its end. */
+export interface TempoGrid {
+  /** The tempo segments, from 0 to the song's end; each later one starts on a grid beat. */
+  segments: TempoSegment[];
+  /** Every beat from the start of the song to its end, regular within each segment. */
   beats: number[];
   /** The beats that start a bar (4/4), a subset of `beats`. */
   downbeats: number[];
+}
+
+/**
+ * The level built from a song: what every game reads, each in its own way. Pure data,
+ * the same for the same analysis; the beat grid follows the tempo map and covers the
+ * whole song.
+ */
+export interface LevelMap extends TempoGrid {
+  /** Derived from the analysis, so games seed their own randomness from the song. */
+  seed: number;
+  duration: number;
+  /** The main tempo (the one the song spends most of its time at), for display. */
+  tempo: number;
   /** Index in `beats` of the first downbeat (0 to 3). */
   barPhase: number;
   /** Bass energy per grid beat, 0 to 1 over the song's own range. */

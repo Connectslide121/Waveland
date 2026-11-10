@@ -1,6 +1,9 @@
 import * as Phaser from 'phaser';
 import {
   AudioClock,
+  beatAt,
+  beatInBar as beatInBarAt,
+  beatsBefore,
   buildLevelMap,
   decodeSong,
   getBindings,
@@ -149,19 +152,15 @@ class PlatformerSession {
     // The song ends in the run's update or with the clock's own end.
     if (this.run.phase === 'finished' && !this.results.open) this.#finish();
 
-    const beats = (time - this.level.gridStart) / this.level.beatPeriod;
-    const index = Math.floor(beats + 1e-6);
-    const beatInBar = (((index - this.map.barPhase) % 4) + 4) % 4;
+    const grid = this.level.grid;
+    const beats = beatAt(grid, time);
+    const beatInBar = beatInBarAt(grid, time);
     // Beats left, never more than the count-in has: the output latency starts the clock a
     // little before the count-in's first beat.
-    const { resumeAt, countInFrom } = this.run;
-    const countInBeats = Math.round((resumeAt - countInFrom) / this.level.beatPeriod);
+    const { resumeAt, countInBeats } = this.run;
     const countIn =
       this.run.phase === 'countin'
-        ? Math.max(
-            1,
-            Math.min(countInBeats, Math.ceil((resumeAt - time) / this.level.beatPeriod - 1e-6)),
-          )
+        ? Math.max(1, Math.min(countInBeats, Math.ceil(beatAt(grid, resumeAt) - beats - 1e-6)))
         : null;
     this.hud.update({
       time,
@@ -198,14 +197,14 @@ class PlatformerSession {
    * player is past it; once past it alive, never again this session.
    */
   #hint(time: number): string | null {
-    const bar = 4 * this.level.beatPeriod;
+    const grid = this.level.grid;
     for (const lesson of this.level.lessons) {
       if (this.#learnt.has(lesson.action)) continue;
       if (this.run.phase === 'playing' && time > lesson.end) {
         this.#learnt.add(lesson.action);
         continue;
       }
-      if (time >= lesson.time - bar && time <= lesson.end)
+      if (time >= beatsBefore(grid, lesson.time, 4) && time <= lesson.end)
         return `${shortBinding(this.#bindings[lesson.action])}: ${lesson.action}`;
     }
     return null;

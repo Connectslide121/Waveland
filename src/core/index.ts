@@ -7,3 +7,4 @@ export * from './types';
 export * from './waveform';
 export * from './level-map';
 export * from './random';
+export * from './tempo-map';

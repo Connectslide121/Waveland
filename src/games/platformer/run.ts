@@ -1,4 +1,4 @@
-import type { Section } from '../../core';
+import { beatAt, periodAt, timeOfBeat, type Section, type TempoGrid } from '../../core';
 import { stepAt } from './level/validate';
 import { LevelWorld, xAtTime, type PlatformerLevel } from './level';
 import {
@@ -26,6 +26,8 @@ export const PERFECT_WINDOW = 0.06;
 export const GOOD_WINDOW = 0.12;
 /** Beats of count-in after a pause: the music rewinds this far and the player waits. */
 export const RESUME_BEATS = 2;
+/** Beats of count-in before every (re)start from a checkpoint: a bar. */
+export const BAR_BEATS = 4;
 /** How long the death effect plays, in song time, before the music rewinds. */
 export const DEATH_TIME = 0.7;
 /** Points, before the combo multiplier. A slam landing on the beat is an accent: doubled. */
@@ -126,10 +128,10 @@ export function checkpointsOf(level: PlatformerLevel, sections: Section[]): Chec
   return points.sort((a, b) => a.time - b.time);
 }
 
-/** Seconds from `t` to the nearest beat of the level's grid. */
-export function offBeat(level: Pick<PlatformerLevel, 'gridStart' | 'beatPeriod'>, t: number) {
-  const beats = (t - level.gridStart) / level.beatPeriod;
-  return Math.abs(beats - Math.round(beats)) * level.beatPeriod;
+/** Seconds from `t` to the nearest beat of the level's grid, at the tempo there. */
+export function offBeat(grid: Pick<TempoGrid, 'beats' | 'segments'>, t: number) {
+  const beats = beatAt(grid, t);
+  return Math.abs(beats - Math.round(beats)) * periodAt(grid, t);
 }
 
 export function multiplierOf(combo: number): number {
@@ -139,8 +141,6 @@ export function multiplierOf(combo: number): number {
 export class PlatformerRun {
   readonly world: LevelWorld;
   readonly checkpoints: Checkpoint[];
-  /** Seconds of one bar: the count-in before every (re)start. */
-  readonly bar: number;
 
   phase: RunPhase = 'countin';
   player: PlayerState;
@@ -167,7 +167,7 @@ export class PlatformerRun {
   /** The score as it was at the checkpoint, put back on a death. */
   #saved: Score;
   #step = 0;
-  /** Seconds of music before `resumeAt` that the count-in plays. */
+  /** Beats of music before `resumeAt` that the count-in plays, following the tempo map. */
   #countIn: number;
   /** Presses wait this long for the moment they can act (jump and dash buffer, slam this frame). */
   #jumpUntil = -Infinity;
@@ -182,11 +182,10 @@ export class PlatformerRun {
   ) {
     this.world = new LevelWorld(level);
     this.checkpoints = checkpointsOf(level, sections);
-    this.bar = 4 * level.beatPeriod;
     this.checkpoint = this.checkpoints[0]!;
     this.player = this.#spawn(this.checkpoint);
     this.resumeAt = this.checkpoint.time;
-    this.#countIn = this.bar;
+    this.#countIn = BAR_BEATS;
     this.#score = {
       score: 0,
       combo: 0,
@@ -217,7 +216,13 @@ export class PlatformerRun {
    * or `RESUME_BEATS` before where a pause stopped the player.
    */
   get countInFrom(): number {
-    return this.resumeAt - this.#countIn;
+    const grid = this.level.grid;
+    return timeOfBeat(grid, beatAt(grid, this.resumeAt) - this.#countIn);
+  }
+
+  /** How many beats the count-in has: a bar, or `RESUME_BEATS` after a pause. */
+  get countInBeats(): number {
+    return this.#countIn;
   }
 
   /**
@@ -228,7 +233,7 @@ export class PlatformerRun {
   holdForResume(): number {
     if (this.phase !== 'playing') return this.countInFrom;
     this.resumeAt = this.#step * PHYSICS_DT;
-    this.#countIn = RESUME_BEATS * this.level.beatPeriod;
+    this.#countIn = RESUME_BEATS;
     this.#clearPresses();
     this.phase = 'countin';
     return this.countInFrom;
@@ -270,7 +275,7 @@ export class PlatformerRun {
   respawn(): number {
     this.player = this.#spawn(this.checkpoint);
     this.resumeAt = this.checkpoint.time;
-    this.#countIn = this.bar;
+    this.#countIn = BAR_BEATS;
     this.#clearPresses();
     this.landedAt = -Infinity;
     this.jumpedAt = -Infinity;
@@ -356,7 +361,7 @@ export class PlatformerRun {
 
   /** Rate something the player did by how close to a beat it is, and score it. */
   #judge(action: BeatAction, t: number, p: PlayerState): RunEvent {
-    const off = offBeat(this.level, t);
+    const off = offBeat(this.level.grid, t);
     const quality: BeatQuality =
       off <= PERFECT_WINDOW ? 'perfect' : off <= GOOD_WINDOW ? 'good' : 'miss';
     this.#judged++;

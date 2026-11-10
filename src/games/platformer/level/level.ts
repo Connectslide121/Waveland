@@ -1,7 +1,8 @@
-import type { Difficulty, SectionKind } from '../../../core';
+import { beatAt, type Difficulty, type SectionKind, type TempoGrid } from '../../../core';
 import {
   ANCHOR_X,
   EQ_EASE,
+  scrollSpeed,
   SPIKE_HEIGHT,
   SPIKE_MERCY,
   VIEW_WIDTH,
@@ -119,16 +120,29 @@ export interface Chunk {
   repairs: number;
 }
 
+/**
+ * A piece of the scroll: from song time `t` the player's x is `x + v·dt + a·dt²/2`. Steady
+ * through a tempo segment (`a` 0), easing from one segment's speed to the next over a beat.
+ */
+export interface ScrollPiece {
+  t: number;
+  x: number;
+  /** Speed at `t`, px/s. */
+  v: number;
+  /** Change of speed, px/s². */
+  a: number;
+}
+
 export interface PlatformerLevel {
   seed: number;
   difficulty: Difficulty;
   duration: number;
+  /** The main tempo, for display. */
   tempo: number;
-  /** The beat grid: first beat and seconds per beat. Spikes follow it. */
-  gridStart: number;
-  beatPeriod: number;
-  /** How fast the camera scrolls, px/s. */
-  speed: number;
+  /** The song's beat grid, following its tempo map. Spikes, scoring and the HUD follow it. */
+  grid: TempoGrid;
+  /** How the camera scrolls with song time, sorted by `t`: see `xAtTime`. */
+  scroll: ScrollPiece[];
   /** Sorted by `x0`. */
   solids: Solid[];
   /** Sorted by `x0`. */
@@ -145,19 +159,89 @@ export interface PlatformerLevel {
   finishX: number;
 }
 
+/** The scroll piece at song time `t` (the first before the song). */
+function pieceAt(scroll: readonly ScrollPiece[], t: number): ScrollPiece {
+  let lo = 0;
+  let hi = scroll.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (scroll[mid]!.t <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return scroll[lo]!;
+}
+
 /**
  * Where the player is at song time `t`: the left edge of their box, always at the view's
  * anchor. Everything in the level is placed with it, and the physics takes the player's
- * x from it, so nothing else works out positions from the speed. A steady scroll today;
- * a function of the level so it can follow the tempo later.
+ * x from it, so nothing else works out positions from the speed. The integral of the
+ * scroll's speed, which follows the tempo map.
  */
-export function xAtTime(level: Pick<PlatformerLevel, 'speed'>, t: number): number {
-  return level.speed * t + ANCHOR_X;
+export function xAtTime(level: Pick<PlatformerLevel, 'scroll'>, t: number): number {
+  const p = pieceAt(level.scroll, t);
+  const dt = t - p.t;
+  return p.a === 0 ? p.v * dt + p.x : p.x + p.v * dt + 0.5 * p.a * dt * dt;
+}
+
+/** How fast the camera scrolls at song time `t`, px/s. */
+export function speedAt(level: Pick<PlatformerLevel, 'scroll'>, t: number): number {
+  const p = pieceAt(level.scroll, t);
+  return p.v + p.a * (t - p.t);
+}
+
+/** The song time the player is at `x`: the inverse of `xAtTime`. */
+export function timeAtX(level: Pick<PlatformerLevel, 'scroll'>, x: number): number {
+  const scroll = level.scroll;
+  let lo = 0;
+  let hi = scroll.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (scroll[mid]!.x <= x) lo = mid;
+    else hi = mid - 1;
+  }
+  const p = scroll[lo]!;
+  const dx = x - p.x;
+  if (p.a === 0) return p.t + dx / p.v;
+  return p.t + (Math.sqrt(Math.max(0, p.v * p.v + 2 * p.a * dx)) - p.v) / p.a;
 }
 
 /** The camera's left edge at song time `t`. */
-export function cameraAt(level: Pick<PlatformerLevel, 'speed'>, t: number): number {
+export function cameraAt(level: Pick<PlatformerLevel, 'scroll'>, t: number): number {
   return xAtTime(level, t) - ANCHOR_X;
+}
+
+/** Speeds closer than this share are one: the scroll doesn't ease between them. */
+const SAME_SPEED = 0.01;
+
+/** A scroll at one speed, px/s: the player at the anchor at song time 0. */
+export function steadyScroll(speed: number): ScrollPiece[] {
+  return [{ t: 0, x: ANCHOR_X, v: speed, a: 0 }];
+}
+
+/**
+ * The scroll for a tempo map: each segment at `scrollSpeed` of its tempo, easing to the
+ * next segment's speed over that segment's first beat, so a tempo change speeds the
+ * player up or slows them down without a jerk. Segments that fold to the same speed (a
+ * switch to half time) keep the speed they had.
+ */
+export function scrollFor(grid: Pick<TempoGrid, 'segments'>): ScrollPiece[] {
+  const [first, ...rest] = grid.segments;
+  const scroll = steadyScroll(scrollSpeed(first?.tempo ?? 0));
+  for (const s of rest) {
+    const last = scroll[scroll.length - 1]!;
+    const v = scrollSpeed(s.tempo);
+    // A switch to half or double time (or a nudge of the tempo) keeps the speed.
+    if (Math.abs(v - last.v) < SAME_SPEED * last.v) continue;
+    const ease = Math.min(s.beatPeriod, s.end - s.start);
+    const from = { t: s.start, x: xAtTime({ scroll }, s.start), v: last.v, a: (v - last.v) / ease };
+    scroll.push(from, {
+      t: s.start + ease,
+      x: xAtTime({ scroll: [from] }, s.start + ease),
+      v,
+      a: 0,
+    });
+  }
+  return scroll;
 }
 
 /** Top of a solid at time `t`, or null when it isn't there. */
@@ -183,8 +267,8 @@ export function solidTop(solid: Solid, t: number): number | null {
 }
 
 /** True when spikes are out at `t`: from each off-beat until the next beat. */
-export function spikesOut(level: Pick<PlatformerLevel, 'gridStart' | 'beatPeriod'>, t: number) {
-  const beats = (t - level.gridStart) / level.beatPeriod;
+export function spikesOut(level: Pick<PlatformerLevel, 'grid'>, t: number) {
+  const beats = beatAt(level.grid, t);
   return beats - Math.floor(beats) >= 0.5;
 }
 

@@ -1,5 +1,5 @@
 import * as Phaser from 'phaser';
-import { getEffects, onSettingsChange, type LevelMap } from '../../core';
+import { beatAt, getEffects, onSettingsChange, periodAt, type LevelMap } from '../../core';
 import { palette, paletteNumbers } from '../../theme/palette';
 import {
   cameraAt,
@@ -7,12 +7,12 @@ import {
   MAX_SOLID_WIDTH,
   solidTop,
   spikesOut,
+  timeAtX,
   type PlatformerLevel,
   type Solid,
 } from './level';
 import { FrameMonitor, QUALITY, type Quality } from './perf';
 import {
-  ANCHOR_X,
   DASH_TIME,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
@@ -552,12 +552,12 @@ export class PlatformerScene extends Phaser.Scene {
 
   /** How strong the drop's set piece is at `t`: 1 through it, easing off after. */
   #dropLevel(t: number): number {
-    const bar = 4 * this.level.beatPeriod;
     let level = 0;
     for (const d of this.#music.drops) {
       if (t < d.start) break;
       if (t < d.end) return 1;
-      level = Math.max(level, 1 - (t - d.end) / (CALM_BARS * bar));
+      const bars = (beatAt(this.level.grid, t) - beatAt(this.level.grid, d.end)) / 4;
+      level = Math.max(level, 1 - bars / CALM_BARS);
     }
     return level;
   }
@@ -575,7 +575,7 @@ export class PlatformerScene extends Phaser.Scene {
       shakeY = Math.cos(sinceDeath * 70) * 5 * k;
     }
     const drop = this.#dropLevel(time);
-    const beat = Math.floor((time - level.gridStart) / level.beatPeriod + 1e-6);
+    const beat = Math.floor(beatAt(level.grid, time) + 1e-6);
 
     // Bursts for what happened since the last frame: a landing, a beat of the drop.
     if (run.landedAt > this.#landingSeen && run.player.alive) {
@@ -870,7 +870,8 @@ export class PlatformerScene extends Phaser.Scene {
     const g = this.#back.clear();
     const z = this.#zoom;
     const level = this.level;
-    const beatIndex = Math.floor((time - level.gridStart) / level.beatPeriod);
+    const beatIndex = Math.floor(beatAt(level.grid, time));
+    const period = periodAt(level.grid, time);
     const energy = this.#music.energy[Math.max(0, beatIndex)] ?? 0.4;
 
     // Two faint wave lines across the sky, drifting with the song, taller when it's loud.
@@ -883,7 +884,7 @@ export class PlatformerScene extends Phaser.Scene {
     const cy = this.#offsetY + VIEW_HEIGHT * 0.37 * z;
     const radius = VIEW_WIDTH * 0.11 * z;
     const kicks = this.#music.kicks;
-    const ringLife = RING_BEATS * level.beatPeriod;
+    const ringLife = RING_BEATS * period;
     let last = -1;
     for (let lo = 0, hi = kicks.length - 1; lo <= hi;) {
       const mid = (lo + hi) >> 1;
@@ -899,7 +900,7 @@ export class PlatformerScene extends Phaser.Scene {
       if (age > ringLife) break;
       const k = age / ringLife;
       const strength = 0.5 + 0.5 * kick.intensity;
-      if (i === last) thump = Math.max(0, 1 - age / (0.4 * level.beatPeriod)) * strength;
+      if (i === last) thump = Math.max(0, 1 - age / (0.4 * period)) * strength;
       const r = radius * (0.3 + 1.1 * (1 - Math.pow(1 - k, 2)));
       g.lineStyle(7 * z, paletteNumbers.violet, 0.12 * (1 - k) * strength).strokeCircle(cx, cy, r);
       g.lineStyle(2 * z, paletteNumbers.violet, 0.9 * (1 - k) * strength).strokeCircle(cx, cy, r);
@@ -1156,10 +1157,10 @@ export class PlatformerScene extends Phaser.Scene {
     let lit = solidTop(s, t) === null ? 0 : 1;
     if (lit === 0) {
       // Coming out soon: fades in, blinking on the sixteenths (steady with effects reduced).
-      const period = this.level.beatPeriod;
       let next = Infinity;
       for (const [from] of s.windows!) if (from > t && from < next) next = from;
-      const ahead = (next - t) / period;
+      const ahead =
+        next === Infinity ? Infinity : beatAt(this.level.grid, next) - beatAt(this.level.grid, t);
       if (ahead < BRIDGE_WARN_BEATS) {
         const fade = 1 - ahead / BRIDGE_WARN_BEATS;
         const blink = this.#reduced || (ahead * 4) % 1 < 0.5 ? 1 : 0.35;
@@ -1180,7 +1181,7 @@ export class PlatformerScene extends Phaser.Scene {
 
   #drawSpikes(g: Phaser.GameObjects.Graphics, t: number, x0: number, x1: number): void {
     const out = spikesOut(this.level, t);
-    const phase = (t - this.level.gridStart) / this.level.beatPeriod;
+    const phase = beatAt(this.level.grid, t);
     const p = phase - Math.floor(phase);
     // Tucked in on the beat, rising a little just before the off-beat as a warning, then
     // out (and deadly) until the next beat.
@@ -1220,9 +1221,8 @@ export class PlatformerScene extends Phaser.Scene {
     const bob = Math.sin(beatPhase * Math.PI * 2) * 3;
     const pickups = run.level.pickups;
     // Sorted by song time, and each near where the anchored player is then.
-    const speed = this.level.speed;
-    const from = (x0 - ANCHOR_X - PICKUP_MARGIN) / speed;
-    const to = (x1 - ANCHOR_X + PICKUP_MARGIN) / speed;
+    const from = timeAtX(this.level, x0 - PICKUP_MARGIN);
+    const to = timeAtX(this.level, x1 + PICKUP_MARGIN);
     let lo = 0;
     for (let hi = pickups.length; lo < hi;) {
       const mid = (lo + hi) >> 1;

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ANCHOR_X, PLAYER_HEIGHT, PLAYER_WIDTH } from '../physics';
 import { dashPitAir, DASH_REACH, gateAt, JUMP_REACH, pitAt } from './generate';
-import { xAtTime } from './level';
+import { steadyScroll, xAtTime } from './level';
 import { ground, overhang, testLevel } from './test-level';
 import { validateLevel } from './validate';
 
 const SPEED = 200;
-const x = (t: number) => xAtTime({ speed: SPEED }, t);
+const x = (t: number) => xAtTime({ scroll: steadyScroll(SPEED) }, t);
 
 /** Ground with one pit the player takes off over at 1 s, needing `air` seconds over it. */
 function withPit(air: number, landing = 0) {

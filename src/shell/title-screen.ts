@@ -1,6 +1,7 @@
 import {
   AUDIO_ACCEPT,
   beatFit,
+  describeTempos,
   MIN_SONG_SECONDS,
   songFromFile,
   type AnalysedSong,
@@ -276,15 +277,17 @@ export function createTitleScreen({
       zoneSub.textContent = 'Listening for the beat, the sections and the drops';
     } else if (song) {
       zoneMain.textContent = song.title;
-      // One steady grid is all the games keep to: say when the song doesn't have one.
+      // The games follow the song's tempo map: say when it changes, or has no clear beat.
       const fit = analysed ? beatFit(analysed.analysis) : 'steady';
       const bpm = Math.round(analysed?.analysis.tempo ?? 120);
       zoneSub.textContent =
         fit === 'none'
           ? `No clear beat · the level keeps ${bpm} BPM`
-          : fit === 'changing'
-            ? `Tempo changes · the level keeps ${bpm} BPM`
-            : 'Drop another song or click to change it';
+          : fit === 'loose'
+            ? `Loose beat · the level keeps about ${bpm} BPM`
+            : fit === 'changing'
+              ? `Tempo changes, ${describeTempos(analysed!.analysis.segments)} BPM · the level follows it`
+              : 'Drop another song or click to change it';
     } else {
       zoneMain.textContent = 'Drop a song here';
       zoneSub.textContent = 'or choose one from your computer';

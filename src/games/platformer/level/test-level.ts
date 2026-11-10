@@ -1,6 +1,14 @@
 /** Hand-built levels for the physics and validator tests. */
+import { steadyGrid } from '../../../core';
 import { ANCHOR_X } from '../physics';
-import { LevelWorld, type Gate, type PlatformerLevel, type Solid, type SpikeStrip } from './level';
+import {
+  LevelWorld,
+  steadyScroll,
+  type Gate,
+  type PlatformerLevel,
+  type Solid,
+  type SpikeStrip,
+} from './level';
 
 export function testLevel(
   solids: Solid[],
@@ -23,9 +31,9 @@ export function testLevel(
     difficulty: 'normal',
     duration,
     tempo: 120,
-    gridStart: 0,
-    beatPeriod: 0.5,
-    speed,
+    // 120 BPM from 0.
+    grid: steadyGrid(0, 0.5, duration),
+    scroll: steadyScroll(speed),
     solids: [],
     spikes: [],
     gates: [],

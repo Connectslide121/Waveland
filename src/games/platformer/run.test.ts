@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Section } from '../../core';
+import { steadyGrid, type Section } from '../../core';
 import type { Chunk } from './level';
 import { ground, testLevel } from './level/test-level';
 import { ANCHOR_X, JUMP_AIR, PHYSICS_DT, PLAYER_WIDTH } from './physics';
@@ -75,7 +75,8 @@ describe('PlatformerRun', () => {
     const stopped = run.player.x;
     const from = run.holdForResume();
     expect(run.phase).toBe('countin');
-    expect(from).toBeCloseTo(run.resumeAt - RESUME_BEATS * level.beatPeriod);
+    expect(from).toBeCloseTo(run.resumeAt - RESUME_BEATS * 0.5);
+    expect(run.countInBeats).toBe(RESUME_BEATS);
     expect(run.resumeAt).toBeCloseTo(1, 1);
 
     // The music plays the beats before; the player waits, then runs on from there.
@@ -137,7 +138,8 @@ describe('PlatformerRun', () => {
     expect(run.update(run.diedAt + DEATH_TIME / 2, NOTHING).respawn).toBe(false);
     expect(run.update(run.diedAt + DEATH_TIME, NOTHING).respawn).toBe(true);
 
-    expect(run.respawn()).toBeCloseTo(-run.bar);
+    // A bar at 120 BPM before the start.
+    expect(run.respawn()).toBeCloseTo(-2);
     expect(run.phase).toBe('countin');
     expect(run.player.x).toBe(level.start.x);
     expect(run.player.alive).toBe(true);
@@ -224,10 +226,25 @@ describe('checkpointsOf', () => {
 
 describe('scoring helpers', () => {
   it('measures how far a moment is from the nearest beat', () => {
-    const grid = { gridStart: 0.1, beatPeriod: 0.5 };
+    const grid = steadyGrid(0.1, 0.5, 10);
     expect(offBeat(grid, 1.1)).toBeCloseTo(0);
     expect(offBeat(grid, 1.2)).toBeCloseTo(0.1);
     expect(offBeat(grid, 1.0)).toBeCloseTo(0.1);
+  });
+
+  it('measures it at the tempo of the moment when the tempo changes', () => {
+    // 120 BPM until 4 s, then 150 BPM.
+    const grid = {
+      segments: [
+        { start: 0, end: 4, tempo: 120, beatPeriod: 0.5 },
+        { start: 4, end: 10, tempo: 150, beatPeriod: 0.4 },
+      ],
+      beats: [...[0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5], ...[4, 4.4, 4.8, 5.2, 5.6, 6]],
+      downbeats: [0, 2, 4, 5.6],
+    };
+    expect(offBeat(grid, 3.6)).toBeCloseTo(0.1);
+    expect(offBeat(grid, 4.45)).toBeCloseTo(0.05);
+    expect(offBeat(grid, 4.6)).toBeCloseTo(0.2);
   });
 
   it('raises the multiplier with the combo, up to its most', () => {

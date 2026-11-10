@@ -228,9 +228,19 @@ describe('title screen', () => {
     pick(fileInput, 'Live.mp3');
     const slow = Array.from({ length: 64 }, (_, i) => (i * 60) / 100);
     const fast = Array.from({ length: 128 }, (_, i) => 40 + (i * 60) / 130);
-    analysis.finish(analysisOf({ tempo: 100, beats: [...slow, ...fast] }));
+    const segments = [
+      { start: 0, end: 40, tempo: 100, beatPeriod: 0.6 },
+      { start: 40, end: 120, tempo: 130, beatPeriod: 60 / 130 },
+    ];
+    analysis.finish(analysisOf({ tempo: 130, segments, beats: [...slow, ...fast] }));
     await vi.waitFor(() => expect(play.disabled).toBe(false));
-    expect(zone.textContent).toContain('Tempo changes · the level keeps 100 BPM');
+    expect(zone.textContent).toContain('Tempo changes, 100 → 130 BPM · the level follows it');
+
+    // The same beats without a tempo map drift off one grid: a loose beat.
+    pick(fileInput, 'Jam.mp3');
+    analysis.finish(analysisOf({ tempo: 100, beats: [...slow, ...fast] }));
+    await vi.waitFor(() => expect(zone.textContent).toContain('Loose beat'));
+    expect(zone.textContent).toContain('the level keeps about 100 BPM');
 
     pick(fileInput, 'Rain.mp3');
     analysis.finish(analysisOf({ beats: [] }));
