@@ -21,6 +21,8 @@ import {
 /** Landing within this many seconds of a beat is perfect, or good. */
 export const PERFECT_WINDOW = 0.06;
 export const GOOD_WINDOW = 0.12;
+/** Beats of count-in after a pause: the music rewinds this far and the player waits. */
+export const RESUME_BEATS = 2;
 /** How long the death effect plays, in song time, before the music rewinds. */
 export const DEATH_TIME = 0.7;
 /** Points, before the combo multiplier. */
@@ -51,7 +53,8 @@ export type RunEvent =
   | { type: 'death'; cause: NonNullable<PlayerState['death']>; x: number; y: number };
 
 /**
- * countin: frozen at the checkpoint while the bar before it plays (or a silent bar at the start).
+ * countin: frozen at the checkpoint while the bar before it plays (or a silent bar at the start),
+ * or where a pause stopped the player while the two beats before it play.
  * playing: running. dying: the death effect, music still going. finished: the song is over.
  */
 export type RunPhase = 'countin' | 'playing' | 'dying' | 'finished';
@@ -140,6 +143,8 @@ export class PlatformerRun {
   /** The score as it was at the checkpoint, put back on a death. */
   #saved: Score;
   #step = 0;
+  /** Seconds of music before `resumeAt` that the count-in plays. */
+  #countIn: number;
   #jumpUntil = -Infinity;
   #landings = 0;
   #onBeat = 0;
@@ -154,6 +159,7 @@ export class PlatformerRun {
     this.checkpoint = this.checkpoints[0]!;
     this.player = this.#spawn(this.checkpoint);
     this.resumeAt = this.checkpoint.time;
+    this.#countIn = this.bar;
     this.#score = {
       score: 0,
       combo: 0,
@@ -179,9 +185,26 @@ export class PlatformerRun {
     return this.#score.collected[index] === 1;
   }
 
-  /** The song time to play the music from for the count-in: a bar before the checkpoint. */
+  /**
+   * The song time to play the music from for the count-in: a bar before the checkpoint,
+   * or `RESUME_BEATS` before where a pause stopped the player.
+   */
   get countInFrom(): number {
-    return this.resumeAt - this.bar;
+    return this.resumeAt - this.#countIn;
+  }
+
+  /**
+   * Going on after a pause: the player stays where they are, frozen through a short
+   * count-in, so play never starts again mid-jump without warning. Returns where the music
+   * plays from. Only while playing: a count-in or a death plays on as it was.
+   */
+  holdForResume(): number {
+    if (this.phase !== 'playing') return this.countInFrom;
+    this.resumeAt = this.#step * PHYSICS_DT;
+    this.#countIn = RESUME_BEATS * this.level.beatPeriod;
+    this.#jumpUntil = -Infinity;
+    this.phase = 'countin';
+    return this.countInFrom;
   }
 
   /**
@@ -213,6 +236,7 @@ export class PlatformerRun {
   respawn(): number {
     this.player = this.#spawn(this.checkpoint);
     this.resumeAt = this.checkpoint.time;
+    this.#countIn = this.bar;
     this.#jumpUntil = -Infinity;
     this.landedAt = -Infinity;
     this.jumpedAt = -Infinity;

@@ -7,6 +7,7 @@ import {
   checkpointsOf,
   COMBO_STEP,
   DEATH_TIME,
+  RESUME_BEATS,
   multiplierOf,
   offBeat,
   PlatformerRun,
@@ -43,6 +44,24 @@ function play(run: PlatformerRun, from: number, to: number, input: RunInput, fra
 }
 
 describe('PlatformerRun', () => {
+  it('counts in again after a pause, holding the player where they stopped', () => {
+    const { level } = testLevel([ground(-40, 5000)], { speed: 100, duration: 10 });
+    const run = new PlatformerRun(level, []);
+    play(run, 0, 1, RIGHT);
+    const stopped = run.player.x;
+    const from = run.holdForResume();
+    expect(run.phase).toBe('countin');
+    expect(from).toBeCloseTo(run.resumeAt - RESUME_BEATS * level.beatPeriod);
+    expect(run.resumeAt).toBeCloseTo(1, 1);
+
+    // The music plays the beats before; the player waits, then runs on from there.
+    play(run, from, run.resumeAt - 0.01, RIGHT);
+    expect(run.player.x).toBe(stopped);
+    play(run, run.resumeAt, run.resumeAt + 0.2, RIGHT);
+    expect(run.phase).toBe('playing');
+    expect(run.player.x).toBeCloseTo(stopped + RUN_SPEED * 0.2, -1);
+  });
+
   it('holds the player through the count-in, then steps the physics on song time', () => {
     const { level } = testLevel([ground(-40, 5000)], { speed: 100, duration: 10 });
     const run = new PlatformerRun(level, []);

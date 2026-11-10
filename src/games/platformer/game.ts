@@ -103,8 +103,9 @@ class PlatformerSession {
     this.pause.close();
     this.#paused = false;
     this.controls.enabled = true;
-    // A count-in that was cut short starts again; otherwise play on from where it stopped.
-    this.#seek(this.run.phase === 'countin' ? this.run.countInFrom : undefined);
+    // A short count-in up to where it stopped (or the cut-short count-in again); a death
+    // plays on.
+    this.#seek(this.run.phase === 'dying' ? undefined : this.run.holdForResume());
   }
 
   /** Called by the scene every frame: move the run on, update the HUD, say what to draw. */
@@ -129,11 +130,15 @@ class PlatformerSession {
     const beats = (time - this.level.gridStart) / this.level.beatPeriod;
     const index = Math.floor(beats + 1e-6);
     const beatInBar = (((index - this.map.barPhase) % 4) + 4) % 4;
+    // Beats left, never more than the count-in has: the output latency starts the clock a
+    // little before the count-in's first beat.
+    const { resumeAt, countInFrom } = this.run;
+    const countInBeats = Math.round((resumeAt - countInFrom) / this.level.beatPeriod);
     const countIn =
       this.run.phase === 'countin'
         ? Math.max(
             1,
-            Math.min(4, Math.ceil((this.run.resumeAt - time) / this.level.beatPeriod - 1e-6)),
+            Math.min(countInBeats, Math.ceil((resumeAt - time) / this.level.beatPeriod - 1e-6)),
           )
         : null;
     this.hud.update({

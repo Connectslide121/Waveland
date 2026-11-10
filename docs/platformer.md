@@ -45,7 +45,7 @@ Deterministic: the generator's randomness is seeded by the song's map seed, the 
 - **The drop's set piece**: through each drop chunk the sky flashes magenta and violet on every beat, two big waveforms ripple, particles burst from the player on every beat over the magenta staircase and DROP thumps at the top; then it calms down over two bars.
 - **Effects intensity** (Settings): reduced turns off the flashes (the drop glows steadily instead) and the screen shake; it follows `prefers-reduced-motion` until the player picks. On a 1920×1080 canvas a drop frame takes about 5–10 ms of CPU and GPU, the bloom included.
 - **Settings** (`src/shell/settings.ts`, from the title screen and the pause menu): music volume (a shared gain node, applied at once), effects intensity, and the audio latency offset, nudged in 5 ms steps or calibrated by tapping along to a 100 BPM metronome (the median lateness of the taps; uneven taps are turned down).
-- **HUD and menus** (`ui.ts`) are HTML over the canvas: song and BPM, beat dots, score and combo, the count-in, progress with the drops marked; the pause menu (Esc: Resume, Restart, Settings, Quit) and the results screen (Retry, Back to menu). Switching away from the tab pauses.
+- **HUD and menus** (`ui.ts`) are HTML over the canvas: song and BPM, beat dots, score and combo, the count-in, progress with the drops marked; the pause menu (Esc: Resume, Restart, Settings, Quit) and the results screen (Retry, Back to menu). Switching away from the tab pauses. Resume holds the player where they stopped and rewinds the music `RESUME_BEATS` (two beats) for a short count-in, so play never starts again mid-jump without warning.
 
 ## Where to look
 
