@@ -7,7 +7,7 @@ A collection of music games in the browser. You drop in any song and each game b
 | Game | Status | Idea |
 |---|---|---|
 | Platformer | Playable | An auto-runner locked to the song: you always run in time with the music, and jump, dash and slam through a world that moves with it. Equaliser columns rise and fall with the bass, bridges appear on snares, dash gates stand on the accents, slam plates break on heavy kicks and at the end of fills, spikes come out on off-beats, drops become set pieces. |
-| Tunnel | Playable (being tuned) | Race down a 3D tunnel that bends and climbs with the melody and pulses with the bass: hop between lanes and jump low walls as obstacles land on the beat, ride rails of gems along held notes, and burst through the drops. |
+| Tunnel | Playable | Race down a 3D tunnel that bends and climbs with the melody and pulses with the bass: hop between lanes and jump low walls as obstacles land on the beat, ride rails of gems along held notes, and burst through the drops. |
 
 More music games can join later; each is a mode picked from the same menu.
 
@@ -49,7 +49,7 @@ That starts the dev server and opens the game in your browser, normally at <http
 Pick **Tunnel** instead, with the same song and difficulty picker: **Easy** has three lanes and wide gaps, **Normal** and **Hard** five lanes (hard adds blocks sliding on the off-beats). You race down the tunnel by yourself, in time with the music:
 
 - **steer** one lane left or right (hold to keep hopping every half beat) round the orange blocks: one on a kick, its mirror on a snare, a slalom on a fill;
-- walls on the accents leave a gap to steer to; the lowest of them are **jumped**;
+- walls on the accents leave a gap to steer to; on the loudest accents they are low walls across every lane, to **jump** (on easy only the very loudest);
 - magenta gems sit on the hi-hats and off-beats, rails of gems run along held notes, and a drop opens the tunnel wide with a wave of gems in every lane;
 - when the band stops, the tunnel goes dark: steer to the gap of the wall that comes with its return.
 

@@ -2,7 +2,7 @@
 
 `src/games/tunnel` is Waveland's second game: a race down a 3D tunnel built from the song, like Audiosurf or Thumper. It reads the same `LevelMap` from the core as the platformer and never analyses audio itself. Three.js draws it.
 
-This file starts as the build plan (the design and the steps, `## Build steps`); each step updates the sections it changes, so it ends as the tunnel's reference, like `docs/platformer.md`.
+This file is the tunnel's reference, like `docs/platformer.md`: the design, the track and its grammar, the proof that every track can be raced clean, scoring and the look. What is still open is at the end (Open points).
 
 ## The design
 
@@ -50,7 +50,7 @@ In `generate.ts`, `momentsOf` turns each moment into a candidate with the beats 
 |---|---|---|
 | Kick | A block in one lane, on the kick's time (`kick`) | Two lanes for a kick at least `twoLane` strong (normal 0.8, hard 0.6, never on easy) |
 | Snare | A block on the other side of the centre from the last kick's block (`snare`): its mirror, or beside the centre when the kick's block was about the centre. A groove steers left-right with the beat | — |
-| Accent | A wall across every lane but `gaps` (two on easy, one on normal and hard), with a beat and a half of free track before it to steer to the gap (`wall`). The gap starts at the picked lane and widens on the side nearer the centre (`gapLanes`) | At least `lowAccent` strong (0.85, 0.75, 0.7): a low wall across every lane, to jump (`low`) |
+| Accent | A wall across every lane but `gaps` (two on easy, one on normal and hard), with a beat and a half of free track before it to steer to the gap (`wall`). The gap starts at the picked lane and widens on the side nearer the centre (`gapLanes`) | At least `lowAccent` strong (0.95, 0.85, 0.75): a low wall across every lane, to jump (`low`) |
 | Held sound | Not an obstacle, something to ride (`holds`): while a note holds, a rail of gems every half beat along the lane the obstacles block least; while a chord or a cymbal rings, a ring of light across the tunnel | As long as it holds, up to 8 beats |
 | Stop | The tunnel goes dark and empty (`dark`; the planner lets nothing else in), and the band's return lands a wall with the difficulty's gaps (`stop`). The empty dark is the time to steer to the gap | — |
 | Syncopation (hard) | A block sliding one lane across over the half beat before the off-beat, in the target lane when the racer meets it (`slide`, `Obstacle.slide`). The physics reads the block where it is | — |
@@ -61,7 +61,7 @@ In `generate.ts`, `momentsOf` turns each moment into a candidate with the beats 
 
 **Repeats.** A bar the song plays again (`BarInfo.repeats`) takes the obstacles that bar had a phrase (`PHRASE_BARS`, 4 bars) back, or the first time it was played, each on its own moment there, in the same lanes. A loop of a bar or two plans its first phrase afresh and repeats that. A drop's set piece is never a repeat's source: a bar sounding like one is planned afresh.
 
-**Pickups** (magenta, scoring; `pickupsFor`): the drops' waves, the rails, and gems on hi-hats (every `gemEvery`-th: every other one on easy), and on off-beats with no hats within a beat. The gems follow a line: each takes the free lane nearest the last gem's. A gem is:
+**Pickups** (magenta, scoring; `pickupsFor`): the drops' waves, the rails, and gems on hi-hats (every `gemEvery`-th: every other one on easy and normal, every one on hard), and on off-beats with no hats within a beat. The gems follow a line: each takes the free lane nearest the last gem's. A gem is:
 
 - never within `GEM_CLEAR` (0.15 s) of an obstacle in its lane;
 - never in the dark;
@@ -73,20 +73,23 @@ In `generate.ts`, `momentsOf` turns each moment into a candidate with the beats 
 | | Easy | Normal | Hard |
 |---|---|---|---|
 | Lanes | 3 | 5 | 5 |
-| Common moments used (`hazard`) | 0.35 | 0.55 | 0.9 |
+| Common moments used (`hazard`) | 0.4 | 0.65 | 1 |
 | Weakest kick or snare (`minHit`) | 0.55 | 0.4 | 0.3 |
 | Two-lane kicks (`twoLane`) | never | ≥ 0.8 | ≥ 0.6 |
 | Gap lanes in a wall (`gaps`) | 2 | 1 | 1 |
-| Low walls (`lowAccent`) | ≥ 0.85 | ≥ 0.75 | ≥ 0.7 |
+| Low walls (`lowAccent`) | ≥ 0.95 | ≥ 0.85 | ≥ 0.75 |
 | Sliding blocks, weaving slaloms | no | no | yes |
+| Gems on hi-hats (`gemEvery`) | every other | every other | every one |
 
-Obstacles a minute on the synthetic test songs (`level/test-songs.test.ts`); step 6 tunes them by playing:
+On the synthetic test songs (`src/core/analysis/test-songs.ts`), as tuned by the playtest: obstacles a minute, gems a minute, and the hops a minute the solver needs to get through clean (a player chasing gems hops more):
 
 | Song | Easy | Normal | Hard |
 |---|---|---|---|
-| 170 BPM rock stand-in | 46 | 64 | 80 |
-| 128 BPM electronic track | 22 | 32 | 46 |
-| Melody song | 18 | 26 | 45 |
+| 170 BPM rock stand-in | 49 · 163 gems · 23 hops | 76 · 172 · 29 | 117 · 300 · 59 |
+| 128 BPM electronic track | 26 · 73 · 5 | 39 · 86 · 20 | 48 · 132 · 15 |
+| Melody song (120 BPM) | 19 · 173 · 0 | 32 · 168 · 3 | 53 · 250 · 16 |
+
+The rock stand-in's accents are mostly loud (two thirds at 0.7 or more), so on normal and hard most of its accents are low walls to jump; easy keeps them walls to steer through, all but the very loudest.
 
 ## Always completable
 
@@ -104,7 +107,7 @@ Obstacles a minute on the synthetic test songs (`level/test-songs.test.ts`); ste
 - Candidates in the same state are merged. Every one settled in a lane on the floor is kept; the rest are thinned to 40, spread evenly across the tunnel.
 - It can only miss ways through, never invent one.
 
-`validateLevel(track)` runs it over the whole song. `solveLevel(track)` keeps how each candidate got where it is and returns the presses of one clean way through (a map from step to input), for autoplay (dev: `waveland.autoplay()`, step 4).
+`validateLevel(track)` runs it over the whole song. `solveLevel(track)` keeps how each candidate got where it is and returns the presses of one clean way through (a map from step to input), for autoplay (dev: `waveland.autoplay()`).
 
 **The generator** builds a stretch at a time and runs the search through it before going on:
 
@@ -153,7 +156,7 @@ The only booster is the shield a clean section earns (Scoring); the validator ne
   | B | 50%+ | 50%+ | any |
   | C | finished | | |
 
-- **Autoplay**: `run.autoplay = solveLevel(track)` plays the solver's presses instead of the player's (dev: `waveland.autoplay()`, step 5).
+- **Autoplay**: `run.autoplay = solveLevel(track)` plays the solver's presses instead of the player's (dev: `waveland.autoplay()`).
 
 Tests (`run.test.ts`): count-in and pause, crashes and their cost, hops and jumps judged and buffered, held steering, pickups and the multiplier, overdrive, clean sections and the shield, results and rank, and the 128 BPM electronic test song autoplayed on normal to the end with no crash.
 
@@ -188,38 +191,33 @@ Colours keep their meanings, all from `src/theme/palette.ts`: cyan the craft and
 
 **The session** (`game.ts`, `TunnelSession`) is the platformer's: the audio clock, `GameControls` with the tunnel's actions (`actions.ts`), the shared pause menu (listing left, right, jump, overdrive and pause), results screen and HUD with the shield slot and the last judgement word (`ui.ts`), the count-in, tab-hidden pause, settings changes, `DisplayLead`, and dev autoplay (`waveland.autoplay()`, `solveLevel` on the main thread).
 
-## Build steps
+## How it was built, and decisions worth keeping
 
-Each step is a queue task with its own chat; each ends green (`npm run typecheck`, `test`, `lint`), committed on `main`, and updates this file.
+Built in six steps (Nov 2026): the shared game parts moved out of the platformer (HUD, menus, scoring, controls reader, frame monitor in `src/games/shared/`), the melody contour in the core (`docs/core.md`, The melody), the track, the run, the game, and a playtest. Decided along the way, and still how it works:
 
-1. **Shared game parts.** ✅ Done. Move what both games need out of the platformer: the pause menu, results screen, modal and HUD pieces (`src/games/platformer/ui.ts`) into `src/games/shared/`; per-game control actions in Settings (`left`, `right` added, Settings lists each game's actions); per-game difficulty lines on the title screen (`GameDefinition` carries them). The platformer plays exactly as before.
-   - Done as planned, with these details: the shared parts use `game-` class names (`game-hud`, `game-modal`, `game-od`, `game-results`); the platformer's `ui.ts` wraps them and keeps its boosters, hints, results breakdown and rank rules. `GameDefinition` carries `controls` (the actions, in Settings' order) and `difficulty` (the three lines). Settings' Controls section has a game picker; the tunnel's difficulty lines ("Three lanes and wide gaps, on the strongest hits", "Five lanes and most of the song's hits", "Nearly every hit, with blocks sliding on the off-beats") show once the tunnel is `ready`, since the title screen only selects playable games. Added to the plan: bindings stay shared by every game, but an input only moves off actions some game uses together with the one it is bound to (`rivalActions`; see the controls under The design).
-2. **Melody contour in the core.** ✅ Done. A per-frame pitch height (strongest partial in the melody range, log frequency, smoothed) put on the grid as `LevelMap.mood.melody` (per beat, 0–1 over the song's own range) and its movement. Bump `ANALYSIS_VERSION`, test on the synthetic songs, document in `docs/core.md`.
-   - Done as planned (`docs/core.md`, The melody): `SongAnalysis.melody` is the pitch at 50 samples a second (MIDI notes, 0 for none; `ANALYSIS_VERSION` 7); `LevelMap.mood.melody` the height per beat and `mood.melodyMove` its movement per beat: `rising`, `falling`, `held`, or `none` where no melody is heard. Beats with no melody keep a height filled in between the heard beats around them, so the path never drops to the floor in a gap; the track should read `none` as "no climb or bend of its own here" (for example ease the bend straight) rather than follow the filled height as if it were heard. The random analyses of the level tests (`test-analysis.ts`) carry a wandering melody too, absent in breakdowns, and the song details view shows the curve (MELODY, under the energy). Where no lead plays, a bass's harmonics or a chord's loudest note can read as the melody: the playtest (step 6) should check real songs.
-3. **The track.** ✅ Done. `src/games/tunnel/level/`: path, lanes, speed (`zAtTime`), obstacles and pickups from the grammar above, `stepRacer` physics, the validator and repairs, `solveLevel`, run in a worker. Pure TypeScript, no Three.js; tests for the grammar, the validator and every test song at every difficulty.
-   - Done as planned; the sections above describe it as built. The files:
-     - `physics.ts`: `stepRacer`, lane units across, crashes reported without stopping the race.
-     - `level/track.ts`: `TunnelTrack`, the run, the path, looks, pulse, `TrackWorld`.
-     - `level/generate.ts`: `generateLevel`, the grammar, repairs, pickups.
-     - `level/validate.ts`: `validateLevel`, `solveLevel`.
-     - `level/index.ts`: `generateLevelInWorker`.
-   - Decided along the way:
-     - Held sounds are rails and rings to ride, not obstacles.
-     - A stop's "wall the player must already be past" became a wall with a gap on the band's return; the dark, empty stop is the time to steer to it.
-     - The common moments (kicks, snares, syncopations) are equals ranked by strength, so the loudest hits get a bar's blocks.
-     - A snare answers the middle of the kick's block.
-     - A drop's set piece is never a repeat's source.
-   - Left for later steps: the track has no booster pickups (step 4 decides on any), and the renderer reads the looks, pulse and path (step 5).
-4. **The run.** ✅ Done. `TunnelRun`: input, collisions against the track, pickups, combo, overdrive, crashes, sections, results and rank, autoplay; tests.
-   - Done as planned; Scoring above describes it as built. Beat judging, the multiplier, overdrive, count-ins and ranks moved to `src/games/shared/scoring.ts`, which the platformer's run re-exports; ranks take faults (deaths or crashes) and, for the tunnel, a share of pickups.
-   - Decided along the way:
-     - A missed hop or jump counts against timing but doesn't break the combo; only a crash does.
-     - Only steer presses are judged, not a held steer's repeats.
-     - The shield is earned by a clean section, not picked up: the track stays as step 3 built it. It takes a crash's points, not the combo.
-     - The rank counts pickups taken as well as timing and crashes. Every number here is a first guess for step 6 to tune.
-   - Left for step 5: the session feeds `update` and draws the events (a crash's flash and shake), and the HUD shows the shield; the run's results go to the shared results screen through `summaryOf` and `rankRules()`.
-5. **The game.** ✅ Done. Three.js (`npm i three`), loaded only when the game starts; the session (audio clock, controls, pause, results, HUD), the scene (tunnel, lanes, craft, obstacles, pickups, pulses, bloom, camera following the path), frame monitor, reduced effects; the registry entry turns `ready`. Checked with screenshots on desktop and phone sizes.
-   - Done as planned; Look above describes it as built. The platformer's controls reader and frame monitor moved to `src/games/shared/` (`GameControls`, `FrameMonitor`); the left stick now steers left and right as the d-pad does.
-   - Checked in a browser on the 128 BPM electronic test song with autoplay, on normal: no crash, no console errors, desktop and phone sizes, pause, resume, restart and quit (the canvas is removed).
-   - Left for step 6: every look number (ring brightness, bloom, camera distance and height, the shield bubble's size) is a first guess; the playtest should judge them on real songs and a real screen. An offscreen browser throttles its frames, so the frame monitor there drops to the lowest quality: judge the frame rate on a real window.
-6. **Playtest and tune.** Play the synthetic songs and a few real ones, tune speeds, lane hop timing, density per difficulty and the camera; update this file, `README.md` and `AGENTS.md`.
+- Held sounds are rails and rings to ride, never obstacles.
+- A stop's wall comes on the band's return, with a gap; the dark, empty stop is the time to steer to it.
+- Kicks, snares and syncopations are equals ranked by strength, so the loudest hits get a bar's blocks; a snare answers the middle of the kick's block.
+- A drop's set piece is never a repeat's source.
+- A missed hop or jump counts against timing but doesn't break the combo; only a crash does. Only steer presses are judged, not a held steer's repeats.
+- The shield is earned by a clean section, never picked up, and takes a crash's points, not the combo: the track has no booster pickups, so the validator never needs one.
+- The rank counts pickups taken as well as timing and crashes.
+- `melodyMove` `none` means "no climb or bend of its own here", not "follow the filled-in height".
+
+**The playtest** (step 6) played the three synthetic test songs at every difficulty in a browser, with autoplay and the real keys, measured every track (obstacles, gems and the solver's hops a minute, gaps between obstacles, the path's heading and how far off the craft's heading the tunnel 40 units ahead is), and tuned:
+
+- **Density**: `hazard` up from 0.35, 0.55 and 0.9 to 0.4, 0.65 and 1: normal on the 128 BPM track needed a hop only every 4 s, easy barely ever. Every track still validates, without repairs on all but the rock stand-in on hard (two stretches).
+- **Low walls**: `lowAccent` up from 0.85, 0.75 and 0.7 to 0.95, 0.85 and 0.75. On the rock stand-in nearly every accent was a low wall on every difficulty (14 low walls to 1 wall with a gap on normal); easy now steers through walls (12 walls, 3 low), normal and hard keep jumping the loudest.
+- **Gems**: normal takes every other hi-hat, like easy (`gemEvery` 2): every hat at 170 BPM was a gem every 0.2 s (300 a minute) that drowned out the obstacles. Hard keeps them all.
+- **HUD**: the tube's rings run behind the HUD everywhere, unlike the platformer's dark sky, so the tunnel's HUD text has a night halo (`tn-hud` in `ui.css`).
+
+Judged right as built, and left alone: lane hop time (0.12 s, inside an eighth at 170 BPM) and its half-beat repeat; the run speeds (8.5 to 15 units/s); the bend and climb (the tunnel 40 units ahead is at most 0.13 rad off the craft's heading on every test song, so the far end never leaves the screen, and the melody song visibly bends both ways up to the 0.3 rad cap); the camera's distance, height and follow, on desktop and phone sizes; a frame's work (about 1.5 ms of script a frame at desktop size).
+
+## Open points
+
+- **Real songs.** Only the synthetic test songs have been played. Real songs should check the melody contour where no lead plays (a bass's harmonics or a chord's loudest note can read as the melody, bending the path for no audible reason), and whether accents on loud masters all saturate to low walls like the rock stand-in's.
+- **Steady four-on-the-floor tracks feel light on hard.** On the 128 BPM electronic track hard is only a little busier than normal (48 against 39 obstacles a minute): a bar's share follows its kicks and snares per beat, which a four-on-the-floor beat keeps low, and the track has no syncopations for sliding blocks. A floor for hard, or counting hats in a bar's activity, would change it.
+- **Obstacles off the racer's lane.** A kick's block takes a random lane, so on easy many blocks never stand in the way (the solver needs no hop at all on the melody song's easy track); the gems' line is what makes the player move. Leaning a block towards the lane the gems lead to would make easy less idle, at the cost of the "randomness only picks lanes" freedom.
+- **Frame rate on a real phone.** The offscreen browser throttles frames, so the frame monitor and the frame rate can only be judged on a real window and a real phone.
+- **The rank's pickup share** (90% for S) is a first guess: autoplay ignores gems, so only real players' runs can tune it.
+- **Touch controls**: none yet, like the platformer.
