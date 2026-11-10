@@ -32,6 +32,17 @@ The generator builds a bar (or two) at a time and runs the search through it bef
 
 Deterministic: the generator's randomness is seeded by the song's map seed, the difficulty and the bar, so the same song at the same difficulty always gives the same level, and a repair never changes the bars after it.
 
+## Playing it
+
+`src/games/platformer/game.ts` starts a session: it builds the level in the worker (at normal difficulty, until there is a picker), decodes the song and runs Phaser.
+
+- **Song time only.** Every frame the session reads `AudioClock.time` and `PlatformerRun.update` (`run.ts`) runs the fixed `PHYSICS_DT` steps of `stepPlayer` up to it, so the game moves exactly as the validator checked. The scene (`scene.ts`) draws the level as it is at that time: equaliser heights, bridges, spikes, the camera at `leftEdge(t)`, the squash, the effects. Nothing moves by frame time.
+- **Feel.** Coyote time is in the physics. The jump buffer (`JUMP_BUFFER`) is in the run: a press counts for that long. Variable height is `release` in `stepPlayer`: letting go of jump while rising cuts the speed to `JUMP_CUT_VELOCITY`. The validator never lets go, so levels are still proven with full jumps.
+- **Controls** (`controls.ts`): arrows or A/D, Space/Up/W to jump, Escape to pause; a gamepad's stick or d-pad, A to jump, Start to pause.
+- **Deaths.** The run goes back to its checkpoint: the start of the stretch the current song section begins in (stretches start on a bar line on plain ground). The death effect plays for `DEATH_TIME` of song time, then the music rewinds to one bar before the checkpoint and the player waits through that bar as a 4-3-2-1 count-in. At the start the count-in is a bar of silence: `AudioClock.play` from a negative time.
+- **Score.** Coins and gems, and jump landings within `PERFECT_WINDOW`/`GOOD_WINDOW` of a beat, add to a combo that raises the multiplier every `COMBO_STEP` up to ×4. A landing off the beat or a death breaks the combo, and a death puts the score back to what it was at the checkpoint. Accuracy on the results screen is the share of jump landings on the beat.
+- **HUD and menus** (`ui.ts`) are HTML over the canvas: song and BPM, beat dots, score and combo, the count-in, progress with the drops marked; the pause menu (Esc: Resume, Restart, Quit) and the results screen (Retry, Back to menu). Switching away from the tab pauses.
+
 ## Where to look
 
 - Song details view, below the analysis: a side-on preview of the level at a picked difficulty, following the playhead (`src/shell/level-preview.ts`).

@@ -1,106 +1,196 @@
 import * as Phaser from 'phaser';
-import type { Song } from '../../core';
-import { MENU_BEAT_SECONDS, palette, paletteNumbers } from '../../theme/palette';
+import {
+  AudioClock,
+  buildLevelMap,
+  decodeSong,
+  type AnalysedSong,
+  type LevelMap,
+} from '../../core';
+import { palette } from '../../theme/palette';
 import type { GameSession } from '../registry';
+import { generateLevelInWorker, type PlatformerLevel } from './level';
+import { Controls } from './controls';
+import { PlatformerRun } from './run';
+import { PlatformerScene, type FrameState } from './scene';
+import { createHud, createPauseMenu, createResultsScreen } from './ui';
 
-/** Where the horizon sits, as a share of the height. */
-const HORIZON = 0.56;
-/** Horizontal grid lines between the horizon and the bottom edge. */
-const ROWS = 14;
-/** Vertical grid lines fanning out from the vanishing point. */
-const COLUMNS = 24;
+/** No difficulty picker yet: every song plays at normal. */
+const DIFFICULTY = 'normal';
 
 /**
- * The platformer's empty stage for now: the neon synth grid rolling toward the player.
- * The grid scrolls one row per beat at the menu tempo; once the song plays, the beat
- * comes from the audio clock instead.
+ * One play of the platformer: the audio clock, the run, the controls and the HTML over
+ * the canvas. Every frame it reads the clock and the controls, moves the run on to the
+ * clock's time and tells the scene what to draw.
  */
-class SynthGridScene extends Phaser.Scene {
-  #sky!: Phaser.GameObjects.Graphics;
-  #grid!: Phaser.GameObjects.Graphics;
-  #title!: Phaser.GameObjects.Text;
+class PlatformerSession {
+  readonly clock: AudioClock;
+  readonly controls = new Controls();
+  readonly overlay = document.createElement('div');
+  readonly hud;
+  readonly pause;
+  readonly results;
+  run: PlatformerRun;
+  scene: PlatformerScene | null = null;
 
-  constructor(private readonly song: Song) {
-    super('synth-grid');
+  /** True while the clock is starting from a new place: the run waits for it. */
+  #seeking = false;
+  #paused = false;
+  /** Bumped by every seek, so a slow one finishing late doesn't clear a newer one. */
+  #seekId = 0;
+
+  constructor(
+    readonly song: AnalysedSong,
+    readonly map: LevelMap,
+    readonly level: PlatformerLevel,
+    buffer: AudioBuffer,
+    private readonly exit: () => void,
+  ) {
+    this.clock = new AudioClock(buffer);
+    this.clock.onEnded = () => this.run.finish();
+    this.hud = createHud({
+      title: song.title,
+      tempo: map.tempo,
+      duration: level.duration,
+      drops: map.drops.map((d) => d.time),
+    });
+    this.pause = createPauseMenu({
+      onResume: () => this.resume(),
+      onRestart: () => this.restart(),
+      onQuit: () => this.exit(),
+    });
+    this.results = createResultsScreen(song.title, {
+      onRetry: () => this.restart(),
+      onBack: () => this.exit(),
+    });
+    this.overlay.className = 'pf-overlay';
+    this.overlay.append(this.hud.element, this.pause.element, this.results.element);
+    document.addEventListener('visibilitychange', this.#hidden);
+    this.run = new PlatformerRun(level, map.sections);
   }
 
-  create(): void {
-    this.#sky = this.add.graphics();
-    this.#grid = this.add.graphics();
-    this.#title = this.add
-      .text(0, 0, this.song.title.toUpperCase(), {
-        fontFamily: 'Bahnschrift, "Segoe UI", system-ui, sans-serif',
-        fontSize: '15px',
-        color: palette.ink,
-        letterSpacing: 2,
+  /** A fresh run from the top, after a one-bar count-in. */
+  begin(): void {
+    this.run = new PlatformerRun(this.level, this.map.sections);
+    this.scene?.reset();
+    this.#seek(this.run.countInFrom);
+  }
+
+  restart(): void {
+    this.pause.close();
+    this.results.close();
+    this.#paused = false;
+    this.controls.enabled = true;
+    this.begin();
+  }
+
+  doPause(): void {
+    if (this.#paused || this.run.phase === 'finished') return;
+    this.#paused = true;
+    this.clock.pause();
+    this.controls.enabled = false;
+    this.pause.show();
+  }
+
+  resume(): void {
+    if (!this.#paused) return;
+    this.pause.close();
+    this.#paused = false;
+    this.controls.enabled = true;
+    // A count-in that was cut short starts again; otherwise play on from where it stopped.
+    this.#seek(this.run.phase === 'countin' ? this.run.countInFrom : undefined);
+  }
+
+  /** Called by the scene every frame: move the run on, update the HUD, say what to draw. */
+  frame = (): FrameState => {
+    const input = this.controls.read();
+    if (input.pausePressed) {
+      if (this.#paused) this.resume();
+      else this.doPause();
+    }
+    const time = this.clock.time;
+    if (!this.#paused && !this.#seeking && this.run.phase !== 'finished') {
+      const { events, respawn } = this.run.update(time, input);
+      this.scene?.effects(events, time, this.run);
+      if (respawn) {
+        this.scene?.reset();
+        this.#seek(this.run.respawn());
+      }
+    }
+    // The song ends in the run's update or with the clock's own end.
+    if (this.run.phase === 'finished' && !this.results.open) this.#finish();
+
+    const beats = (time - this.level.gridStart) / this.level.beatPeriod;
+    const index = Math.floor(beats + 1e-6);
+    const beatInBar = (((index - this.map.barPhase) % 4) + 4) % 4;
+    const countIn =
+      this.run.phase === 'countin'
+        ? Math.max(
+            1,
+            Math.min(4, Math.ceil((this.run.resumeAt - time) / this.level.beatPeriod - 1e-6)),
+          )
+        : null;
+    this.hud.update({
+      time,
+      beatInBar,
+      score: this.run.score,
+      combo: this.run.combo,
+      multiplier: this.run.multiplier,
+      countIn,
+    });
+    return { time, run: this.run, beatInBar, beatPhase: beats - Math.floor(beats) };
+  };
+
+  stop(): void {
+    this.clock.onEnded = null;
+    this.clock.stop();
+    this.controls.destroy();
+    this.pause.destroy();
+    this.results.destroy();
+    document.removeEventListener('visibilitychange', this.#hidden);
+  }
+
+  #finish(): void {
+    this.controls.enabled = false;
+    this.results.show(this.run.results());
+  }
+
+  /** Switching away from the tab pauses. */
+  readonly #hidden = () => {
+    if (document.hidden) this.doPause();
+  };
+
+  #seek(from?: number): void {
+    const id = ++this.#seekId;
+    this.#seeking = true;
+    this.clock
+      .play(from)
+      .catch(() => {
+        // Audio that can't start (no output device) leaves the clock where it was.
       })
-      .setOrigin(0.5, 0)
-      .setAlpha(0.85);
-
-    this.scale.on(Phaser.Scale.Events.RESIZE, this.#layout, this);
-    this.#layout();
-  }
-
-  update(time: number): void {
-    const phase = (time / 1000 / MENU_BEAT_SECONDS) % 1;
-    this.#drawGrid(phase);
-  }
-
-  #layout(): void {
-    const { width, height } = this.scale;
-    const horizon = height * HORIZON;
-    this.#sky.clear();
-    // The deep violet glow rising from below the horizon, on night.
-    this.#sky.fillStyle(paletteNumbers.night, 1).fillRect(0, 0, width, height);
-    this.#sky
-      .fillGradientStyle(
-        paletteNumbers.night,
-        paletteNumbers.night,
-        paletteNumbers.dusk,
-        paletteNumbers.dusk,
-        0,
-        0,
-        1,
-        1,
-      )
-      .fillRect(0, horizon - height * 0.35, width, height * 0.35);
-    this.#sky.fillStyle(paletteNumbers.dusk, 0.6).fillRect(0, horizon, width, height - horizon);
-    this.#title.setPosition(width / 2, 24);
-  }
-
-  #drawGrid(phase: number): void {
-    const { width, height } = this.scale;
-    const horizon = height * HORIZON;
-    const depth = height - horizon;
-    const g = this.#grid.clear();
-    const line = (x1: number, y1: number, x2: number, y2: number, alpha: number) => {
-      // A wide faint stroke under a thin bright one reads as glow.
-      g.lineStyle(6, paletteNumbers.violet, alpha * 0.18).lineBetween(x1, y1, x2, y2);
-      g.lineStyle(1.5, paletteNumbers.violet, alpha).lineBetween(x1, y1, x2, y2);
-    };
-
-    // Rows: evenly spaced in depth, squeezed toward the horizon by perspective.
-    for (let i = 0; i < ROWS; i++) {
-      const z = (i + phase) / ROWS;
-      const y = horizon + depth * z * z;
-      line(0, y, width, y, 0.15 + 0.75 * z);
-    }
-
-    // Columns: fan out from the vanishing point well past the screen edges.
-    const vanishX = width / 2;
-    const spread = width * 3;
-    for (let i = 0; i <= COLUMNS; i++) {
-      const x = vanishX + (i / COLUMNS - 0.5) * spread;
-      line(vanishX, horizon, x, height, 0.55);
-    }
-
-    // The horizon itself, in the beat colour.
-    g.lineStyle(8, paletteNumbers.magenta, 0.2).lineBetween(0, horizon, width, horizon);
-    g.lineStyle(2, paletteNumbers.magenta, 0.9).lineBetween(0, horizon, width, horizon);
+      .finally(() => {
+        if (id === this.#seekId) this.#seeking = false;
+      });
   }
 }
 
-export function startPlatformer(song: Song, container: HTMLElement): Promise<GameSession> {
+/**
+ * Start the platformer for a song: build its level in a worker and decode the audio,
+ * then run the game until the player quits.
+ */
+export async function startPlatformer(
+  song: AnalysedSong,
+  container: HTMLElement,
+  exit: () => void,
+): Promise<GameSession> {
+  const map = buildLevelMap(song.analysis);
+  const [level, buffer] = await Promise.all([
+    generateLevelInWorker(map, DIFFICULTY),
+    decodeSong(song),
+  ]);
+  const session = new PlatformerSession(song, map, level, buffer, exit);
+  const scene = new PlatformerScene(level, session.frame);
+  session.scene = scene;
+
   return new Promise((resolve) => {
     const game = new Phaser.Game({
       type: Phaser.AUTO,
@@ -108,9 +198,18 @@ export function startPlatformer(song: Song, container: HTMLElement): Promise<Gam
       backgroundColor: palette.night,
       scale: { mode: Phaser.Scale.RESIZE, width: '100%', height: '100%' },
       banner: false,
-      scene: new SynthGridScene(song),
+      scene,
       callbacks: {
-        postBoot: () => resolve({ stop: () => game.destroy(true) }),
+        postBoot: () => {
+          container.append(session.overlay);
+          session.begin();
+          resolve({
+            stop: () => {
+              session.stop();
+              game.destroy(true);
+            },
+          });
+        },
       },
     });
   });
