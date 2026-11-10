@@ -365,6 +365,15 @@
   display: none;
 }
 
+/* On a narrow screen the boosters reach the right edge: the readout goes under the combo
+   meter instead, top right. */
+@container (max-width: 640px) {
+  .pf-hud__perf {
+    top: calc(clamp(14px, 3cqw, 40px) + 60px);
+    bottom: auto;
+  }
+}
+
 /* The first-time hint for an ability, under the count-in's place: it fades in and out on
    its own, so nothing moves. */
 .pf-hud__hint {
