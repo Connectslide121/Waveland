@@ -408,28 +408,46 @@ function attemptsFor(kind: ChunkKind, calm: boolean): Attempt[] {
   ];
 }
 
-/** Coins on the hi-hats, over the ground or up in the jump over a pit. */
+/**
+ * Coins on the hi-hats, over the ground or up in the jump over a pit. Where there are no
+ * hats for a while (a quiet intro, a breakdown without drums) the coins go on the beats
+ * instead, so there is always something to run to in time.
+ */
 function coins(level: PlatformerLevel, map: LevelMap, every: number, from: number, to: number) {
   const world = new LevelWorld(level);
   const inDrop = (t: number) =>
     level.chunks.some((c) => c.kind === 'drop' && t >= c.start && t < c.end);
-  let n = 0;
-  for (const e of map.events) {
-    if (e.kind !== 'hat' || e.time < from || e.time > to) continue;
-    // Drops get every hat; elsewhere every n-th.
-    if (!inDrop(e.time) && n++ % every !== 0) continue;
-    const x = xAtTime(level, e.time) + PLAYER_WIDTH / 2;
+  const place = (time: number) => {
+    const x = xAtTime(level, time) + PLAYER_WIDTH / 2;
     let top: number | null = null;
     let near = -Infinity;
     for (const i of world.solidsBetween(x - 150, x + 150)) {
       const s = level.solids[i]!;
-      const at = solidTop(s, e.time);
+      const at = solidTop(s, time);
       if (at === null) continue;
       if (s.x0 <= x && s.x1 > x) top = Math.max(top ?? -Infinity, at);
       near = Math.max(near, at);
     }
     const y = top !== null ? top + 28 : near + 110;
-    if (Number.isFinite(y)) level.pickups.push({ kind: 'coin', x, y, time: e.time });
+    if (Number.isFinite(y)) level.pickups.push({ kind: 'coin', x, y, time });
+  };
+
+  const hats = map.events.filter((e) => e.kind === 'hat').map((e) => e.time);
+  let n = 0;
+  for (const time of hats) {
+    if (time < from || time > to) continue;
+    // Drops get every hat; elsewhere every n-th.
+    if (!inDrop(time) && n++ % every !== 0) continue;
+    place(time);
+  }
+  // Beats with no hat within a beat either side, every other one (or every 2n-th).
+  let h = 0;
+  let quiet = 0;
+  for (const time of map.beats) {
+    if (time < from || time > to) continue;
+    while (h < hats.length && hats[h]! < time - map.beatPeriod) h++;
+    if (h < hats.length && hats[h]! <= time + map.beatPeriod) continue;
+    if (quiet++ % (2 * every) === 0) place(time);
   }
   level.pickups.sort((a, b) => a.time - b.time);
 }

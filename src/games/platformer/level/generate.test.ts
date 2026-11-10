@@ -118,15 +118,30 @@ describe('generateLevel: the music', () => {
     }
   });
 
-  it('puts coins on the hi-hats, and bridges only where there are snares', () => {
+  it('puts coins on the hi-hats (on the beats where there are none), and bridges only where there are snares', () => {
     const map = song(5);
     const l = level(5, 'normal');
-    const hats = new Set(map.events.filter((e) => e.kind === 'hat').map((e) => e.time));
-    for (const p of l.pickups.filter((x) => x.kind === 'coin')) expect(hats.has(p.time)).toBe(true);
-    expect(l.pickups.some((p) => p.kind === 'coin')).toBe(true);
+    const hatTimes = map.events.filter((e) => e.kind === 'hat').map((e) => e.time);
+    const hats = new Set(hatTimes);
+    for (const p of l.pickups.filter((x) => x.kind === 'coin')) {
+      if (hats.has(p.time)) continue;
+      // Not on a hat: on a beat with no hat within a beat of it.
+      expect(map.beats).toContain(p.time);
+      expect(hatTimes.every((t) => Math.abs(t - p.time) > map.beatPeriod)).toBe(true);
+    }
+    expect(l.pickups.some((p) => p.kind === 'coin' && hats.has(p.time))).toBe(true);
     const snares = map.events.filter((e) => e.kind === 'snare').map((e) => e.time);
     for (const s of l.solids.filter((x) => x.kind === 'bridge'))
       for (const [from] of s.windows!) expect(snares).toContain(from);
+  });
+
+  it('puts coins on the beats of a song with no hi-hats', () => {
+    const map = song(5);
+    const quiet = { ...map, events: map.events.filter((e) => e.kind !== 'hat') };
+    const l = generateLevel(quiet, 'normal');
+    const coins = l.pickups.filter((p) => p.kind === 'coin');
+    expect(coins.length).toBeGreaterThan(map.beats.length / 4);
+    for (const c of coins) expect(map.beats).toContain(c.time);
   });
 
   it('moves the equalisers with the bass', () => {
