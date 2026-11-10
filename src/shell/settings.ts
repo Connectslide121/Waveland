@@ -1,8 +1,10 @@
 import {
   getAudioContext,
   getEffects,
+  getEffectsLowered,
   getLatencyMs,
   getMusicVolume,
+  getShowFps,
   hasChosenEffects,
   onSettingsChange,
   MAX_LATENCY_MS,
@@ -10,6 +12,7 @@ import {
   setEffects,
   setLatencyMs,
   setMusicVolume,
+  setShowFps,
   type EffectsLevel,
 } from '../core';
 import { COUNT_IN_CLICKS, latencyFromTaps, Metronome, MIN_TAPS, TAP_CLICKS } from './calibration';
@@ -17,7 +20,8 @@ import './settings.css';
 
 /**
  * The Settings modal, opened from the title screen and from a game's pause menu: music
- * volume, effects intensity and audio latency, with a metronome to tap along to. Changes
+ * volume, effects intensity, the frame rate readout and audio latency, with a metronome
+ * to tap along to. Changes
  * apply at once. It takes the keys while open (Escape and × close it, a backdrop click
  * doesn't) and gives focus back to whatever opened it.
  */
@@ -100,7 +104,35 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
     return input;
   });
   const effectsNote = el('p', 'settings__note');
-  effectsRow.append(effectsLabel, effects, effectsNote);
+  // Only while a game has lowered them, which can't change while Settings is open: the
+  // game is paused or not running.
+  const loweredNote = el('p', 'settings__note settings__note--lowered');
+  effectsRow.append(effectsLabel, effects, effectsNote, loweredNote);
+
+  // Frame rate readout in the HUD.
+  const fpsRow = el('div', 'settings__row settings__row--wide');
+  const fpsLabel = el('span', 'settings__label', 'Frame rate');
+  fpsLabel.id = 'settings-fps';
+  const fps = el('div', 'settings__segments');
+  fps.setAttribute('role', 'radiogroup');
+  fps.setAttribute('aria-labelledby', fpsLabel.id);
+  const fpsInputs = (['off', 'on'] as const).map((value) => {
+    const option = el('label', 'settings__segment');
+    const input = el('input', 'visually-hidden');
+    input.type = 'radio';
+    input.name = 'settings-fps';
+    input.value = value;
+    option.append(input, el('span', undefined, value === 'on' ? 'Show' : 'Hide'));
+    fps.append(option);
+    input.addEventListener('change', () => setShowFps(value === 'on'));
+    return input;
+  });
+  const fpsNote = el(
+    'p',
+    'settings__note',
+    'Frames per second and the time each frame takes, in a corner of the game.',
+  );
+  fpsRow.append(fpsLabel, fps, fpsNote);
 
   // Audio latency: the offset, and a metronome to tap along to.
   const latencyRow = el('div', 'settings__row settings__row--wide');
@@ -132,7 +164,7 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
   const done = el('button', 'settings__done', 'Done');
   done.type = 'button';
 
-  panel.append(head, volumeRow, effectsRow, latencyRow, done);
+  panel.append(head, volumeRow, effectsRow, fpsRow, latencyRow, done);
   element.append(panel);
   document.body.append(element);
 
@@ -234,6 +266,11 @@ export function openSettings({ onClose }: { onClose?: () => void } = {}): Settin
         ? 'No flashes and no screen shake.'
         : 'Every effect, flashes and screen shake included.'
       : `Following your system: reduced motion is ${prefersReducedMotion() ? 'on' : 'off'}.`;
+    const lowered = getEffectsLowered();
+    loweredNote.textContent = 'Lowered automatically to keep the game smooth.';
+    loweredNote.hidden = !lowered;
+    const showFps = getShowFps();
+    fpsInputs.forEach((input) => (input.checked = (input.value === 'on') === showFps));
 
     volume.value = String(Math.round(getMusicVolume() * 100));
     volumeValue.textContent = `${volume.value}%`;

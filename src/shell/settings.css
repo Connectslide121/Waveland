@@ -141,6 +141,16 @@
   line-height: 1.4;
 }
 
+/* A game lowered the effects on its own: said plainly, under what the level does. */
+.settings__note--lowered {
+  margin-top: -6px;
+  color: var(--ink);
+}
+
+.settings__note--lowered[hidden] {
+  display: none;
+}
+
 .settings__stepper {
   display: grid;
   grid-template-columns: 36px 1fr 36px;

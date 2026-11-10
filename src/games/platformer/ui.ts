@@ -46,6 +46,14 @@ export interface HudState {
   multiplier: number;
   /** Beats left in the count-in, or null when not counting in. */
   countIn: number | null;
+  /** Frames per second and CPU ms per frame, or null when the readout is off. */
+  perf: { fps: number; cpuMs: number } | null;
+}
+
+/** The frame rate readout: 60 FPS · 4.2 MS, or dashes before the first half second. */
+export function formatPerf(fps: number, cpuMs: number): string {
+  if (fps <= 0) return '— FPS · — MS';
+  return `${Math.round(fps)} FPS · ${cpuMs.toFixed(1)} MS`;
 }
 
 export interface Hud {
@@ -89,9 +97,21 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
   const count = el('div', 'pf-hud__count');
   count.setAttribute('aria-live', 'polite');
 
-  element.append(top, progress, count);
+  // Frame rate and frame time, bottom right over the progress bar, when Settings asks.
+  const perf = el('div', 'pf-hud__perf');
+  perf.hidden = true;
 
-  let shown = { beat: -2, score: -1, combo: -1, count: -2 as number | null, percent: -1 };
+  element.append(top, progress, count, perf);
+
+  // What is on screen, so each frame only touches what changed.
+  const shown = {
+    beat: -2,
+    score: -1,
+    combo: -1,
+    count: -2 as number | null,
+    percent: -1,
+    perf: '',
+  };
   return {
     element,
     update(state) {
@@ -109,13 +129,17 @@ export function createHud({ title, tempo, duration, drops }: HudOptions): Hud {
         fill.style.width = `${Math.min(100, percent)}%`;
         progress.setAttribute('aria-valuenow', String(Math.round(percent)));
       }
-      shown = {
-        beat: state.beatInBar,
-        score: state.score,
-        combo: state.combo,
-        count: state.countIn,
-        percent,
-      };
+      const perfText = state.perf ? formatPerf(state.perf.fps, state.perf.cpuMs) : '';
+      if (perfText !== shown.perf) {
+        perf.textContent = perfText;
+        perf.hidden = perfText === '';
+      }
+      shown.beat = state.beatInBar;
+      shown.score = state.score;
+      shown.combo = state.combo;
+      shown.count = state.countIn;
+      shown.percent = percent;
+      shown.perf = perfText;
     },
   };
 }

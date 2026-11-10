@@ -118,6 +118,22 @@
   box-shadow: 0 0 8px var(--magenta);
 }
 
+/* The frame rate readout (Settings: Frame rate), small and quiet over the progress bar. */
+.pf-hud__perf {
+  position: absolute;
+  right: clamp(16px, 3.4cqw, 48px);
+  bottom: calc(clamp(14px, 2.6cqw, 36px) + 12px);
+  font-size: clamp(10px, 0.9cqw, 12px);
+  letter-spacing: 0.14em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pf-hud__perf[hidden] {
+  display: none;
+}
+
 .pf-hud__count {
   position: absolute;
   left: 50%;

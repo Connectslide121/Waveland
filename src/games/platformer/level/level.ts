@@ -125,7 +125,7 @@ export function spikesOut(level: Pick<PlatformerLevel, 'gridStart' | 'beatPeriod
 }
 
 /** The first index whose `x0` is at least `x`. */
-function lowerBound(items: { x0: number }[], x: number): number {
+export function lowerBound(items: { x0: number }[], x: number): number {
   let lo = 0;
   let hi = items.length;
   while (lo < hi) {

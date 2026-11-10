@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getEffects, getLatencyMs, getMusicVolume, setLatencyMs } from '../core';
+import {
+  getEffects,
+  getLatencyMs,
+  getMusicVolume,
+  getShowFps,
+  setEffectsLowered,
+  setLatencyMs,
+} from '../core';
 import { latencyFromTaps, MIN_TAPS } from './calibration';
 import { formatLatency, openSettings } from './settings';
 
@@ -69,6 +76,35 @@ describe('openSettings', () => {
     expect(getLatencyMs()).toBe(15);
     expect(latency.textContent).toBe('+15 ms');
     modal.close();
+  });
+
+  it('turns the frame rate readout on and off', () => {
+    const modal = openSettings();
+    expect(getShowFps()).toBe(false);
+    const show = modal.element.querySelector<HTMLInputElement>(
+      'input[name=settings-fps][value=on]',
+    )!;
+    expect(
+      modal.element.querySelector<HTMLInputElement>('input[name=settings-fps]:checked')!.value,
+    ).toBe('off');
+    show.checked = true;
+    show.dispatchEvent(new Event('change'));
+    expect(getShowFps()).toBe(true);
+    modal.close();
+  });
+
+  it('says when a game lowered the effects on its own', () => {
+    const note = (modal: { element: HTMLElement }) =>
+      modal.element.querySelector<HTMLElement>('.settings__note--lowered')!;
+    let modal = openSettings();
+    expect(note(modal).hidden).toBe(true);
+    modal.close();
+    setEffectsLowered(true);
+    modal = openSettings();
+    expect(note(modal).hidden).toBe(false);
+    expect(note(modal).textContent).toBe('Lowered automatically to keep the game smooth.');
+    modal.close();
+    setEffectsLowered(false);
   });
 
   it('writes offsets as the player reads them', () => {

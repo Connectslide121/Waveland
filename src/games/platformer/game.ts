@@ -4,6 +4,9 @@ import {
   buildLevelMap,
   decodeSong,
   getLatencyMs,
+  getShowFps,
+  onSettingsChange,
+  setEffectsLowered,
   type AnalysedSong,
   type LevelMap,
 } from '../../core';
@@ -39,6 +42,11 @@ class PlatformerSession {
   #paused = false;
   /** Bumped by every seek, so a slow one finishing late doesn't clear a newer one. */
   #seekId = 0;
+  /** Settings: show the frame rate in the HUD. */
+  #showFps = getShowFps();
+  readonly #stopSettings = onSettingsChange(() => (this.#showFps = getShowFps()));
+  /** What the scene draws, filled in again every frame. */
+  readonly #state: FrameState;
 
   constructor(
     readonly song: AnalysedSong,
@@ -73,6 +81,7 @@ class PlatformerSession {
     this.overlay.append(this.hud.element, this.pause.element, this.results.element);
     document.addEventListener('visibilitychange', this.#hidden);
     this.run = new PlatformerRun(level, map.sections);
+    this.#state = { time: 0, run: this.run, beatInBar: -1, beatPhase: 0, paused: false };
   }
 
   /** A fresh run from the top, after a one-bar count-in. */
@@ -148,8 +157,15 @@ class PlatformerSession {
       combo: this.run.combo,
       multiplier: this.run.multiplier,
       countIn,
+      perf: this.#showFps && this.scene ? this.scene.monitor : null,
     });
-    return { time, run: this.run, beatInBar, beatPhase: beats - Math.floor(beats) };
+    const state = this.#state;
+    state.time = time;
+    state.run = this.run;
+    state.beatInBar = beatInBar;
+    state.beatPhase = beats - Math.floor(beats);
+    state.paused = this.#paused;
+    return state;
   };
 
   stop(): void {
@@ -158,6 +174,8 @@ class PlatformerSession {
     this.controls.destroy();
     this.pause.destroy();
     this.results.destroy();
+    this.#stopSettings();
+    setEffectsLowered(false);
     document.removeEventListener('visibilitychange', this.#hidden);
   }
 
@@ -200,8 +218,11 @@ export async function startPlatformer(
     decodeSong(song),
   ]);
   const session = new PlatformerSession(song, map, level, buffer, exit);
-  const scene = new PlatformerScene(level, map, session.frame);
+  // Effects lowered to keep frames smooth are said in Settings while the game runs.
+  const scene = new PlatformerScene(level, map, session.frame, () => setEffectsLowered(true));
   session.scene = scene;
+  // For profiling in dev: the running session, from the browser's console.
+  if (import.meta.env.DEV) (globalThis as { waveland?: unknown }).waveland = session;
 
   return new Promise((resolve) => {
     const game = new Phaser.Game({

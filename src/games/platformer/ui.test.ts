@@ -27,7 +27,15 @@ describe('createHud', () => {
   });
 
   it('lights the beat, counts the score and combo, and fills the progress', () => {
-    hud.update({ time: 50, beatInBar: 2, score: 48210, combo: 9, multiplier: 2, countIn: null });
+    hud.update({
+      time: 50,
+      beatInBar: 2,
+      score: 48210,
+      combo: 9,
+      multiplier: 2,
+      countIn: null,
+      perf: null,
+    });
     const dots = [...hud.element.querySelectorAll('.pf-hud__beats i')];
     expect(dots.map((d) => d.classList.contains('on'))).toEqual([false, false, true, false]);
     expect(hud.element.querySelector('.pf-hud__score')!.textContent).toBe('048 210');
@@ -37,10 +45,29 @@ describe('createHud', () => {
   });
 
   it('shows the count-in', () => {
-    hud.update({ time: -1, beatInBar: 0, score: 0, combo: 0, multiplier: 1, countIn: 3 });
+    hud.update({
+      time: -1,
+      beatInBar: 0,
+      score: 0,
+      combo: 0,
+      multiplier: 1,
+      countIn: 3,
+      perf: null,
+    });
     const count = hud.element.querySelector('.pf-hud__count')!;
     expect(count.textContent).toBe('3');
     expect(count.classList.contains('on')).toBe(true);
+  });
+
+  it('shows the frame rate only when asked', () => {
+    const perf = hud.element.querySelector<HTMLElement>('.pf-hud__perf')!;
+    expect(perf.hidden).toBe(true);
+    const state = { time: 1, beatInBar: 0, score: 0, combo: 0, multiplier: 1, countIn: null };
+    hud.update({ ...state, perf: { fps: 59.6, cpuMs: 4.24 } });
+    expect(perf.hidden).toBe(false);
+    expect(perf.textContent).toBe('60 FPS · 4.2 MS');
+    hud.update({ ...state, perf: null });
+    expect(perf.hidden).toBe(true);
   });
 });
 

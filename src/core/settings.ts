@@ -98,3 +98,28 @@ export function hasChosenEffects(): boolean {
   const stored = get(EFFECTS_KEY);
   return stored === 'full' || stored === 'reduced';
 }
+
+const SHOW_FPS_KEY = 'waveland.showFps';
+
+/** True when the HUD shows the frame rate and frame time; off until the player turns it on. */
+export function getShowFps(): boolean {
+  return get(SHOW_FPS_KEY) === 'on';
+}
+
+export function setShowFps(show: boolean): void {
+  write(SHOW_FPS_KEY, show ? 'on' : null);
+}
+
+/** True while a running game has lowered its effects on its own to keep frames smooth. */
+let effectsLowered = false;
+
+export function getEffectsLowered(): boolean {
+  return effectsLowered;
+}
+
+/** Set by a running game when it lowers its effects, and cleared when it stops. Not kept. */
+export function setEffectsLowered(lowered: boolean): void {
+  if (lowered === effectsLowered) return;
+  effectsLowered = lowered;
+  for (const listener of listeners) listener();
+}

@@ -82,9 +82,9 @@ export class Controls {
   }
 
   read(): ControlsFrame {
-    let left = [...LEFT_KEYS].some((k) => this.#held.has(k));
-    let right = [...RIGHT_KEYS].some((k) => this.#held.has(k));
-    let jumpHeld = [...JUMP_KEYS].some((k) => this.#held.has(k));
+    let left = this.#anyHeld(LEFT_KEYS);
+    let right = this.#anyHeld(RIGHT_KEYS);
+    let jumpHeld = this.#anyHeld(JUMP_KEYS);
     let jumpPressed = this.#jumpPressed;
     let pausePressed = this.#pausePressed;
     this.#jumpPressed = false;
@@ -114,6 +114,11 @@ export class Controls {
 
     const dir = left === right ? 0 : left ? -1 : 1;
     return { dir, jumpHeld, jumpPressed, pausePressed };
+  }
+
+  #anyHeld(keys: Set<string>): boolean {
+    for (const key of keys) if (this.#held.has(key)) return true;
+    return false;
   }
 
   destroy(): void {
