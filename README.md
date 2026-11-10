@@ -6,7 +6,7 @@ A collection of music games in the browser. You drop in any song and each game b
 
 | Game | Status | Idea |
 |---|---|---|
-| Platformer | Playable | An auto-runner locked to the song: you always run in time with the music, and jump, dash and slam through a world that moves with it. Equaliser columns rise and fall with the bass, bridges appear on snares, dash gates stand on the snares, spikes come out on off-beats, drops become set pieces. |
+| Platformer | Playable | An auto-runner locked to the song: you always run in time with the music, and jump, dash and slam through a world that moves with it. Equaliser columns rise and fall with the bass, bridges appear on snares, dash gates stand on the accents, slam plates break on heavy kicks and at the end of fills, spikes come out on off-beats, drops become set pieces. |
 | Tunnel | Idea for later | Race down a 3D tunnel that twists and climbs with the melody; obstacles and pickups land on the beat, steering between lanes. |
 
 More music games can join later; each is a mode picked from the same menu.
@@ -25,20 +25,20 @@ Then open the address Vite prints, normally <http://localhost:5173>. `npm run bu
 ## Play
 
 1. Pick **Platformer**, then drop a song on the drop zone (or click it to choose one): MP3, WAV or OGG, at least 15 seconds. The first time, the song is analysed for its beat, sections and drops, which takes a few seconds; after that it is remembered and loads at once.
-2. Press **Play**. A one-bar count-in (4-3-2-1) starts you off.
+2. Pick a difficulty: **Easy** (relaxed: fewer, smaller obstacles on the strongest hits), **Normal**, or **Hard** (nearly every hit, with dash and slam combos). The pick is remembered. Then press **Play**. A one-bar count-in (4-3-2-1) starts you off.
 3. You run by yourself, always in time with the music: you can't speed up or stop. Stay alive until the song ends:
    - **jump** the pits and onto higher ground (hold for higher, tap for a short hop);
-   - **dash** to hold your height for half a beat: smash through the orange dash gates (on the snares), or jump and then dash over a pit too wide for a jump;
-   - **slam** to drop fast from the air, to get under an overhang in time;
+   - **dash** to hold your height for half a beat: smash through the orange dash gates (on the accents: a crash, a big hit), or jump and then dash over a pit too wide for a jump;
+   - **slam** to drop fast from the air: it breaks through the cracked slam plates (on a heavy kick, at the end of a fill, and on hard at the start of a chorus's phrases), the only way under the low ceiling just past them;
    - violet equaliser columns carry you up and down with the bass; one that rises in front of you is a wall to jump;
    - dotted cyan bridges are only there for a beat or two after each snare;
    - orange spikes come out on every off-beat and go back in on the beat: cross on the beat or jump them;
    - coins sit on the hi-hats; on a drop a magenta staircase rises, with gems on every step;
    - boosters float at the top of a full jump, some over pits: a **shield** (a cyan ring: survive one hit or fall, and bounce back onto safe ground), a **magnet** (pulls coins in for 4 bars) and an **extra dash** (a second dash in the air until you land). You never need one to finish.
-   The first gate and the first overhang come in a calm spot, with a hint on screen saying which button to press.
+   The first gate and the first slam plate come with a hint on screen saying which button to press.
 4. Falling, running into a wall, touching spikes that are out, or hitting a gate without dashing sends you back to the start of the section, a bar before it, with your score, combo, overdrive meter and boosters as they were there.
 5. Scoring:
-   - every jump takeoff, landing, dash and slam landing is judged against the nearest beat or eighth: **Perfect** (within 50 ms), **Good** (within 100 ms) or **Miss**, shown as a word at the cube. On fast songs the windows get tighter. A dash on a snare, or a slam landing on a kick or a downbeat, is an **accent**, worth double;
+   - every jump takeoff, dash and slam landing is judged against the nearest beat or eighth: **Perfect** (within 50 ms), **Good** (within 100 ms) or **Miss**, shown as a word at the cube. A jump's landing scores when it is on the grid, and is never a miss. On fast songs the windows get tighter. A dash on a snare, or a slam landing on a kick or a downbeat, is an **accent**, worth double;
    - judged actions and pickups build a **combo**; a miss or a hit breaks it. Every 8 in a row raises the multiplier, up to ×4 (the meter under the score);
    - perfects and gems fill the **overdrive** meter (bottom left). When it's full, press overdrive (E): for 4 bars your score is doubled on top of the combo, and the cube burns magenta. Starting it on a downbeat earns a bonus;
    - 10 perfects in a row burst for a bonus, and a section without a hit earns a **clean section** bonus;
