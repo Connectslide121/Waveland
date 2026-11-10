@@ -21,6 +21,10 @@ export const palette = {
   dusk: '#1a0f3a',
   /** Card and panel lines. */
   line: '#2c2558',
+  /** The light rim on the player's cube. */
+  rim: '#b9fbff',
+  /** The white-hot core of lights: gems, the speaker, the drop callout. */
+  flare: '#ffffff',
 } as const;
 
 export type PaletteColor = keyof typeof palette;

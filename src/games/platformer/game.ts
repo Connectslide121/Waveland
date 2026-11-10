@@ -195,7 +195,7 @@ export async function startPlatformer(
     decodeSong(song),
   ]);
   const session = new PlatformerSession(song, map, level, buffer, exit);
-  const scene = new PlatformerScene(level, session.frame);
+  const scene = new PlatformerScene(level, map, session.frame);
   session.scene = scene;
 
   return new Promise((resolve) => {

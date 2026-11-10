@@ -65,6 +65,7 @@ describe('PlatformerRun', () => {
     run.update(0, STAND);
     run.update(PHYSICS_DT, { dir: 0, jumpHeld: true, jumpPressed: true });
     expect(run.player.vy).toBeGreaterThan(0);
+    expect(run.jumpedAt).toBeCloseTo(PHYSICS_DT);
     // Up and down: a jump lasts 2 · v / g seconds. Press again 3 steps before landing.
     const air = (2 * JUMP_VELOCITY) / 2400;
     play(run, 2 * PHYSICS_DT, air - 3 * PHYSICS_DT, { dir: 0, jumpHeld: true, jumpPressed: false });

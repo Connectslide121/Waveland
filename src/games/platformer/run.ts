@@ -133,6 +133,8 @@ export class PlatformerRun {
   diedAt = 0;
   /** Song time of the last landing, for the squash. */
   landedAt = -Infinity;
+  /** Song time of the last jump's takeoff, for the flip in the air. */
+  jumpedAt = -Infinity;
 
   #score: Score;
   /** The score as it was at the checkpoint, put back on a death. */
@@ -213,6 +215,7 @@ export class PlatformerRun {
     this.resumeAt = this.checkpoint.time;
     this.#jumpUntil = -Infinity;
     this.landedAt = -Infinity;
+    this.jumpedAt = -Infinity;
     this.phase = 'countin';
     return this.countInFrom;
   }
@@ -266,6 +269,7 @@ export class PlatformerRun {
       return;
     }
 
+    if (!prev.jumped && p.jumped) this.jumpedAt = t;
     if (!prev.grounded && p.grounded) {
       this.landedAt = t;
       if (prev.jumped) events.push(this.#land(t, p));
