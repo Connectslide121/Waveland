@@ -6,6 +6,7 @@ const curve = { step: 0.02, values: new Float32Array(10) };
 const analysis: SongAnalysis = {
   duration: 125.25,
   tempo: 127.96,
+  segments: [{ start: 0, end: 125.25, tempo: 127.96, beatPeriod: 60 / 127.96 }],
   beats: [0.5, 1, 1.5, 2],
   downbeats: [0.5],
   onsets: { low: [{ time: 0.5, strength: 1 }], mid: [], high: [] },

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Onset } from '../types';
 import { analyseSamples, toMono } from './analyse';
-import { clickTrack, drumKit, drumPattern, place, TEST_RATE } from './test-audio';
+import { clickTrack, drumKit, drumPattern, place, tempoChangeSong, TEST_RATE } from './test-audio';
 
 /** Distance from `t` to the nearest of `times`. */
 function nearest(times: number[], t: number): number {
@@ -28,6 +28,7 @@ describe('analyseSamples: tempo and beats', () => {
       const analysis = analyseSamples(samples, TEST_RATE);
 
       expect(Math.abs(analysis.tempo - bpm)).toBeLessThanOrEqual(1);
+      expect(analysis.segments).toHaveLength(1);
       // Every found beat sits on a click, and nearly every click got a beat.
       for (const t of analysis.beats) expect(nearest(beats, t)).toBeLessThanOrEqual(BEAT_TOLERANCE);
       expect(recall(analysis.beats, beats, BEAT_TOLERANCE)).toBeGreaterThanOrEqual(0.95);
@@ -43,6 +44,88 @@ describe('analyseSamples: tempo and beats', () => {
     expect(analysis.downbeats.length).toBeGreaterThan(10);
     for (const t of analysis.downbeats)
       expect(nearest(groove.downbeats, t)).toBeLessThanOrEqual(BEAT_TOLERANCE);
+  });
+});
+
+describe('analyseSamples: tempo map', () => {
+  /** Beat-time tolerance across a tempo change. */
+  const TOLERANCE = 0.03;
+
+  it('keeps a steady song to one segment over the whole song', () => {
+    const groove = drumPattern({ bpm: 128, seconds: 60 });
+    const analysis = analyseSamples(groove.samples, TEST_RATE);
+    expect(analysis.segments).toHaveLength(1);
+    expect(analysis.segments[0]).toMatchObject({ start: 0, end: analysis.duration });
+    expect(analysis.segments[0]!.tempo).toBe(analysis.tempo);
+  });
+
+  it('finds a change from 120 to 150 BPM within a beat, with beats on both sides', () => {
+    const song = tempoChangeSong([
+      { bpm: 120, bars: 16 },
+      { bpm: 150, bars: 20 },
+    ]);
+    const analysis = analyseSamples(song.samples, TEST_RATE);
+
+    expect(analysis.segments).toHaveLength(2);
+    const [slow, fast] = analysis.segments;
+    expect(Math.abs(slow!.tempo - 120)).toBeLessThanOrEqual(1);
+    expect(Math.abs(fast!.tempo - 150)).toBeLessThanOrEqual(1);
+    expect(Math.abs(fast!.start - song.changes[0]!)).toBeLessThanOrEqual(0.5);
+    expect(slow!.end).toBe(fast!.start);
+    for (const t of analysis.beats) expect(nearest(song.beats, t)).toBeLessThanOrEqual(TOLERANCE);
+    expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
+    // No beat skipped or doubled across the change.
+    const across = analysis.beats.filter((t) => Math.abs(t - song.changes[0]!) < 3);
+    for (let i = 1; i < across.length; i++) {
+      const gap = across[i]! - across[i - 1]!;
+      expect(gap).toBeGreaterThan(0.4 - TOLERANCE);
+      expect(gap).toBeLessThan(0.5 + TOLERANCE);
+    }
+  });
+
+  it('finds a slowdown and a speed-up again', () => {
+    const song = tempoChangeSong([
+      { bpm: 140, bars: 12 },
+      { bpm: 100, bars: 10 },
+      { bpm: 140, bars: 12 },
+    ]);
+    const analysis = analyseSamples(song.samples, TEST_RATE);
+
+    expect(analysis.segments.map((s) => Math.round(s.tempo))).toEqual([140, 100, 140]);
+    analysis.segments.slice(1).forEach((s, i) => {
+      expect(Math.abs(s.start - song.changes[i]!)).toBeLessThanOrEqual(60 / 100);
+    });
+    for (const t of analysis.beats) expect(nearest(song.beats, t)).toBeLessThanOrEqual(TOLERANCE);
+    expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
+  });
+
+  it('reads a pulse that really halves as half the tempo, and back', () => {
+    const song = tempoChangeSong([
+      { bpm: 140, bars: 12, feel: 'clicks' },
+      { bpm: 70, bars: 6, feel: 'clicks' },
+      { bpm: 140, bars: 12, feel: 'clicks' },
+    ]);
+    const analysis = analyseSamples(song.samples, TEST_RATE);
+
+    expect(analysis.segments.map((s) => Math.round(s.tempo))).toEqual([140, 70, 140]);
+    analysis.segments.slice(1).forEach((s, i) => {
+      expect(Math.abs(s.start - song.changes[i]!)).toBeLessThanOrEqual(60 / 70);
+    });
+    for (const t of analysis.beats) expect(nearest(song.beats, t)).toBeLessThanOrEqual(TOLERANCE);
+    expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
+  });
+
+  it('keeps a half-time feel at the same tempo as one segment', () => {
+    const song = tempoChangeSong([
+      { bpm: 150, bars: 12 },
+      { bpm: 150, bars: 8, feel: 'half' },
+      { bpm: 150, bars: 12 },
+    ]);
+    const analysis = analyseSamples(song.samples, TEST_RATE);
+
+    expect(analysis.segments).toHaveLength(1);
+    expect(Math.abs(analysis.tempo - 150)).toBeLessThanOrEqual(1);
+    expect(recall(analysis.beats, song.beats, TOLERANCE)).toBeGreaterThanOrEqual(0.95);
   });
 });
 

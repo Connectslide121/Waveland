@@ -1,21 +1,15 @@
-import { BANDS, type Band, type Onset, type SongAnalysis } from '../types';
-import { pickOnsets } from './onsets';
-import {
-  beatEnvelope,
-  beatTimes,
-  estimatePeriod,
-  findDownbeatPhase,
-  tempoFromBeats,
-  trackBeats,
-} from './rhythm';
-import { computeFrames } from './spectrum';
+import { BANDS, type Band, type Onset, type SongAnalysis, type TempoSegment } from '../types';
+import { frameTime, pickOnsets } from './onsets';
+import { beatEnvelope, beatTimes, findDownbeatPhase, tempoFromBeats, trackBeats } from './rhythm';
+import { computeFrames, type Frames } from './spectrum';
 import { energyCurves, findStructure } from './structure';
+import { findTempoSegments, framePeriods, refineChanges, type FrameSegment } from './tempo';
 
 /**
  * Bumped whenever the analysis changes what it finds, so cached results from older
  * versions are ignored and the song is analysed again.
  */
-export const ANALYSIS_VERSION = 2;
+export const ANALYSIS_VERSION = 3;
 
 /** Share of the progress bar the spectrum takes; the rest is quick. */
 const SPECTRUM_SHARE = 0.85;
@@ -50,17 +44,70 @@ export function analyseSamples(
   onProgress?.(0.9);
 
   const envelope = beatEnvelope(frames);
-  const period = estimatePeriod(envelope, frames.rate);
-  const beatFrames = trackBeats(envelope, period);
-  const beats = beatTimes(beatFrames, frames.rate);
-  const tempo = tempoFromBeats(beats, (frames.rate * 60) / period);
-  const phase = findDownbeatPhase(beatFrames, frames);
-  const downbeats = beats.filter((_, i) => i >= phase && (i - phase) % 4 === 0);
+  let found = findTempoSegments(envelope, frames.rate);
+  let beatFrames = trackBeats(envelope, framePeriods(found, envelope.length));
+  const refined = refineChanges(found, beatFrames, frames.rate);
+  if (refined !== found) {
+    found = refined;
+    beatFrames = trackBeats(envelope, framePeriods(found, envelope.length));
+  }
+  const { segments, beats, downbeats } = tempoMap(found, beatFrames, frames, duration);
+  // The tempo the song spends most of its time at.
+  const main = segments.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
   onProgress?.(0.95);
 
   const { energy, bands } = energyCurves(frames, duration);
   const { sections, drops } = findStructure({ duration, downbeats, onsets, energy, bands });
   onProgress?.(1);
 
-  return { duration, tempo, beats, downbeats, onsets, energy, bands, sections, drops };
+  return {
+    duration,
+    tempo: main.tempo,
+    segments,
+    beats,
+    downbeats,
+    onsets,
+    energy,
+    bands,
+    sections,
+    drops,
+  };
+}
+
+/**
+ * The tempo segments in song time, each with its tempo from its own beats, and the
+ * downbeats found in each. A later segment starts on the tracked beat at its change.
+ */
+function tempoMap(
+  found: FrameSegment[],
+  beatFrames: number[],
+  frames: Frames,
+  duration: number,
+): { segments: TempoSegment[]; beats: number[]; downbeats: number[] } {
+  const rate = frames.rate;
+  const beats = beatTimes(beatFrames, rate);
+  // Where each segment's beats start: the beat nearest its change.
+  const firsts = found.map((s, i) => {
+    if (i === 0) return 0;
+    let best = beatFrames.findIndex((f) => f >= s.from);
+    if (best < 0) return beatFrames.length;
+    if (best > 0 && s.from - beatFrames[best - 1]! < beatFrames[best]! - s.from) best--;
+    return best;
+  });
+  const segments: TempoSegment[] = [];
+  const downbeats: number[] = [];
+  found.forEach((s, i) => {
+    const first = firsts[i]!;
+    const last = firsts[i + 1] ?? beatFrames.length;
+    const own = beats.slice(first, last);
+    const tempo = tempoFromBeats(own, (rate * 60) / s.period);
+    const start = i === 0 ? 0 : (beats[first] ?? frameTime(s.from, rate));
+    segments.push({ start, end: duration, tempo, beatPeriod: 60 / tempo });
+    const phase = findDownbeatPhase(beatFrames.slice(first, last), frames);
+    downbeats.push(...own.filter((_, k) => k >= phase && (k - phase) % 4 === 0));
+  });
+  // Segments a tracked beat apart at most are one: no beats of their own to time by.
+  const merged = segments.filter((s, i) => i === 0 || s.start > segments[i - 1]!.start);
+  merged.forEach((s, i) => (s.end = merged[i + 1]?.start ?? duration));
+  return { segments: merged, beats, downbeats };
 }

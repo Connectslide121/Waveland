@@ -174,3 +174,50 @@ export function drumPattern({
   const downbeats = beats.filter((_, i) => i % 4 === 0);
   return { samples: out, beats, downbeats, kicks, snares, hats };
 }
+
+/**
+ * How a part of a tempo-change song is played: `groove` is `drumPattern`'s (kick on every
+ * beat, snare on 2 and 4, hats on the off-beats); `half` a half-time feel at the same
+ * tempo (kick on 1, snare on 3, hats on every beat); `clicks` a click on every beat.
+ */
+export type Feel = 'groove' | 'half' | 'clicks';
+
+export interface TempoPart {
+  bpm: number;
+  bars: number;
+  feel?: Feel;
+}
+
+/**
+ * A song whose tempo changes: the parts one after another, each starting on the beat the
+ * one before would have had next. Returns the true beats and where each later part starts.
+ */
+export function tempoChangeSong(parts: TempoPart[], start = 0.5, rate = TEST_RATE) {
+  const kit = drumKit(rate);
+  let length = start + 1;
+  for (const p of parts) length += (p.bars * 4 * 60) / p.bpm;
+  const out = track(length, rate);
+  const beats: number[] = [];
+  const changes: number[] = [];
+  let t = start;
+  for (const [index, part] of parts.entries()) {
+    if (index > 0) changes.push(t);
+    const period = 60 / part.bpm;
+    const feel = part.feel ?? 'groove';
+    for (let i = 0; i < part.bars * 4; i++, t += period) {
+      beats.push(t);
+      const inBar = i % 4;
+      if (feel === 'clicks') place(out, kit.click, t, 0.8, rate);
+      else if (feel === 'groove') {
+        place(out, kit.kick, t, inBar === 0 ? 0.9 : 0.6, rate);
+        if (inBar % 2 === 1) place(out, kit.snare, t, 0.5, rate);
+        place(out, kit.hat, t + period / 2, 0.3, rate);
+      } else {
+        if (inBar === 0) place(out, kit.kick, t, 0.9, rate);
+        if (inBar === 2) place(out, kit.snare, t, 0.6, rate);
+        place(out, kit.hat, t, 0.3, rate);
+      }
+    }
+  }
+  return { samples: out, beats, changes };
+}

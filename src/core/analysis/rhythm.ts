@@ -11,8 +11,8 @@ const PREFERRED_BPM = 120;
 /** Width of that lean, in octaves. */
 const PREFERENCE_OCTAVES = 1;
 /** Halve the period when half of it keeps this share of the pulse, up to this tempo. */
-const HALVING_SHARE = 0.5;
-const HALVING_MAX_BPM = 180;
+export const HALVING_SHARE = 0.5;
+export const HALVING_MAX_BPM = 180;
 /** How strongly the beat tracker sticks to the tempo (Ellis's "tightness"). */
 const TIGHTNESS = 100;
 /** How much each band counts toward the beat: kicks and snares more than hats. */
@@ -34,27 +34,59 @@ export function beatEnvelope(frames: Frames): Float32Array {
   return movingAverage(env, 1);
 }
 
-/** The beat period in frames (fractional), from the envelope's autocorrelation. */
-export function estimatePeriod(env: Float32Array, rate: number): number {
+/** The envelope above its half-second average: the hits, without the swell of loudness. */
+export function pulseOf(env: Float32Array, rate: number): Float32Array {
   const local = movingAverage(env, Math.round(rate * 0.5));
   const x = new Float32Array(env.length);
   for (let i = 0; i < env.length; i++) x[i] = Math.max(0, env[i]! - local[i]!);
+  return x;
+}
 
-  const minLag = Math.floor((rate * 60) / MAX_BPM);
-  const maxLag = Math.min(x.length - 1, Math.ceil((rate * 60) / MIN_BPM));
+/** The lags (in frames) a beat period can have, from `MAX_BPM` down to `MIN_BPM`. */
+export function lagRange(rate: number, length: number): { minLag: number; maxLag: number } {
+  return {
+    minLag: Math.floor((rate * 60) / MAX_BPM),
+    maxLag: Math.min(length - 1, Math.ceil((rate * 60) / MIN_BPM)),
+  };
+}
+
+/**
+ * Autocorrelation of `x[from, to)` at every lag up to `maxLag + 1` (from `minLag - 1`), each
+ * the mean product over the pairs it has.
+ */
+export function autocorrelation(
+  x: Float32Array,
+  from: number,
+  to: number,
+  minLag: number,
+  maxLag: number,
+): Float64Array {
   const ac = new Float64Array(maxLag + 2);
-  for (let lag = Math.max(1, minLag - 1); lag <= maxLag + 1 && lag < x.length; lag++) {
+  const length = to - from;
+  for (let lag = Math.max(1, minLag - 1); lag <= maxLag + 1 && lag < length; lag++) {
     let sum = 0;
-    for (let i = lag; i < x.length; i++) sum += x[i]! * x[i - lag]!;
-    ac[lag] = sum / (x.length - lag);
+    for (let i = from + lag; i < to; i++) sum += x[i]! * x[i - lag]!;
+    ac[lag] = sum / (length - lag);
   }
+  return ac;
+}
+
+/** How much the tracker leans toward a tempo: 1 at `PREFERRED_BPM`, less an octave away. */
+export function tempoPreference(bpm: number): number {
+  const octaves = Math.log2(bpm / PREFERRED_BPM) / PREFERENCE_OCTAVES;
+  return Math.exp(-0.5 * octaves * octaves);
+}
+
+/** The beat period in frames (fractional), from the envelope's autocorrelation. */
+export function estimatePeriod(env: Float32Array, rate: number): number {
+  const x = pulseOf(env, rate);
+  const { minLag, maxLag } = lagRange(rate, x.length);
+  const ac = autocorrelation(x, 0, x.length, minLag, maxLag);
 
   let best = -1;
   let bestScore = -Infinity;
   for (let lag = minLag; lag <= maxLag; lag++) {
-    const bpm = (rate * 60) / lag;
-    const octaves = Math.log2(bpm / PREFERRED_BPM) / PREFERENCE_OCTAVES;
-    const score = ac[lag]! * Math.exp(-0.5 * octaves * octaves);
+    const score = ac[lag]! * tempoPreference((rate * 60) / lag);
     if (score > bestScore) {
       bestScore = score;
       best = lag;
@@ -69,25 +101,41 @@ export function estimatePeriod(env: Float32Array, rate: number): number {
   return refinePeak(ac, best);
 }
 
+/** The envelope over its own loudness (RMS), so the tracker's scores mean the same in any song. */
+export function beatScores(env: Float32Array): Float32Array {
+  const sd = Math.sqrt(mean(env.map((v) => v * v))) || 1;
+  return env.map((v) => v / sd);
+}
+
 /**
  * Dynamic-programming beat tracker (Ellis 2007): beats sit on strong hits and keep close to
- * the period, so it holds the grid through quiet passages. Returns beat frames (fractional).
+ * the period, so it holds the grid through quiet passages. `period` is in frames, one for
+ * the whole song or one per frame (a tempo map: the interval ending at a frame keeps to
+ * that frame's period, so beats join at a tempo change without a skipped or doubled
+ * beat). Returns beat frames (fractional).
  */
-export function trackBeats(env: Float32Array, period: number): number[] {
+export function trackBeats(env: Float32Array, period: number | Float64Array): number[] {
   const n = env.length;
   if (n === 0) return [];
-  const sd = Math.sqrt(mean(env.map((v) => v * v))) || 1;
-  const score = env.map((v) => v / sd);
+  const score = beatScores(env);
   const total = new Float64Array(n);
   const from = new Int32Array(n).fill(-1);
-  const near = Math.max(1, Math.round(period / 2));
-  const far = Math.round(period * 2);
+  const steady = typeof period === 'number';
+  const periodAt = (t: number) => (steady ? period : period[t]!);
+  let p = periodAt(0);
+  let near = Math.max(1, Math.round(p / 2));
+  let far = Math.round(p * 2);
 
   for (let t = 0; t < n; t++) {
+    if (!steady && period[t] !== p) {
+      p = period[t]!;
+      near = Math.max(1, Math.round(p / 2));
+      far = Math.round(p * 2);
+    }
     let best = -Infinity;
     let bestFrom = -1;
     for (let tau = Math.max(0, t - far); tau <= t - near; tau++) {
-      const misfit = Math.log((t - tau) / period);
+      const misfit = Math.log((t - tau) / p);
       const value = total[tau]! - TIGHTNESS * misfit * misfit;
       if (value > best) {
         best = value;
@@ -100,7 +148,7 @@ export function trackBeats(env: Float32Array, period: number): number[] {
 
   // The last beat: the best total within the final period.
   let last = n - 1;
-  for (let t = Math.max(0, n - Math.ceil(period)); t < n; t++)
+  for (let t = Math.max(0, n - Math.ceil(periodAt(n - 1))); t < n; t++)
     if (total[t]! > total[last]!) last = t;
   const frames: number[] = [];
   for (let t = last; t >= 0; t = from[t]!) frames.push(t);

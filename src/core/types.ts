@@ -41,14 +41,29 @@ export interface EnergyCurve {
   values: Float32Array;
 }
 
+/**
+ * A stretch of the song at one steady tempo. The first starts at 0 and the last ends at
+ * the song's end; each later one starts on the first beat played at its tempo.
+ */
+export interface TempoSegment {
+  start: number;
+  end: number;
+  /** Beats per minute. */
+  tempo: number;
+  /** Seconds per beat. */
+  beatPeriod: number;
+}
+
 /** What the core learns from a song, once, and caches. */
 export interface SongAnalysis {
   duration: number;
-  /** Beats per minute. */
+  /** Beats per minute: the tempo the song spends most of its time at. */
   tempo: number;
-  /** Every beat. */
+  /** The tempo map: one segment for a steady song, more where the tempo changes. */
+  segments: TempoSegment[];
+  /** Every beat, following the tempo map. */
   beats: number[];
-  /** The first beat of every bar (4/4 assumed). */
+  /** The first beat of every bar (4/4 assumed, counted afresh in each tempo segment). */
   downbeats: number[];
   /** Hits per band: kick (low), snare (mid) and hi-hat (high), approximately. */
   onsets: Record<Band, Onset[]>;

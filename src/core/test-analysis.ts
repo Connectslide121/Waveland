@@ -4,13 +4,23 @@
  * failing seed can be run again.
  */
 import { Random } from './random';
-import type { Drop, EnergyCurve, Onset, Section, SectionKind, SongAnalysis } from './types';
+import type {
+  Drop,
+  EnergyCurve,
+  Onset,
+  Section,
+  SectionKind,
+  SongAnalysis,
+  TempoSegment,
+} from './types';
 
 export interface RandomAnalysisOptions {
   /** Song length in seconds; random from 40 to 90 when left out. */
   duration?: number;
   /** Beats per minute; random from 70 to 180 when left out. */
   tempo?: number;
+  /** Tempo changes: from the first beat at or after each `time`, the beat goes at `tempo`. */
+  changes?: { time: number; tempo: number }[];
 }
 
 const RATE = 50;
@@ -19,14 +29,26 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
   const rng = new Random(seed);
   const tempo = options.tempo ?? rng.range(70, 180);
   const duration = options.duration ?? rng.range(40, 90);
-  const period = 60 / tempo;
   const first = rng.range(0.05, 1.5);
   const jitter = () => rng.range(-0.008, 0.008);
 
+  // The tempo map: a segment per change, each starting on the first beat at its tempo.
+  const changes = [...(options.changes ?? [])].sort((a, b) => a.time - b.time);
+  const segments: TempoSegment[] = [{ start: 0, end: duration, tempo, beatPeriod: 60 / tempo }];
   const beats: number[] = [];
   // Sometimes the tracker trims silent beats at both ends.
   const lead = rng.chance(0.3) ? rng.int(1, 6) : 0;
-  for (let t = first + lead * period; t < duration - 0.3; t += period) beats.push(t + jitter());
+  for (let t = first + lead * (60 / tempo); t < duration - 0.3;) {
+    const next = changes[segments.length - 1];
+    if (next && t >= next.time) {
+      segments.at(-1)!.end = t;
+      segments.push({ start: t, end: duration, tempo: next.tempo, beatPeriod: 60 / next.tempo });
+    }
+    beats.push(t + jitter());
+    t += segments.at(-1)!.beatPeriod;
+  }
+  const periodAt = (t: number) =>
+    [...segments].reverse().find((s) => t >= s.start)?.beatPeriod ?? 60 / tempo;
   const phase = rng.int(0, 3);
   const downbeats = beats.filter((_, i) => i >= phase && (i - phase) % 4 === 0);
 
@@ -80,7 +102,7 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
     (t, s) =>
       s.energy *
       (s.kind === 'breakdown' ? 0.4 : 1) *
-      (0.7 + 0.3 * Math.cos((t / period) * Math.PI * 2)),
+      (0.7 + 0.3 * Math.cos((t / periodAt(t)) * Math.PI * 2)),
   );
   const mid = curve((_, s) => s.energy * 0.8);
   const high = curve((_, s) => s.energy * 0.6);
@@ -98,6 +120,7 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
   ]);
   beats.forEach((t, i) => {
     const s = sectionAt(t);
+    const period = periodAt(t);
     const quiet = s.kind === 'breakdown' || s.kind === 'intro';
     if (rng.chance(quiet ? 0.4 : 0.9)) hit(onsets.low, t + jitter(), s);
     const inBar = (i - phase + 4) % 4;
@@ -112,6 +135,7 @@ export function randomAnalysis(seed: number, options: RandomAnalysisOptions = {}
   return {
     duration,
     tempo,
+    segments,
     beats,
     downbeats,
     onsets,

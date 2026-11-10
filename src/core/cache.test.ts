@@ -8,6 +8,7 @@ const curve = () => ({ step: 0.02, values: Float32Array.of(0, 0.5, 1) });
 const analysis: SongAnalysis = {
   duration: 3,
   tempo: 120,
+  segments: [{ start: 0, end: 3, tempo: 120, beatPeriod: 0.5 }],
   beats: [0.5, 1, 1.5],
   downbeats: [0.5],
   onsets: { low: [{ time: 0.5, strength: 1 }], mid: [], high: [] },
