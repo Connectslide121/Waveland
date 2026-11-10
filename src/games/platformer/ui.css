@@ -302,4 +302,13 @@
   .pf-results__stats {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  /* Side by side, "Back to menu" would wrap: stack the buttons, Retry on top. */
+  .pf-modal--results .pf-modal__actions {
+    flex-direction: column;
+  }
+
+  .pf-modal--results .pf-button {
+    flex: none;
+  }
 }
