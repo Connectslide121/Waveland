@@ -292,12 +292,15 @@ export function shapeTerrain(
   const out: Solid[] = [];
   // Still ground the player reaches once it has reshaped, and that is in view on the
   // downbeat, reshapes from the last stretch's height.
+  // Where the player is once the reshaping is over (a tenth of a second spare), and their
+  // front then: ground starting before that would still be moving when they reach it.
   const morphReach = ctx.x(timeOfBeat(ctx.map, beatAt(ctx.map, ctx.since) + MORPH_BEATS) + 0.1);
+  const morphFront = morphReach + PLAYER_WIDTH;
   const morphLimit = startX + VIEW_AHEAD;
   const reshapes = (x0: number, x1: number, top: number) =>
     ctx.morphFrom !== undefined &&
     Math.abs(top - ctx.morphFrom) >= 0.5 &&
-    x0 >= Math.max(morphReach, startX + PLAYER_WIDTH + 8) &&
+    x0 >= Math.max(morphFront, startX + PLAYER_WIDTH + 8) &&
     x0 <= morphLimit &&
     !anchored.some(([a, b]) => a < x1 && b > x0);
   // Moving ground that doesn't reshape starts at its own height.
