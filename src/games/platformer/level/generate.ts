@@ -88,8 +88,6 @@ export interface DifficultySettings {
   rise: number;
   /** Spike strip length, in beats. */
   spike: number;
-  /** Beats a bridge stays after its snare. */
-  bridgeHold: number;
   /** How far equalisers move with the bass, px. */
   eqRange: number;
   /** Gap between equaliser columns, as a share of a beat. */
@@ -115,7 +113,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     clearance: 30,
     rise: 36,
     spike: 0.3,
-    bridgeHold: 1.75,
     eqRange: 50,
     eqGap: 0,
     stepRise: 40,
@@ -132,7 +129,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     clearance: 22,
     rise: 60,
     spike: 0.45,
-    bridgeHold: 1.5,
     eqRange: 80,
     eqGap: 0.15,
     stepRise: 52,
@@ -149,7 +145,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     clearance: 16,
     rise: 80,
     spike: 0.65,
-    bridgeHold: 1.25,
     eqRange: 110,
     eqGap: 0.25,
     stepRise: 64,
@@ -435,14 +430,16 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
   for (const e of map.events) {
     if (e.kind !== 'snare' || e.intensity < 0.3) continue;
     const beat = b(e.time);
+    const { takeoff, off } = bridgeTimes(map, e.time);
+    const air = BRIDGE_GAP_SHARE * settings.gap * JUMP_AIR;
     moments.push({
       kind: 'bridge',
       beat,
       length: 0,
       strength: e.intensity,
       what: 'snare',
-      from: beat - 0.1,
-      to: beat + Math.min(3, settings.bridgeHold) + 0.5,
+      from: b(takeoff) - 0.1,
+      to: b(off + air) + 0.75,
     });
   }
   return moments;
@@ -666,8 +663,6 @@ interface BuildContext {
   timeAt: (x: number) => number;
   /** Abilities the player has been taught by now (and the one this stretch teaches). */
   abilities: ReadonlySet<Ability>;
-  /** Every snare's time, for the bridges' windows. */
-  snares: number[];
   calm: boolean;
   /** How the stretch's ground looks and moves: it sets the steps plain ground takes. */
   style: TerrainStyle;
@@ -865,31 +860,35 @@ export function overhangAt(
   return { kind: 'overhang', x0: x(from) + PLAYER_WIDTH, x1: x(to), top: SKY, bottom };
 }
 
+/** The gap after a bridge, as a share of a kick's gap (`gap`). */
+export const BRIDGE_GAP_SHARE = 0.8;
+/** The gap after a bridge is at least this much air, s: never one to just run over. */
+const BRIDGE_MIN_AIR = 0.25;
+
 /**
- * When a bridge is there: from its own snare for `hold`, and from other snares near it, so
- * a player off the beat gets another go. Each comes out on a snare and is gone for at
- * least `BRIDGE_GAP` beats before the next, so a backbeat's snares every two beats never
- * merge its windows into a bridge that is always there.
+ * A bridge's moments, for its snare at `snare`: the player takes off on the beat before
+ * (the eighth before when a jump wouldn't last a beat), lands on the bridge as it comes
+ * out on the snare, and jumps off on the first beat after landing.
  */
-export function bridgeWindows(
-  snares: number[],
-  own: number,
-  hold: number,
-  period: number,
-): [number, number][] {
-  const gap = BRIDGE_GAP * period;
-  const near = snares.filter((t) => t >= own - 8 * period && t <= own + 8 * period);
-  const starts = [own];
-  // Later snares, each a full gap after the window before ends.
-  for (const t of near) if (t >= starts[starts.length - 1]! + hold + gap) starts.push(t);
-  // Earlier ones, nearest first, each ending a full gap before the window after starts.
-  for (let i = near.length - 1; i >= 0; i--)
-    if (near[i]! + hold + gap <= starts[0]!) starts.unshift(near[i]!);
-  return starts.map((t): [number, number] => [t, t + hold]);
+export function bridgeTimes(
+  grid: Parameters<typeof beatAt>[0],
+  snare: number,
+): { takeoff: number; land: number; off: number } {
+  const beat = beatAt(grid, snare);
+  const period = timeOfBeat(grid, beat) - timeOfBeat(grid, beat - 1);
+  const back = JUMP_AIR > period + BRIDGE_LAND_AFTER ? 1 : 0.5;
+  const takeoff = timeOfBeat(grid, beat - back);
+  const land = takeoff + JUMP_AIR;
+  const off = timeOfBeat(grid, Math.ceil(beatAt(grid, land) + BRIDGE_STAND - 1e-6));
+  return { takeoff, land, off };
 }
 
-/** Beats a bridge is gone, at least, between two times it is there. */
-export const BRIDGE_GAP = 1;
+/** A bridge comes out at least this long before the player lands on it, s. */
+const BRIDGE_LAND_AFTER = 0.05;
+/** Beats the player stands on a bridge at least before jumping off. */
+const BRIDGE_STAND = 0.25;
+/** The still ground after a bridge, px: room to land from the jump off it. */
+const BRIDGE_LANDING = 3 * PLAYER_WIDTH;
 
 /** Equaliser columns, one per beat, their heights following the bass. */
 function equaliser(ctx: BuildContext, moment: Moment): Built | null {
@@ -1108,27 +1107,42 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
       );
       if (needs) focus[needs] ??= { time: takeoff, end: takeoff + air };
     } else if (m.kind === 'bridge') {
-      const hold = Math.min(3, settings.bridgeHold / ctx.common(t)) * period;
-      const x0 = x(t) + 0.1 * beatWidth;
-      const x1 = Math.min(x(t + hold) - 0.1 * beatWidth, limit - 0.4 * beatWidth);
-      if (x0 < from - 1e-6 || x1 - x0 < 40) return;
-      solids.push(ground(from, x0, h), {
-        kind: 'bridge',
-        x0,
-        x1,
-        top: h,
-        windows: bridgeWindows(ctx.snares, t, hold, period),
-      });
-      from = x1;
+      // A pit with a bridge that comes out on the snare: jump on the beat before, land on
+      // it as the snare hits, jump off on the beat after over the rest of the pit.
+      const { takeoff, off } = bridgeTimes(map, t);
+      const air = Math.max(
+        BRIDGE_MIN_AIR,
+        BRIDGE_GAP_SHARE * settings.gap * ctx.common(t) * JUMP_AIR,
+      );
+      const pit = pitAt(x, takeoff, 0);
+      const x1 = x(off) + PLAYER_WIDTH / 2;
+      const far = x(off + air) + PLAYER_WIDTH;
+      if (pit.x0 < from - 1e-6 || far + 24 > limit || x1 - pit.x0 < 40) return;
+      // The landing after it keeps still (no heaving): a jump off on the beat always lands.
+      const landing = ground(far, Math.min(limit, far + BRIDGE_LANDING), h);
+      solids.push(
+        ground(from, pit.x0, h),
+        {
+          kind: 'bridge',
+          x0: pit.x0,
+          x1,
+          top: h,
+          // Out from the snare until a late jump off it (coyote time) has gone.
+          windows: [[t, off + PRESS_GRACE + COYOTE_TIME]],
+        },
+        landing,
+      );
+      fixed.add(landing);
+      from = landing.x1;
       add(
         {
           kind: 'bridge',
           time: t,
-          end: t + hold,
-          x0,
-          x1,
+          end: off + air,
+          x0: pit.x0,
+          x1: far,
           label: 'Bridge',
-          reason: `snare, there ${beatsText(hold / period)}`,
+          reason: 'snare: land on it as it comes out, jump off on the next beat',
         },
         m,
       );
@@ -1596,7 +1610,6 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     return { start, end, period, steps };
   };
 
-  const snares = map.events.filter((e) => e.kind === 'snare').map((e) => e.time);
   const plans = planBars(map, settings, bars, barEnd, (t) => isCalm(sectionAt(t)), busyAt, seed);
 
   // Each drop's set piece starts on the first bar at or after it.
@@ -1703,7 +1716,6 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
         stretch,
         x,
         abilities,
-        snares,
         calm: calmSection,
         style,
         timeAt: (px) => timeAtX(level, px),

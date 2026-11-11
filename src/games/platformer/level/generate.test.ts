@@ -12,6 +12,7 @@ import { analyseSamples } from '../../../core/analysis/analyse';
 import { momentsSong, TEST_RATE } from '../../../core/analysis/test-audio';
 import { randomAnalysis } from '../../../core/test-analysis';
 import {
+  JUMP_AIR,
   PHYSICS_DT,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
@@ -21,7 +22,7 @@ import {
   type PlayerState,
 } from '../physics';
 import {
-  bridgeWindows,
+  bridgeTimes,
   dashPitAir,
   DASH_REACH,
   DIFFICULTY,
@@ -39,6 +40,7 @@ import {
   timeAtX,
   xAtTime,
   type Pickup,
+  type Obstacle,
   type PlatformerLevel,
   type Solid,
 } from './level';
@@ -284,7 +286,7 @@ describe('generateLevel: the music', () => {
   });
 });
 
-describe('generateLevel: bridges come and go', () => {
+describe('generateLevel: bridges you land on as the snare comes out', () => {
   const saved = { ...DIFFICULTY.normal };
   afterEach(() => Object.assign(DIFFICULTY.normal, saved));
 
@@ -305,8 +307,31 @@ describe('generateLevel: bridges come and go', () => {
     return { ...map, events };
   }
 
+  /** Physics from just before a bridge to past it, with jumps pressed at `presses`; alive after? */
+  function crosses(l: PlatformerLevel, bridge: Obstacle, presses: number[]): boolean {
+    const world = new LevelWorld(l);
+    const { takeoff } = bridgeTimes(l.grid, bridge.time);
+    const t0 = takeoff - 4 * PHYSICS_DT;
+    // Standing on what is under the player's middle then.
+    const middle = world.xAt(t0) + PLAYER_WIDTH / 2;
+    const tops = l.solids
+      .filter((s) => s.kind !== 'overhang' && s.x0 <= middle && s.x1 >= middle)
+      .map((s) => solidTop(s, t0))
+      .filter((top): top is number => top !== null);
+    let p: PlayerState = startState(world.xAt(t0), Math.max(...tops));
+    const steps = presses.map((t) => Math.ceil(t / PHYSICS_DT - 1e-9));
+    // Until the landing after the jump off (what follows the bridge is another obstacle's).
+    const { off } = bridgeTimes(l.grid, bridge.time);
+    // The bridge's height: the still landing after it is at the same.
+    const top = l.solids.find((s) => s.kind === 'bridge' && s.x0 === bridge.x0)!.top;
+    for (let k = Math.ceil(t0 / PHYSICS_DT) + 1; k * PHYSICS_DT <= off + JUMP_AIR + 0.05; k++)
+      p = stepPlayer(p, { jump: steps.includes(k), release: false }, world, k * PHYSICS_DT);
+    // Alive and on the landing, not falling in the pit.
+    return p.alive && p.y >= top - 1;
+  }
+
   for (const doubled of [false, true])
-    it(`leaves every bridge gone for at least a beat between its windows (snares on 2 and 4${doubled ? ', doubled' : ''})`, () => {
+    it(`lands the player on each bridge as its snare comes out (snares on 2 and 4${doubled ? ', doubled' : ''})`, () => {
       // Every busy bar an obstacle, so there are bridges to check.
       DIFFICULTY.normal.hazard = 1;
       let checked = 0;
@@ -314,31 +339,34 @@ describe('generateLevel: bridges come and go', () => {
         const map = backbeat(seed, doubled);
         const l = generateLevel(map, 'normal');
         expect(validateLevel(l).ok).toBe(true);
-        for (const bridge of l.solids.filter((s) => s.kind === 'bridge')) {
-          const windows = bridge.windows!;
-          expect(windows.length).toBeGreaterThan(0);
-          for (let i = 1; i < windows.length; i++) {
-            const gone = windows[i]![0] - windows[i - 1]![1];
-            expect(gone).toBeGreaterThanOrEqual(periodAt(map, windows[i - 1]![1]) - 1e-6);
-            // Not there anywhere in the gap.
-            for (let k = 1; k < 8; k++)
-              expect(solidTop(bridge, windows[i - 1]![1] + (gone * k) / 8)).toBeNull();
-            checked++;
-          }
+        for (const bridge of l.obstacles.filter((o) => o.kind === 'bridge')) {
+          const solid = l.solids.find((s) => s.kind === 'bridge' && s.x0 === bridge.x0)!;
+          const { takeoff, land, off } = bridgeTimes(map, bridge.time);
+          // One window, out on the snare, before the player comes down on it.
+          expect(solid.windows).toHaveLength(1);
+          expect(solid.windows![0]![0]).toBe(bridge.time);
+          expect(land).toBeGreaterThan(bridge.time);
+          // A jump on the beat before and one on the beat after cross it; either alone doesn't.
+          expect(crosses(l, bridge, [takeoff, off])).toBe(true);
+          expect(crosses(l, bridge, [takeoff])).toBe(false);
+          expect(crosses(l, bridge, [off])).toBe(false);
+          checked++;
         }
       }
       expect(checked).toBeGreaterThan(0);
     }, 20_000);
 
-  it('keeps each window on a snare, the bridge there on it', () => {
-    const snares = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((b) => b * 0.5);
-    // Snares on every beat (0.5 s), held 1.5 beats: the bridge's own snare at 2 s, then
-    // only snares a full beat after a window ends, either way.
-    expect(bridgeWindows(snares, 2, 0.75, 0.5)).toEqual([
-      [0.5, 1.25],
-      [2, 2.75],
-      [3.5, 4.25],
-    ]);
+  it('takes off on the beat before the snare, or the eighth before on a slow song', () => {
+    const grid = {
+      beats: [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4],
+      segments: [{ start: 0, end: 4, tempo: 120, beatPeriod: 0.5 }],
+    };
+    expect(bridgeTimes(grid as never, 2).takeoff).toBeCloseTo(1.5);
+    const slow = {
+      beats: [0, 0.8, 1.6, 2.4, 3.2, 4],
+      segments: [{ start: 0, end: 4, tempo: 75, beatPeriod: 0.8 }],
+    };
+    expect(bridgeTimes(slow as never, 2.4).takeoff).toBeCloseTo(2);
   });
 });
 
