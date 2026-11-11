@@ -49,8 +49,15 @@ describe.each([
           barOf(s.time) === o.repeats! - 1 &&
           Math.abs(offset(s.time) - offset(o.time)) < 0.01,
       );
+      // A repair may have taken the first bar's own obstacle out.
+      const repaired = t.chunks.some(
+        (c) => c.repairs > 0 && c.start <= source + 1e-6 && c.end > source,
+      );
+      if (!twin && repaired) continue;
       expect(twin, `${o.kind} at ${o.time.toFixed(2)} repeats bar ${o.repeats}`).toBeDefined();
-      if (o.kind !== 'snare' && twin!.repeats === undefined) expect(o.lanes).toEqual(twin!.lanes);
+      // A kick's block stands where the racer is, which a repeat may reach in another lane.
+      if (o.kind !== 'snare' && o.kind !== 'kick' && twin!.repeats === undefined)
+        expect(o.lanes).toEqual(twin!.lanes);
       expect(source).toBeLessThan(o.time);
     }
   });

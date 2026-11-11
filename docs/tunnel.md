@@ -52,8 +52,8 @@ In `generate.ts`, `momentsOf` turns each moment into a candidate with the beats 
 
 | Musical moment | Obstacle | Sized by |
 |---|---|---|
-| Kick | A block in one lane, on the kick's time (`kick`) | Two lanes for a kick at least `twoLane` strong (normal 0.8, hard 0.6, never on easy) |
-| Snare | A block on the other side of the centre from the last kick's block (`snare`): its mirror, or beside the centre when the kick's block was about the centre. A groove steers left-right with the beat | — |
+| Kick | A block where the racer is (the line, below), to hop off on the kick (`kick`, "Block"): its lane and the one behind it, so the way to hop is plain | A kick at least `twoLane` strong (easy 0.9, normal 0.8, hard 0.6) walls off the racer's whole side ("Side wall") |
+| Snare | A low wall across every lane, to jump on the snare (`snare`, `low`). A groove is hop on the kick, jump on the snare | — |
 | Accent | A wall across every lane but `gaps` (two on easy, one on normal and hard), with a beat and a half of free track before it to steer to the gap (`wall`). The gap starts at the picked lane and widens on the side nearer the centre (`gapLanes`) | At least `lowAccent` strong (0.95, 0.85, 0.75): a low wall across every lane, to jump (`low`) |
 | Held sound | Not an obstacle, something to ride (`holds`): while a note holds, a rail of gems every half beat along the lane the obstacles block least; while a chord or a cymbal rings, a ring of light across the tunnel | As long as it holds, up to 8 beats |
 | Stop | The tunnel goes dark and empty (`dark`; the planner lets nothing else in), and the band's return lands a wall with the difficulty's gaps (`stop`). The empty dark is the time to steer to the gap | — |
@@ -66,7 +66,11 @@ In `generate.ts`, `momentsOf` turns each moment into a candidate with the beats 
 
 **The floor.** A steady four-on-the-floor beat has few kicks and snares per beat, so its activity rates low even where it is busy. Every bar of a groove or a build has at least `busyFloor` obstacles, and of a chorus or a drop at least `peakFloor` (fractions carried from bar to bar, like the platformer's), taken from the bar's own common moments, so an obstacle is still always on a kick, a snare or a syncopation. Calm sections and breakdowns have none, and a bar that repeats an earlier one copies it. Where a bar's moments overlap (an obstacle takes a beat of track before and after it) the floor is the most that fits.
 
-**Where a kick's block stands.** `lean` (easy 0.4, normal 0.2, hard 0): that share of the seeded picks puts a kick's block in the centre lane, where the racer starts and the gems' line runs (`leanedLane`); the rest pick any lane. It is a function of the pick alone, so a repeated bar keeps its lanes; the snare still answers on the other side. Only kicks and snares at least `minHit` strong are moments (0.55, 0.4, 0.3). Calm sections and breakdowns leave out snares and slides and halve the rest; a build gets up to `BUILD_DENSER` (80%) more by its end.
+**Played on the beat.** The first tunnel put a kick's block in a seeded lane and the snare's across from it: most blocks never stood in the racer's way, and a player mostly went straight and steered now and then, with no sense of playing the song. Now every common moment asks for a press on its hit:
+
+- **The line** is the lane a racer following the track is in (`BuildContext.line`, from the start lane). A kick's block stands on it and sends it one lane over: the pick says which way, away from the tunnel's edge, and back toward the centre two times in three. Walls, stops, squeezes and slaloms move the line to the nearest lane they leave open. A racer who went the other way round a block is off the line until the next side wall, which blocks everything on the line's side.
+- **On the hit** (`ACT_LEAD`, 0.15 s, at most 0.4 of a beat): a kick's block and every low wall come that long after their beat, so a hop pressed on the kick is over and a jump pressed on the snare is at its top as they pass. Without it the press had to come before the beat, the platformer's old trouble. `Obstacle.time` is still the moment; `z0` is where it is met.
+- A repeat keeps its obstacles on the same beats; a kick's lanes follow the line, so they may differ from the first time.
 
 **Repeats.** A bar the song plays again (`BarInfo.repeats`) takes the obstacles that bar had a phrase (`PHRASE_BARS`, 4 bars) back, or the first time it was played, each on its own moment there, in the same lanes. A loop of a bar or two plans its first phrase afresh and repeats that. A drop's set piece is never a repeat's source: a bar sounding like one is planned afresh.
 
@@ -89,27 +93,26 @@ In `generate.ts`, `momentsOf` turns each moment into a candidate with the beats 
 | | Easy | Normal | Hard |
 |---|---|---|---|
 | Lanes | 3 | 5 | 5 |
-| Common moments used (`hazard`) | 0.4 | 0.65 | 1 |
+| Common moments used (`hazard`) | 0.6 | 0.9 | 1 |
 | Weakest kick or snare (`minHit`) | 0.55 | 0.4 | 0.3 |
-| Two-lane kicks (`twoLane`) | never | ≥ 0.8 | ≥ 0.6 |
+| Side walls on kicks (`twoLane`) | ≥ 0.9 | ≥ 0.8 | ≥ 0.6 |
 | Gap lanes in a wall (`gaps`) | 2 | 1 | 1 |
 | Low walls (`lowAccent`) | ≥ 0.95 | ≥ 0.85 | ≥ 0.75 |
 | Sliding blocks, weaving slaloms | no | no | yes |
 | Gems on hi-hats (`gemEvery`) | every other | every other | every one |
 | Sixteenths as moments (`sixteenths`) | no | no | yes |
 | Obstacles a bar has at least (`busyFloor` groove or build, `peakFloor` chorus or drop) | 0.5, 1 | 1, 1.75 | 1.75, 3 |
-| Share of kick blocks in the centre lane (`lean`) | 0.4 | 0.2 | 0 |
 | Lanes open in a squeeze's walls (`squeeze`) | 2, 2, 2 | 3, 3, 2 | 3, 2, 1 |
 
-On the synthetic test songs (`src/core/analysis/test-songs.ts`), as tuned by the playtest: obstacles a minute, gems a minute, and the hops a minute the solver needs to get through clean (a player chasing gems hops more):
+On the synthetic test songs (`src/core/analysis/test-songs.ts`): obstacles a minute, gems a minute, and the hops and jumps a minute of the one clean route the solver returns (it wanders, so the hops are a rough guide; before the track was played on the beat it needed 17 hops a minute on the electronic track's normal):
 
 | Song | Easy | Normal | Hard |
 |---|---|---|---|
-| 170 BPM rock stand-in | 53 · 167 gems · 18 hops | 77 · 175 · 49 | 118 · 302 · 50 |
-| 128 BPM electronic track | 27 · 78 · 7 | 39 · 91 · 17 | 48 · 137 · 15 |
-| Melody song (120 BPM) | 19 · 170 · 6 | 37 · 168 · 40 | 59 · 250 · 13 |
+| 170 BPM rock stand-in | 67 · 153 gems · 89 hops · 21 jumps | 98 · 144 · 167 · 51 | 108 · 262 · 149 · 46 |
+| 128 BPM electronic track | 36 · 78 · 51 · 25 | 46 · 90 · 86 · 26 | 49 · 136 · 83 · 25 |
+| Melody song (120 BPM) | 35 · 123 · 59 · 26 | 50 · 106 · 74 · 32 | 66 · 182 · 90 · 37 |
 
-(Measured after the pulse, floor and lean changes and the squeeze. The hops are those of the one route `solveLevel` happens to return, which wanders a little, so they are only a rough guide: the melody song's normal 40 is that wandering, not a need.) The electronic track's hard is still only a little busier than normal: its drops are its only busy bars, and a bar there is already as full as the kicks leave room for, so the floor rarely binds. Boosters a song: 7 on the rock stand-in and the electronic track, 1 on the melody song; hoops 18 to 34 on the rock stand-in, 17 on the electronic track, 8 on the melody song.
+On normal that is about an action a beat. The rock stand-in's normal and hard have 9 and 11 of their 90-odd stretches eased by a repair (a kick right after a snare at 170 BPM leaves no time to land and hop). The electronic track's hard is still only a little busier than normal: its drops are its only busy bars and already as full as the overlaps allow.
 
 The rock stand-in's accents are mostly loud (two thirds at 0.7 or more), so on normal and hard most of its accents are low walls to jump; easy keeps them walls to steer through, all but the very loudest.
 
@@ -153,7 +156,7 @@ The rock stand-in's accents are mostly loud (two thirds at 0.7 or more), so on n
 - `level/validate.test.ts`: hand-built tracks (`level/test-track.ts`), and `solveLevel`'s presses replayed through `stepRacer` without a crash.
 - `level/generate.test.ts`: each moment of the grammar on its own, every obstacle on its moment, difficulty, determinism, drops, gems, and nine random songs at every difficulty.
 - `level/test-songs.test.ts`: every synthetic test song at every difficulty raced without a crash, busier from easy to hard, repeats on the same beats, and the rock stand-in solved on hard and replayed clean.
-- `level/pulse.test.ts`: the pulse (easy and normal on a beat or an "and", hard on sixteenths, texture syncopations), a part keeping its pattern a phrase on, the floor, the lean.
+- `level/pulse.test.ts`: the pulse (easy and normal on a beat or an "and", hard on sixteenths, texture syncopations), a part keeping its pattern a phrase on, the floor.
 - `level/extras.test.ts`: boosters (one a section, six bars apart, on a free first-phrase downbeat, clear of obstacles), hoops (phrases of four a lane apart, a fill's hoop) and the squeeze (narrowing walls, the gem line).
 
 Boosters and hoops are put on the finished track and the validator never sees them, so none is ever needed (`level/extras.test.ts` checks the track validates with them taken away). The squeeze's walls are obstacles like any other: the validator sees them, and a stretch it fails is repaired like the rest (a squeeze's open lanes widen by `ease`).
@@ -212,7 +215,7 @@ Colours keep their meanings, all from `src/theme/palette.ts`: cyan the craft and
 - **Stops**: everything in a stop's dark is down to `DARK_LIGHT` (7%).
 - **Drop set piece**: from the drop's first bar for `DROP_BARS`, its rings are magenta and flash on every beat, the far end's glow turns magenta, bloom goes up. Overdrive turns the rings magenta too.
 - **Crash**: an orange flash over the screen (a CSS layer under the HUD) and a 0.35 s camera shake; sparks (orange, cyan when the shield took it). Sparks also burst on pickups, perfects, overdrive and a new shield.
-- **Bloom** (`UnrealBloomPass`) then the output pass. The renderer turns the clear colour to sRGB even inside the composer's linear buffer, so the clear colour is given pre-linearised once more, or night shows as grey.
+- **Bloom** (`UnrealBloomPass`, strength `BLOOM_STRENGTH` 0.28, radius 0.3, threshold 0.45) then the output pass. The renderer turns the clear colour to sRGB even inside the composer's linear buffer, so the clear colour is given pre-linearised once more, or night shows as grey. The first look had the bloom at 0.6 over rings and lane lines twice as bright: on a real screen the tube was a wall of pink light and the blocks and the craft were lost in it. The tube is the background now: rings, long lines, lane lines, beat marks, the far glow and the kick's ring are all about half as bright, so what is played (orange obstacles, the cyan craft, magenta gems) is the brightest thing on screen. A low wall gets no warning strips: it crosses every lane on every snare, and the deck would be orange all the time.
 
 **Camera.** Behind the craft (`CAMERA_BACK`, 4.6 units, more on a narrow screen so every lane stays in view) and `CAMERA_UP` (1.75) over the deck, following the craft's lane halfway, its frame averaged over 6 units of path so bends come in smoothly, looking `LOOK_AHEAD` (12) units ahead and banking a little with the deck. The field of view aims at 78° across, between 55° and 88° up and down, so a phone held upright still sees every lane.
 
@@ -249,7 +252,7 @@ Judged right as built, and left alone: lane hop time (0.12 s, inside an eighth a
 
 - **Real songs.** Only the synthetic test songs have been played. Real songs should check the melody contour where no lead plays (a bass's harmonics or a chord's loudest note can read as the melody, bending the path for no audible reason), and whether accents on loud masters all saturate to low walls like the rock stand-in's.
 - **Steady four-on-the-floor tracks on hard.** Settled as far as the numbers go: a floor of obstacles per busy bar (`busyFloor`, `peakFloor`). On the 128 BPM electronic track hard is still only 48 obstacles a minute against 39 on normal, because its drops are its only busy bars and a bar there is already as full as the kicks leave room for. Counting hats in a bar's activity would change it; only play can say whether it still feels light.
-- **Obstacles off the racer's lane.** Settled with `lean`: a share of kick blocks in the centre lane (0.4 on easy). It leans to where the racer starts, not to where it is: a lean that followed the gems' line would make a repeated bar's lanes depend on what went before. Whether easy is now less idle needs play.
+- **How it plays.** The track is played on the beat now (hop on the kick, jump on the snare), which only a player can judge: whether an action a beat on normal is the right amount, whether `ACT_LEAD` puts the press where the ear wants it, and whether side walls read in time.
 - **Everything new is untested by hand.** The telegraph strips, beat marks, boosters, hoops, squeeze, starfield and turning gates were built and tested as data (tracks, the run), not played or looked at: their brightness, size and timing, whether the squeeze reads as a squeeze and whether the surge, magnet and hoops feel worth steering for are for a play and a look to tune (constants at the top of `scene.ts`, `run.ts` and `generate.ts`).
 - **A booster or hoop the racer can't reach.** Their lane is the gems' line or beside it and clear of obstacles, but not proved reachable by the validator (which never sees them); dense obstacles just before one may make it a hop too far. Cheap to check: log how many a gem-chasing bot takes.
 - **Frame rate on a real phone.** The offscreen browser throttles frames, so the frame monitor and the frame rate can only be judged on a real window and a real phone.

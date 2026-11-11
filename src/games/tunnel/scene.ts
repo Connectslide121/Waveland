@@ -83,7 +83,7 @@ const PICKUP_HEIGHT = 0.42;
 /** A stop's dark: what is left of the light. */
 const DARK_LIGHT = 0.07;
 /** Bloom, before the section's glow. */
-const BLOOM_STRENGTH = 0.6;
+const BLOOM_STRENGTH = 0.28;
 /** A telegraph strip's width across its lane, lanes. */
 const TELEGRAPH_HALF = 0.38;
 /** The wall of a lane's obstacle is announced over this many beats before it. */
@@ -491,7 +491,7 @@ export class TunnelScene {
 
     this.#composer = new EffectComposer(this.renderer);
     this.#composer.addPass(new RenderPass(this.#scene, this.#camera));
-    this.#bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), BLOOM_STRENGTH, 0.45, 0.3);
+    this.#bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), BLOOM_STRENGTH, 0.3, 0.45);
     this.#composer.addPass(this.#bloom);
     this.#composer.addPass(new OutputPass());
 
@@ -893,7 +893,9 @@ export class TunnelScene {
     const gap = o.kind === 'wall' || o.kind === 'stop' || o.kind === 'squeeze';
     const period = periodAt(track.grid, o.time);
     const lead = o.z0 - zAtTime(track, o.time - period * (gap ? GAP_BEATS : TELEGRAPH_BEATS));
-    if (lead <= 0.1) return;
+    // A low wall crosses every lane and is jumped, not steered round: no strips for it,
+    // or the whole deck would be orange on every snare.
+    if (lead <= 0.1 || o.low) return;
     const [pa, pb, da, db] = this.#lineVectors;
     const a = this.#h;
     const b = this.#g;
@@ -915,7 +917,7 @@ export class TunnelScene {
           if (k < 0 && !gap) continue;
           const pos = k < 0 ? lane : obstacleLaneAt(o, k, o.time);
           const colour = k < 0 ? COLOR.cyan : COLOR.orange;
-          const peak = k < 0 ? 0.32 : 0.6;
+          const peak = k < 0 ? 0.22 : 0.34;
           this.#deck(a, pos, 0.014, pa);
           this.#deck(b, pos, 0.014, pb);
           this.#across(a, pos, da);
@@ -999,16 +1001,16 @@ export class TunnelScene {
         const inDrop = this.#dropAt(t) >= 0;
         // Rings on the drop's beats are magenta, and flash on the beat.
         const color = this.#color.copy(inDrop || overdrive ? COLOR.magenta : COLOR.violet);
-        let k = (0.3 + look.glow * 0.5) * (downbeat ? 1.4 : 1);
-        if (drop >= 0 && !reduced) k *= 1 + 1.2 * Math.max(0, 1 - beatPhase * 3);
-        k *= 1 + 0.6 * kickEnv * soft;
+        let k = (0.14 + look.glow * 0.22) * (downbeat ? 1.4 : 1);
+        if (drop >= 0 && !reduced) k *= 1 + 0.8 * Math.max(0, 1 - beatPhase * 3);
+        k *= 1 + 0.4 * kickEnv * soft;
         color.multiplyScalar(k * light);
         const r = TUBE_RADIUS * radius * breathe;
         this.#back.copy(f.f).negate();
         this.#place(this.#rings, rings++, f.c, f.r, f.u, this.#back, r, r, r, color);
         if (look.ringWalls && Number.isInteger(b) && walls < MAX_WALLS) {
           // Gates turning with the beat, each wall the other way round from the last.
-          const wall = this.#color2.copy(COLOR.violet).multiplyScalar(0.3 * light);
+          const wall = this.#color2.copy(COLOR.violet).multiplyScalar(0.14 * light);
           const turn =
             (b % 2 === 0 ? 1 : -1) * (beats * look.spin + 0.15 * kickEnv) * soft + b * 0.45;
           const c = Math.cos(turn);
@@ -1046,7 +1048,7 @@ export class TunnelScene {
           for (let i = 0; i <= lanes; i++) {
             const pos = i - 0.5;
             const edge = i === 0 || i === lanes;
-            const k = edge ? 0.75 : 0.3;
+            const k = edge ? 0.42 : 0.2;
             this.#deck(a, pos, 0, pa);
             this.#deck(b, pos, 0, pb);
             this.#across(a, pos, da);
@@ -1079,7 +1081,7 @@ export class TunnelScene {
               .addScaledVector(b.u, -c * rb);
             da.copy(a.r).multiplyScalar(c).addScaledVector(a.u, s);
             db.copy(b.r).multiplyScalar(c).addScaledVector(b.u, s);
-            const k = (0.18 + 0.25 * here.look.glow) * (1 + 0.8 * bass * soft);
+            const k = (0.07 + 0.1 * here.look.glow) * (1 + 0.6 * bass * soft);
             ca.copy(COLOR.violet).multiplyScalar(k * lightA);
             cb.copy(COLOR.violet).multiplyScalar(k * lightB);
             ribbons.quad(pa, da, ca, pb, db, cb, 0.03);
@@ -1109,7 +1111,7 @@ export class TunnelScene {
         if (light <= 0.002) continue;
         this.#frameAt(z, a);
         const down = beatInBar(grid, t + 1e-3) === 0;
-        c.copy(COLOR.magenta).multiplyScalar((down ? 0.85 : 0.3) * light);
+        c.copy(COLOR.magenta).multiplyScalar((down ? 0.55 : 0.22) * light);
         for (let i = 0; i < track.lanes; i++) {
           this.#deck(a, i - 0.5, 0.012, pa);
           this.#deck(a, i + 0.5, 0.012, pb);
@@ -1291,7 +1293,7 @@ export class TunnelScene {
         this.#across(f, h.lane, this.#d);
         this.#normal(f, h.lane, this.#e);
         this.#back.copy(f.f).negate();
-        const color = this.#color.copy(COLOR.magenta).multiplyScalar(1.5 * pulse * light);
+        const color = this.#color.copy(COLOR.magenta).multiplyScalar(0.7 * pulse * light);
         const r = HOOP_RADIUS;
         this.#place(this.#hoops, hoops++, this.#v, this.#d, this.#e, this.#back, r, r, r, color);
       }
@@ -1473,7 +1475,7 @@ export class TunnelScene {
       const material = this.#farLight.material;
       material.color
         .copy(drop >= 0 || overdrive ? COLOR.magenta : COLOR.violet)
-        .multiplyScalar((0.12 + 0.15 * here.look.glow + 0.15 * bass * soft) * this.#lightAt(time));
+        .multiplyScalar((0.05 + 0.06 * here.look.glow + 0.06 * bass * soft) * this.#lightAt(time));
     }
 
     this.#sparks.update(state.paused ? 0 : dt);

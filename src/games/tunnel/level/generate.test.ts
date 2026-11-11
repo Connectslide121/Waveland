@@ -12,8 +12,8 @@ import {
 } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
 import { hits } from '../physics';
-import { DIFFICULTY, DROP_BARS, gapLanes, generateLevel } from './generate';
-import type { Obstacle, TunnelTrack } from './track';
+import { ACT_LEAD, DIFFICULTY, DROP_BARS, gapLanes, generateLevel } from './generate';
+import { zAtTime, type Obstacle, type TunnelTrack } from './track';
 import { validateLevel } from './validate';
 
 /**
@@ -116,7 +116,7 @@ describe('the grammar', () => {
     expect(validateLevel(track).ok).toBe(true);
   });
 
-  it('puts blocks on kicks and answers each with a snare block on the other side', () => {
+  it('puts a block where the racer is on every kick and a low wall to jump on every snare', () => {
     const map = quiet();
     // A busy groove at full energy: a block or three a bar, the strongest hits first.
     const groove = [];
@@ -124,34 +124,43 @@ describe('the grammar', () => {
       groove.push(
         { time: at(map, bar, 0), kind: 'kick' as const, intensity: 0.9 },
         { time: at(map, bar, 1), kind: 'snare' as const, intensity: 0.85 },
-        { time: at(map, bar, 2), kind: 'kick' as const, intensity: 0.8 },
+        { time: at(map, bar, 2), kind: 'kick' as const, intensity: 0.5 },
         { time: at(map, bar, 3), kind: 'snare' as const, intensity: 0.75 },
       );
-      for (let k = 0; k < 4; k++)
-        groove.push({ time: at(map, bar, k + 0.5), kind: 'kick' as const, intensity: 0.45 });
     }
     const busy = withMoments({}, groove);
     busy.energy = busy.energy.map(() => 1);
     const track = generateLevel(busy, 'hard');
-    const blocks = ofKind(track, 'kick', 'snare');
-    expect(ofKind(track, 'kick').length).toBeGreaterThan(5);
-    expect(ofKind(track, 'snare').length).toBeGreaterThan(5);
-    let answered = 0;
-    for (let i = 1; i < blocks.length; i++) {
-      const [before, snare] = [blocks[i - 1]!, blocks[i]!];
-      if (snare.kind !== 'snare' || before.kind !== 'kick') continue;
-      const kick = (before.lanes[0]! + before.lanes[before.lanes.length - 1]!) / 2;
-      // On the other side of the centre, or beside it when the kick was in the centre.
-      const lane = snare.lanes[0]!;
-      if (kick === 2) expect(Math.abs(lane - 2)).toBe(1);
-      else expect((lane - 2) * (kick - 2)).toBeLessThan(0);
-      answered++;
+    const kicks = ofKind(track, 'kick');
+    const snares = ofKind(track, 'snare');
+    expect(kicks.length).toBeGreaterThan(10);
+    expect(snares.length).toBeGreaterThan(10);
+    // A snare: a low wall across every lane, to jump.
+    for (const o of snares) {
+      expect(o.low).toBe(true);
+      expect(o.lanes).toEqual([0, 1, 2, 3, 4]);
     }
-    expect(answered).toBeGreaterThan(3);
-    // Loud kicks block two lanes on hard, never on easy.
-    expect(ofKind(track, 'kick').some((o) => o.lanes.length === 2)).toBe(true);
-    const easy = generateLevel(busy, 'easy');
-    expect(ofKind(easy, 'kick').every((o) => o.lanes.length === 1)).toBe(true);
+    // A kick: lanes next to each other with a way out beside them, and the racer in one:
+    // it starts in the centre, and each block stands where the last one sent it.
+    expect(kicks[0]!.lanes).toContain(2);
+    kicks.forEach((o, n) => {
+      expect(o.lanes.length).toBeLessThan(5);
+      expect(o.lanes[o.lanes.length - 1]! - o.lanes[0]!).toBe(o.lanes.length - 1);
+      const next = kicks[n + 1];
+      // The racer hops to the open lane beside the block; the next block stands there.
+      if (next)
+        expect(
+          next.lanes.includes(o.lanes[0]! - 1) ||
+            next.lanes.includes(o.lanes[o.lanes.length - 1]! + 1),
+        ).toBe(true);
+    });
+    // A strong kick walls off the racer's whole side; a weaker one its lane and the one behind.
+    expect(kicks.some((o) => o.label === 'Side wall')).toBe(true);
+    for (const o of kicks) expect(['Side wall', 'Block']).toContain(o.label);
+    // Both come a moment after their beat, so the press is on the beat.
+    for (const o of [...kicks, ...snares])
+      expect(o.z0).toBeCloseTo(zAtTime(track, o.time + ACT_LEAD), 6);
+    expect(validateLevel(track).ok).toBe(true);
   });
 
   it('turns a fill into a slalom: a block a hit, alternating sides', () => {

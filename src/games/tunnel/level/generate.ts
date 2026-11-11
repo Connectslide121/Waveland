@@ -78,11 +78,6 @@ export interface DifficultySettings {
    */
   busyFloor: number;
   peakFloor: number;
-  /**
-   * The share of kick blocks that stand in the centre lane, where the racer starts and
-   * the gems' line is, so on easy a block is more often in the way.
-   */
-  lean: number;
   /** The lanes left open in a squeeze's three walls, wide to narrow. */
   squeeze: readonly number[];
 }
@@ -90,23 +85,22 @@ export interface DifficultySettings {
 export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
   easy: {
     lanes: 3,
-    hazard: 0.4,
-    minHit: 0.55,
-    twoLane: Infinity,
+    hazard: 0.6,
+    minHit: 0.5,
+    twoLane: 0.9,
     gaps: 2,
     lowAccent: 0.95,
     slides: false,
     slalomCentre: false,
     gemEvery: 2,
     sixteenths: false,
-    busyFloor: 0.5,
-    peakFloor: 1,
-    lean: 0.4,
+    busyFloor: 1,
+    peakFloor: 1.5,
     squeeze: [2, 2, 2],
   },
   normal: {
     lanes: 5,
-    hazard: 0.65,
+    hazard: 0.9,
     minHit: 0.4,
     twoLane: 0.8,
     gaps: 1,
@@ -115,9 +109,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     slalomCentre: false,
     gemEvery: 2,
     sixteenths: false,
-    busyFloor: 1,
-    peakFloor: 1.75,
-    lean: 0.2,
+    busyFloor: 2,
+    peakFloor: 2.5,
     squeeze: [3, 3, 2],
   },
   hard: {
@@ -131,9 +124,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     slalomCentre: true,
     gemEvery: 1,
     sixteenths: true,
-    busyFloor: 1.75,
-    peakFloor: 3,
-    lean: 0,
+    busyFloor: 2.5,
+    peakFloor: 3.5,
     squeeze: [3, 2, 1],
   },
 };
@@ -152,7 +144,14 @@ const BUILD_DENSER = 0.8;
 /** Beats of free track before a wall with a gap, to steer to the gap. */
 const WALL_APPROACH = 1.5;
 /** Beats after an obstacle's last contact that count as passing it (`endOf`). */
-const PASS_BEATS = 0.5;
+const PASS_BEATS = 0.75;
+/**
+ * The racer acts on the beat, and what it acts on comes this long after it (s, at most
+ * `ACT_LEAD_BEATS` of a beat): a hop pressed on a kick is over by then, a jump pressed on
+ * a snare is at its top. Without it the press had to come before the beat.
+ */
+export const ACT_LEAD = 0.15;
+const ACT_LEAD_BEATS = 0.4;
 /** A slalom's blocks are at least this many beats apart (dense fills are thinned). */
 const SLALOM_MIN = 0.25;
 /** A slalom covers the centre too only when its hits are this many seconds apart. */
@@ -547,24 +546,14 @@ interface BuildContext {
   lanes: number;
   ease: Ease;
   z: (t: number) => number;
-  /** The middle of the last kick's block, which a snare answers on the other side. */
-  lastKick: number | null;
+  /** The lane a racer following the track is in: where the next kick's block comes. */
+  line: number;
 }
 
 const centreOf = (lanes: number) => (lanes - 1) / 2;
 
 /** A lane from a seeded pick. */
 const laneOf = (pick: number, lanes: number) => Math.min(lanes - 1, Math.floor(pick * lanes));
-
-/**
- * A kick's lane from its seeded pick: the centre lane for the first `lean` share of
- * picks (where the racer starts and the gems' line is), any lane for the rest. A pure
- * function of the pick, so a repeated bar keeps its lanes.
- */
-export function leanedLane(pick: number, lanes: number, lean: number): number {
-  if (pick < lean) return Math.floor(centreOf(lanes));
-  return laneOf((pick - lean) / (1 - lean), lanes);
-}
 
 /** `width` lanes next to each other that include `lane`, as near as can be centred on it. */
 export function laneWindow(lane: number, width: number, lanes: number): number[] {
@@ -597,15 +586,31 @@ export function gapLanes(pick: number, count: number, lanes: number): number[] {
 const allBut = (lanes: number, open: number[]) =>
   Array.from({ length: lanes }, (_, i) => i).filter((i) => !open.includes(i));
 
-/** The obstacles of a stretch's moments, in time order, and the last kick's lane after them. */
-function compose(
-  ctx: BuildContext,
-  moments: Moment[],
-): { obstacles: Obstacle[]; lastKick: number | null } {
+/**
+ * The obstacles of a stretch's moments, in time order, and the line's lane after them.
+ * The track is played on the beat: a kick puts a block where the racer is (the line) and
+ * the racer hops off it, a snare puts a low wall across the track and the racer jumps it,
+ * both pressed on the hit (`ACT_LEAD`).
+ */
+function compose(ctx: BuildContext, moments: Moment[]): { obstacles: Obstacle[]; line: number } {
   const { map, settings, lanes, ease, z } = ctx;
   const centre = centreOf(lanes);
-  let lastKick = ctx.lastKick;
+  let line = ctx.line;
   const obstacles: Obstacle[] = [];
+  /** How long after its beat an obstacle the racer acts on comes, s. */
+  const leadAt = (time: number) => Math.min(ACT_LEAD, ACT_LEAD_BEATS * periodAt(map, time));
+  /** Off a lane that is blocked: the line moves to the nearest open one, the centre's side first. */
+  const follow = (blocked: number[]) => {
+    if (!blocked.includes(line)) return;
+    for (let d = 1; d < lanes; d++) {
+      const sides = line < centre ? [line + d, line - d] : [line - d, line + d];
+      const open = sides.find((l) => l >= 0 && l < lanes && !blocked.includes(l));
+      if (open !== undefined) {
+        line = open;
+        return;
+      }
+    }
+  };
   const add = (
     kind: ObstacleKind,
     beat: number,
@@ -614,10 +619,12 @@ function compose(
     label: string,
     reason: string,
     more: Partial<Obstacle> = {},
+    /** Acted on by a press on its beat: it comes `leadAt` after it. */
+    acted = false,
   ) => {
     if (blocked.length === 0) return;
     const time = timeOfBeat(map, beat);
-    const z0 = z(time);
+    const z0 = z(time + (acted ? leadAt(time) : 0));
     obstacles.push({
       kind,
       time,
@@ -634,34 +641,64 @@ function compose(
   for (const m of [...moments].sort((a, b) => a.beat - b.beat)) {
     switch (m.kind) {
       case 'kick': {
-        const lane = leanedLane(m.pick, lanes, settings.lean);
-        const two = ease === 0 && m.strength >= settings.twoLane;
-        const other = lane + 1 < lanes ? lane + 1 : lane - 1;
-        const blocked = two ? [lane, other].sort((a, b) => a - b) : [lane];
-        add('kick', m.beat, blocked, m, two ? 'Double block' : 'Block', 'kick');
-        lastKick = (blocked[0]! + blocked[blocked.length - 1]!) / 2;
+        // Where the racer is, so every kick is a hop: the pick says which way, away from
+        // the tunnel's edge, and back toward the centre two times in three.
+        let dir = m.pick < 0.5 ? -1 : 1;
+        if (line + dir < 0 || line + dir >= lanes) dir = -dir;
+        else if (line !== centre && Math.sign(centre - line) !== dir && (m.pick * 7) % 1 < 0.67)
+          dir = -dir;
+        // A strong kick walls off the whole side the racer is on; a weaker one blocks its
+        // lane and the one behind it, so the way to hop is plain.
+        const side = ease === 0 && m.strength >= settings.twoLane;
+        const blocked: number[] = [];
+        for (let l = 0; l < lanes; l++) {
+          const behind = (line - l) * dir;
+          if (behind === 0 || (behind > 0 && (side || (ease === 0 && behind === 1))))
+            blocked.push(l);
+        }
+        add(
+          'kick',
+          m.beat,
+          blocked,
+          m,
+          side ? 'Side wall' : 'Block',
+          side ? 'strong kick: hop across' : 'kick: hop off it',
+          {},
+          true,
+        );
+        line += dir;
         break;
       }
       case 'snare': {
-        // On the other side from the last kick's block, so a groove steers left and right:
-        // its mirror, or beside the centre when the block was about the centre.
-        let lane = lastKick === null ? laneOf(m.pick, lanes) : Math.round(lanes - 1 - lastKick);
-        if (lastKick !== null && Math.abs(lastKick - centre) < 0.75)
-          lane =
-            lastKick > centre || (lastKick === centre && m.pick < 0.5) ? centre - 1 : centre + 1;
-        else if (lane === centre) lane = m.pick < 0.5 ? lane - 1 : lane + 1;
-        add('snare', m.beat, [lane], m, 'Block', 'snare, across from the kick');
+        add(
+          'snare',
+          m.beat,
+          allBut(lanes, []),
+          m,
+          'Low wall',
+          'snare: jump it',
+          { low: true },
+          true,
+        );
         break;
       }
       case 'wall': {
         if (m.strength >= settings.lowAccent) {
-          add('low', m.beat, allBut(lanes, []), m, 'Low wall', 'strong accent: jump it', {
-            low: true,
-          });
+          add(
+            'low',
+            m.beat,
+            allBut(lanes, []),
+            m,
+            'Low wall',
+            'strong accent: jump it',
+            { low: true },
+            true,
+          );
           break;
         }
         const open = gapLanes(m.pick, settings.gaps + ease, lanes);
         add('wall', m.beat, allBut(lanes, open), m, 'Wall', 'accent: through the gap');
+        follow(allBut(lanes, open));
         break;
       }
       case 'stop': {
@@ -674,6 +711,7 @@ function compose(
           'Wall',
           `band comes back after ${beatsText(m.length)} stopped`,
         );
+        follow(allBut(lanes, open));
         break;
       }
       case 'slide': {
@@ -709,6 +747,7 @@ function compose(
             'Squeeze',
             `build ends: the way narrows to ${open.length === 1 ? 'one lane' : `${open.length} lanes`}`,
           );
+          follow(allBut(lanes, open));
         });
         break;
       }
@@ -731,6 +770,7 @@ function compose(
             'Slalom',
             'fill hit',
           );
+          follow(weave ? [...side, centre] : side);
           prev = t;
           leftSide = !leftSide;
         }
@@ -738,7 +778,7 @@ function compose(
       }
     }
   }
-  return { obstacles, lastKick };
+  return { obstacles, line };
 }
 
 /** The ways to build a stretch, from as planned to easiest (null: empty). */
@@ -869,7 +909,7 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): TunnelTrac
   if (!explorer.run(searchEnd(runIn)))
     throw new TrackGenerationError('Nobody gets through the run-in');
 
-  let lastKick: number | null = null;
+  let line = Math.floor(centreOf(lanes));
   for (let i = 0; i < bars.length;) {
     let span = 1;
     if (dropBars.has(i)) {
@@ -908,14 +948,14 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): TunnelTrac
           : attempt.only === 'main'
             ? [...moments].sort(byStrength).slice(0, 1)
             : moments;
-      const made = compose({ map, settings, lanes, ease: attempt?.ease ?? 2, z, lastKick }, chosen);
+      const made = compose({ map, settings, lanes, ease: attempt?.ease ?? 2, z, line }, chosen);
       const mark = world.mark();
       world.add(made.obstacles);
       const next = explorer.clone();
       if (next.run(searchEnd(end)) && next.settledLanes().size > 0) {
         explorer = next;
         accepted = true;
-        lastKick = made.lastKick;
+        line = made.line;
         chunk(start, end, moments.length, chosen.length, a);
       } else world.truncate(mark);
     }

@@ -9,8 +9,8 @@ export const tunnel: ReadyGame = {
   // Steer between lanes, jump low walls, and the shared overdrive (docs/tunnel.md).
   controls: TUNNEL_ACTIONS,
   difficulty: {
-    easy: 'Three lanes and wide gaps, on the strongest hits',
-    normal: 'Five lanes and most of the song’s hits',
+    easy: 'Three lanes: hop on the kicks, jump the snares, on the strongest hits',
+    normal: 'Five lanes, and a hop or a jump on nearly every beat',
     hard: 'Nearly every hit, with blocks sliding on the off-beats',
   },
   icon: `<svg viewBox="0 0 60 60" aria-hidden="true"><g fill="none" stroke="var(--magenta)" stroke-width="2.5"><rect x="4" y="4" width="52" height="52" rx="6"/><rect x="16" y="16" width="28" height="28" rx="4" opacity=".7"/><rect x="25" y="25" width="10" height="10" rx="2" opacity=".45"/><path d="M4 4L25 25M56 4L35 25M4 56L25 35M56 56L35 35" opacity=".5"/></g></svg>`,

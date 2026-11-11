@@ -48,8 +48,9 @@ That starts the dev server and opens the game in your browser, normally at <http
 
 Pick **Tunnel** instead, with the same song and difficulty picker: **Easy** has three lanes and wide gaps, **Normal** and **Hard** five lanes (hard adds blocks sliding on the off-beats). You race down the tunnel by yourself, in time with the music:
 
-- **steer** one lane left or right (hold to keep hopping every half beat) round the orange blocks: one on a kick, its mirror on a snare, a slalom on a fill;
-- walls on the accents leave a gap to steer to; on the loudest accents they are low walls across every lane, to **jump** (on easy only the very loudest);
+- **steer** one lane left or right on every kick: an orange block comes where you are, and a strong kick walls off your whole side (hold to keep hopping every half beat); a fill is a slalom;
+- **jump** on every snare: a low wall crosses every lane. Both are pressed on the hit itself: the block and the wall pass a moment after it;
+- walls on the accents leave a gap to steer to; on the loudest accents they are low walls too (on easy only the very loudest);
 - magenta gems sit on the hi-hats and off-beats, rails of gems run along held notes, and a drop opens the tunnel wide with a wave of gems in every lane;
 - when the band stops, the tunnel goes dark: steer to the gap of the wall that comes with its return.
 
