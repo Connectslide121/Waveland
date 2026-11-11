@@ -310,7 +310,7 @@ export class PlatformerRun {
   #step = 0;
   /** Beats of music before `resumeAt` that the count-in plays, following the tempo map. */
   #countIn: number;
-  /** Presses wait this long for the moment they can act (jump and dash buffer, slam this frame). */
+  /** Presses wait this long for the moment they can act (jump and dash buffer; a slam until the next step). */
   #jumpUntil = -Infinity;
   #dashUntil = -Infinity;
   #slamUntil = -Infinity;
@@ -440,8 +440,10 @@ export class PlatformerRun {
     const events: RunEvent[] = [];
     if (input.jumpPressed) this.#jumpUntil = time + JUMP_BUFFER;
     if (input.dashPressed) this.#dashUntil = time + JUMP_BUFFER;
-    // A slam only acts in the frame it is pressed: held over, it would cut the next jump.
-    if (input.slamPressed) this.#slamUntil = time;
+    // A slam waits for the next step, whenever that runs (a frame may run none), and no
+    // longer: in the air it always acts; on the ground it is dropped, since held over it
+    // would cut the next jump short.
+    if (input.slamPressed) this.#slamUntil = Infinity;
 
     if (this.phase === 'countin' && time >= this.resumeAt) {
       this.phase = 'playing';
@@ -558,7 +560,7 @@ export class PlatformerRun {
     }
     if (dash) this.#dashUntil = -Infinity;
     const slam = t <= this.#slamUntil && canSlam(prev);
-    if (slam) this.#slamUntil = -Infinity;
+    this.#slamUntil = -Infinity;
     const p = stepPlayer(prev, { jump, release: !input.jumpHeld, dash, slam }, this.world, t);
     this.player = p;
 

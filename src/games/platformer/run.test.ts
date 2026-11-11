@@ -120,6 +120,30 @@ describe('PlatformerRun', () => {
     expect(run.player.y).toBeGreaterThan(20);
   });
 
+  it('slams from a press made in a frame that runs no step, and drops one made on the ground', () => {
+    const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });
+    const run = new PlatformerRun(level, []);
+    run.update(0, NOTHING);
+    run.update(0.1, JUMP);
+    play(run, 0.1 + PHYSICS_DT, 0.25, HOLD);
+    expect(run.player.grounded).toBe(false);
+    // A frame a third of a step later: no step runs in it, and the press still counts.
+    const before = run.player;
+    run.update(0.25 + PHYSICS_DT / 3, { ...HOLD, slamPressed: true });
+    expect(run.player).toBe(before);
+    run.update(0.25 + PHYSICS_DT * 1.4, HOLD);
+    expect(run.player.slamming).toBe(true);
+    // Pressed on the ground it is gone by the next jump.
+    play(run, 0.3, 0.6, NOTHING);
+    expect(run.player.grounded).toBe(true);
+    run.update(0.6 + PHYSICS_DT / 3, { ...NOTHING, slamPressed: true });
+    play(run, 0.6 + PHYSICS_DT, 0.7, NOTHING);
+    run.update(0.7 + PHYSICS_DT, JUMP);
+    play(run, 0.7 + 2 * PHYSICS_DT, 0.8, HOLD);
+    expect(run.player.slamming).toBe(false);
+    expect(run.player.y).toBeGreaterThan(20);
+  });
+
   it('dashes and slams from presses, through the same fixed steps', () => {
     const { level } = testLevel([ground(-40, 5000)], { speed: 0, duration: 10 });
     const run = new PlatformerRun(level, []);
@@ -135,7 +159,7 @@ describe('PlatformerRun', () => {
     // Pressed in a frame: it acts on the frame's first step, and is down by its end.
     run.update(0.6, { ...NOTHING, slamPressed: true });
     expect(run.slammedAt).toBeCloseTo(0.45 + PHYSICS_DT, 6);
-    // A slam press only counts in its own frame: not held over to cut a later jump.
+    // A slam press only lasts until the next step: not held over to cut a later jump.
     play(run, 0.6 + PHYSICS_DT, 0.8, NOTHING);
     expect(run.player.grounded).toBe(true);
     run.update(0.8 + PHYSICS_DT, JUMP);
