@@ -498,6 +498,16 @@ function opensPhrase(map: LevelMap, t: number): boolean {
   return (bar - first) % PHRASE_BARS === 0;
 }
 
+/**
+ * The index of the bar a set piece for a moment at `time` starts on: the first of `bars`
+ * (bar starts, in order) that starts no earlier than `slack` seconds before it, so a
+ * moment a little past a bar line is that bar's and one well inside a bar is the next
+ * bar's. -1 when no bar is left.
+ */
+export function barFor(bars: readonly number[], time: number, slack: number): number {
+  return bars.findIndex((b) => b >= time - slack - 1e-6);
+}
+
 /** Strongest first: by salience, then strength, then time. */
 const byStrength = (a: Moment, b: Moment) =>
   SALIENCE[b.kind] - SALIENCE[a.kind] || b.strength - a.strength || a.beat - b.beat;
@@ -1039,24 +1049,26 @@ function drop(ctx: BuildContext): Built {
   const base = clampTop(Math.min(ctx.h, MAX_TOP - count * rise));
   const end = x(stretch.end);
   // Each step's riser where a jump on its beat is already over it: climbed on the beat.
+  // The first is on the drop's own downbeat, so the first jump is on the drop: it used to
+  // be a beat later, and the drop hit with nothing to do.
   const riser = (k: number) => clearFrom(x, steps[k]!, rise - STEP_UP);
-  const solids: Solid[] = [ground(x(stretch.start), riser(1), ctx.h)];
+  const solids: Solid[] = [ground(x(stretch.start), riser(0), ctx.h)];
   const pickups: Pickup[] = [];
   const stepTime = steps[1]! - steps[0]!;
   let top = base;
-  for (let k = 1; k <= count; k++) {
-    top = base + k * rise;
+  for (let k = 0; k < count; k++) {
+    top = base + (k + 1) * rise;
     const x0 = riser(k);
     const x1 = riser(k + 1);
     solids.push({ kind: 'step', x0, x1, top });
     pickups.push({ kind: 'gem', x: (x0 + x1) / 2, y: top + 56, time: steps[k]! + stepTime / 2 });
   }
   // The plateau, with an arc of gems to jump for.
-  const plateau = riser(count + 1);
+  const plateau = riser(count);
   solids.push({ kind: 'step', x0: plateau, x1: end, top });
-  const room = stretch.end - steps[count + 1]!;
+  const room = stretch.end - steps[count]!;
   for (let i = 0; i < PLATEAU_GEMS; i++) {
-    const t = steps[count + 1]! + ((i + 0.5) / PLATEAU_GEMS) * Math.min(room, 2 * stretch.period);
+    const t = steps[count]! + ((i + 0.5) / PLATEAU_GEMS) * Math.min(room, 2 * stretch.period);
     const arc = Math.sin(((i + 0.5) / PLATEAU_GEMS) * Math.PI);
     pickups.push({ kind: 'gem', x: x(t), y: top + 56 + 50 * arc, time: t });
   }
@@ -1064,7 +1076,7 @@ function drop(ctx: BuildContext): Built {
   // apart as a jump needs to land between them (every other beat, more on a fast song).
   const every = Math.max(2, Math.ceil((JUMP_AIR + HURDLE_ROOM) / stretch.period));
   let hurdles = 0;
-  for (let k = count + 3; k < steps.length; k += every) {
+  for (let k = count + 2; k < steps.length; k += every) {
     const x0 = clearFrom(x, steps[k]!, HURDLE_HEIGHT - STEP_UP);
     // Room after it to land on the plateau before it ends.
     if (x(steps[k]! + JUMP_AIR + HURDLE_ROOM) + PLAYER_WIDTH > end) break;
@@ -1078,7 +1090,7 @@ function drop(ctx: BuildContext): Built {
         kind: 'drop',
         time: stretch.start,
         end: stretch.end,
-        x0: riser(1),
+        x0: riser(0),
         x1: end,
         label: 'Drop staircase',
         reason: `the drop, a step on each of ${count} beats${hurdles ? `, then ${hurdles} hurdles` : ''}`,
@@ -1740,12 +1752,14 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     floorAt,
   );
 
-  // Each drop's set piece starts on the first bar at or after it.
+  // Each drop's set piece starts on its bar line, or the next when it falls inside a bar.
+  // The analysis times a drop on its own bar lines, a hair off the grid's: "the first bar
+  // at or after it" put a drop a few ms past its bar line on the next one, the whole set
+  // piece a bar behind the music. A drop up to a beat past a bar line is that bar's.
   const dropBars = new Set<number>();
   for (const e of map.events) {
     if (e.kind !== 'drop') continue;
-    const i = bars.findIndex((b) => b >= e.time - 1e-6);
-    const at = i < 0 && e.time < runIn && bars.length > 0 ? 0 : i;
+    const at = barFor(bars, e.time, periodAt(map, e.time));
     if (at >= 0) dropBars.add(at);
   }
 

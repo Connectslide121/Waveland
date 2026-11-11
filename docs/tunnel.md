@@ -40,6 +40,7 @@ The track is pure data built from the `LevelMap` (in `level/`, run in a worker l
   The burst is on every beat: full on the downbeat and 45% on the others.
 
   The drop's set piece: `DROP_BARS` (2 bars) with every lane open and a wave of gems in every lane on each beat.
+  A drop up to a beat past a bar line starts on that bar, one further inside a bar on the next: the analysis times a drop a hair off the grid's bar lines, and "the first bar at or after it" put the set piece a bar late.
 - **Dark** (`dark`): every stop of the song, the tunnel dark and empty until the band comes back.
 
 ## The music-to-obstacle grammar

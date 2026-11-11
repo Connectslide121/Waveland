@@ -30,6 +30,7 @@ import {
   JUMP_REACH,
   MAX_TOP,
   MIN_TOP,
+  barFor,
   pressesOf,
 } from './generate';
 import {
@@ -142,7 +143,9 @@ describe('generateLevel: the music', () => {
         // Drops with room for a set piece: after the run-in, four bars before the run-out.
         if (e.time < runIn || e.time > runOut - 16 * periodAt(map, e.time)) continue;
         drops++;
-        const piece = l.chunks.find((c) => c.kind === 'drop' && c.start >= e.time - 1e-6);
+        const piece = l.chunks.find(
+          (c) => c.kind === 'drop' && c.start >= e.time - periodAt(map, e.time) - 1e-6,
+        );
         expect(piece, `drop at ${e.time.toFixed(2)} s`).toBeDefined();
         expect(piece!.start - e.time).toBeLessThan(4 * periodAt(map, e.time) + 1e-6);
         const steps = l.solids.filter(
@@ -845,5 +848,37 @@ describe('pressesOf: where the obstacles want their presses', () => {
       const eighths = beatAt(map, p.time) * 2;
       expect(Math.abs(eighths - Math.round(eighths))).toBeLessThanOrEqual(0.2);
     }
+  });
+});
+
+describe('generateLevel: a drop starts on its own bar', () => {
+  it('takes a moment’s own bar when it is a little past the bar line, else the next', () => {
+    const bars = [4, 6, 8, 10];
+    expect(barFor(bars, 6, 0.5)).toBe(1);
+    // A hair after its bar line, or before it: still that bar.
+    expect(barFor(bars, 6.03, 0.5)).toBe(1);
+    expect(barFor(bars, 5.97, 0.5)).toBe(1);
+    // Well inside a bar: the next one.
+    expect(barFor(bars, 6.8, 0.5)).toBe(2);
+    // Before the first bar, past the last, and with no bars at all.
+    expect(barFor(bars, 1, 0.5)).toBe(0);
+    expect(barFor(bars, 11, 0.5)).toBe(-1);
+    expect(barFor([], 1, 0.5)).toBe(-1);
+  });
+
+  it('builds the set piece from the drop’s bar line when the drop is timed a hair after it', () => {
+    const map = song(3);
+    const bar = map.downbeats.find((d) => d >= 12)!;
+    const late: LevelMap = {
+      ...map,
+      events: [
+        ...map.events.filter((e) => e.kind !== 'drop'),
+        { kind: 'drop', time: bar + 0.03, intensity: 1 } as LevelEvent,
+      ].sort((a, b) => a.time - b.time),
+    };
+    const level = generateLevel(late, 'normal');
+    const drop = level.chunks.find((c) => c.planned === 'drop');
+    expect(drop).toBeDefined();
+    expect(drop!.start).toBeCloseTo(bar, 6);
   });
 });

@@ -9,6 +9,7 @@ import {
   type LevelEvent,
   type LevelMap,
   type MusicFeatures,
+  periodAt,
 } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
 import { hits } from '../physics';
@@ -331,7 +332,8 @@ describe('generateLevel on random songs', () => {
     for (const d of DIFFICULTIES) {
       const t = generateLevel(map, d);
       for (const e of drops) {
-        const bar = map.downbeats.findIndex((b) => b >= e.time - 1e-6);
+        // Its own bar when it is within a beat of the bar line, else the next.
+        const bar = map.downbeats.findIndex((b) => b >= e.time - periodAt(map, e.time) - 1e-6);
         const [start, end] = [map.downbeats[bar]!, map.downbeats[bar + DROP_BARS]!];
         expect(t.obstacles.filter((o) => o.time >= start && o.time < end)).toEqual([]);
         expect(t.pickups.filter((p) => Math.abs(p.time - start) < 1e-6)).toHaveLength(t.lanes);

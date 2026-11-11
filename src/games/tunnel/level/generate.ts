@@ -873,11 +873,13 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): TunnelTrac
   const runOut = lastBar !== undefined && lastBar > runIn ? lastBar : runIn;
   const bars = map.downbeats.filter((d) => d >= runIn && d < runOut);
   const barEnd = (i: number) => map.downbeats.find((d) => d > bars[i]!) ?? runOut;
-  // Each drop's set piece starts on the first bar at or after it.
+  // Each drop's set piece starts on its bar line, or the next when it falls inside a bar.
+  // A drop up to a beat past a bar line is that bar's: the analysis times a drop a hair
+  // off the grid's bar lines, and "the first bar at or after it" put it a bar late.
   const dropBars = new Set<number>();
   for (const e of map.events) {
     if (e.kind !== 'drop') continue;
-    const i = bars.findIndex((b) => b >= e.time - 1e-6);
+    const i = bars.findIndex((b) => b >= e.time - periodAt(map, e.time) - 1e-6);
     if (i >= 0) for (let k = 0; k < DROP_BARS && i + k < bars.length; k++) dropBars.add(i + k);
   }
   const plans = planBars(
