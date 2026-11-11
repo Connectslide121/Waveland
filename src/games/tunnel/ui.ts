@@ -62,9 +62,6 @@ export function createHud(options: HudOptions): Hud<TunnelHudState> {
     overdriveFills: 'Perfects and gems fill it',
   });
 
-  // The tube's rings pass right behind the HUD: its text gets a night halo to stay legible.
-  hud.element.classList.add('tn-hud');
-
   // The shield: always there, dim until a clean section earns it.
   const shield = el('div', 'tn-shield');
   shield.setAttribute('role', 'img');

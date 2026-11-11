@@ -66,10 +66,14 @@ export function createHud({
   const element = el('div', 'game-hud');
   const top = el('div', 'game-hud__top');
 
+  // The title gives way first on a narrow screen: the tempo and difficulty always show,
+  // after it or on their own line.
   const song = el('div', 'game-hud__song');
-  const bpm = document.createTextNode(` · ${Math.round(tempo)} BPM`);
-  song.append(el('b', undefined, title), bpm);
-  if (difficulty) song.append(` · ${difficulty}`);
+  const meta = el('span', 'game-hud__meta');
+  const bpm = el('span', undefined, `${Math.round(tempo)} BPM`);
+  meta.append(el('span', 'game-hud__sep', ' · '), bpm);
+  if (difficulty) meta.append(` · ${difficulty}`);
+  song.append(el('b', 'game-hud__title', title), meta);
 
   const beats = el('div', 'game-hud__beats');
   beats.setAttribute('aria-hidden', 'true');
@@ -151,7 +155,7 @@ export function createHud({
     update(state) {
       const now = Math.round(state.tempo ?? tempo);
       if (now !== shown.tempo) {
-        bpm.textContent = ` · ${now} BPM`;
+        bpm.textContent = `${now} BPM`;
         shown.tempo = now;
       }
       if (state.beatInBar !== shown.beat)
