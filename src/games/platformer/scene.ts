@@ -15,6 +15,7 @@ import {
   isDropPiece,
   lowerBound,
   MAX_SOLID_WIDTH,
+  pressesOf,
   solidTop,
   spikesOut,
   timeAtX,
@@ -345,6 +346,9 @@ export class PlatformerScene extends Phaser.Scene {
   /** How long frames take; lowers the quality when they stay over budget. */
   readonly monitor: FrameMonitor;
 
+  /** The presses the obstacles ask for, in time order, for the press marks. */
+  readonly #presses: { time: number; dash: boolean }[];
+
   constructor(
     private readonly level: PlatformerLevel,
     map: LevelMap,
@@ -354,6 +358,7 @@ export class PlatformerScene extends Phaser.Scene {
     onLowered: () => void = () => {},
   ) {
     super('platformer');
+    this.#presses = pressesOf(level);
     this.#music = {
       kicks: map.events
         .filter((e) => e.kind === 'kick')
@@ -1457,12 +1462,12 @@ export class PlatformerScene extends Phaser.Scene {
    * Beat marks: a notch under the ground's cap where the cube's middle is on each beat
    * (longer on a bar's first), in the beat's magenta, flashing as the cube crosses it. They
    * make the ground a ruler of the song's pulse: what sits on a mark is pressed on that
-   * beat, so the player reads the rhythm ahead and plays it by ear, not by reflex.
+   * beat, so the player reads the rhythm ahead and plays it by ear, not by reflex. Press
+   * marks sit on that ruler where an obstacle wants its press (`pressesOf`).
    */
   #drawBeats(g: Phaser.GameObjects.Graphics, t: number, x0: number, x1: number): void {
     const level = this.level;
     const { beats, downbeats } = level.grid;
-    const solids = level.solids;
     const period = periodAt(level.grid, t);
     const magenta = paletteNumbers.magenta;
     let i = 0;
@@ -1478,16 +1483,7 @@ export class PlatformerScene extends Phaser.Scene {
       const x = xAtTime(level, at) + PLAYER_WIDTH / 2;
       if (x > x1) break;
       if (x < x0) continue;
-      // The ground under the mark, as it is now: the highest cap there, if any.
-      let top: number | null = null;
-      for (let k = lowerBound(solids, x - MAX_SOLID_WIDTH); k < solids.length; k++) {
-        const s = solids[k]!;
-        if (s.x0 > x) break;
-        if (s.x1 <= x || s.bottom !== undefined) continue;
-        if (s.kind === 'bridge' || s.kind === 'ledge' || s.kind === 'hurdle') continue;
-        const h = solidTop(s, t);
-        if (h !== null && (top === null || h > top)) top = h;
-      }
+      const top = this.#capAt(x, t);
       if (top === null) continue;
       while (bar < downbeats.length && downbeats[bar]! < at - 1e-3) bar++;
       const first = bar < downbeats.length && Math.abs(downbeats[bar]! - at) <= 1e-3;
@@ -1497,6 +1493,47 @@ export class PlatformerScene extends Phaser.Scene {
       g.fillRect(x - 1.5, y + 7, 3, (first ? 18 : 9) + 6 * flash);
       if (flash > 0.02) g.fillStyle(magenta, 0.5 * flash).fillRect(x - 4, y - 3, 8, 3);
     }
+    // Press marks: where an obstacle asks for its press, in the player's cyan. A diamond
+    // for a jump, a chevron for a dash; it swells as the cube comes up to it.
+    const presses = this.#presses;
+    const cyan = paletteNumbers.cyan;
+    let p = 0;
+    for (let hi = presses.length; p < hi;) {
+      const mid = (p + hi) >> 1;
+      if (presses[mid]!.time < from) p = mid + 1;
+      else hi = mid;
+    }
+    for (; p < presses.length; p++) {
+      const press = presses[p]!;
+      // A hair back from the cube's middle: a gap's ground ends right under it.
+      const x = xAtTime(level, press.time) + PLAYER_WIDTH / 2 - 3;
+      if (x > x1) break;
+      if (x < x0 || press.time < t - 0.05) continue;
+      const top = this.#capAt(x, t);
+      if (top === null) continue;
+      const near = this.#reduced ? 0 : Math.max(0, 1 - (press.time - t) / (1.5 * period));
+      const r = 4 + 2.5 * near;
+      const y = sy(top) + 16;
+      g.fillStyle(cyan, 0.18 + 0.2 * near).fillCircle(x, y, r + 5);
+      g.fillStyle(cyan, 0.7 + 0.3 * near);
+      if (press.dash) g.fillTriangle(x - r, y - r, x + r, y, x - r, y + r);
+      else g.fillTriangle(x - r, y, x, y - r, x + r, y).fillTriangle(x - r, y, x, y + r, x + r, y);
+    }
+  }
+
+  /** The top of the ground under world `x` at `t`: the highest cap there, or null over a pit. */
+  #capAt(x: number, t: number): number | null {
+    const solids = this.level.solids;
+    let top: number | null = null;
+    for (let k = lowerBound(solids, x - MAX_SOLID_WIDTH); k < solids.length; k++) {
+      const s = solids[k]!;
+      if (s.x0 > x) break;
+      if (s.x1 <= x || s.bottom !== undefined) continue;
+      if (s.kind === 'bridge' || s.kind === 'ledge' || s.kind === 'hurdle') continue;
+      const h = solidTop(s, t);
+      if (h !== null && (top === null || h > top)) top = h;
+    }
+    return top;
   }
 
   /** A step's beat flare, over its cap drawn at rest in the tiles. */

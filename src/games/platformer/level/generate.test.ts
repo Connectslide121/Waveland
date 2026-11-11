@@ -30,6 +30,7 @@ import {
   JUMP_REACH,
   MAX_TOP,
   MIN_TOP,
+  pressesOf,
 } from './generate';
 import {
   BOOSTER_KINDS,
@@ -823,5 +824,26 @@ describe('generateLevel: presses on the pulse', () => {
         [],
       );
     expect(generateLevel(map, 'normal').obstacles.some((o) => o.kind === 'spikes')).toBe(true);
+  });
+});
+
+describe('pressesOf: where the obstacles want their presses', () => {
+  it('lists a press on every gap, spike strip and gate, and two around a bridge, in order', () => {
+    const map = momentsMap();
+    const level = generateLevel(map, 'normal');
+    const presses = pressesOf(level);
+    const count = (kind: string) => level.obstacles.filter((o) => o.kind === kind).length;
+    expect(presses.filter((p) => p.dash)).toHaveLength(count('gate'));
+    expect(presses.length).toBeGreaterThanOrEqual(
+      count('gate') + count('spikes') + 2 * count('bridge'),
+    );
+    expect(presses.length).toBeGreaterThan(4);
+    for (let i = 1; i < presses.length; i++)
+      expect(presses[i]!.time).toBeGreaterThanOrEqual(presses[i - 1]!.time);
+    // Every one on a beat or an "and": the pulse.
+    for (const p of presses) {
+      const eighths = beatAt(map, p.time) * 2;
+      expect(Math.abs(eighths - Math.round(eighths))).toBeLessThanOrEqual(0.2);
+    }
   });
 });

@@ -1942,3 +1942,24 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
   coins(level, map, settings.coinEvery, 0.5, map.duration - 0.5);
   return level;
 }
+
+/**
+ * The presses the level's obstacles ask for, in time order: a jump on a kick's gap, a
+ * held sound's pit and a syncopation's spikes, a dash at an accent's gate, and a bridge's
+ * two jumps (on and off). Stops, slam plates, fills and the drop's steps have none: their
+ * presses aren't one moment the level knows.
+ */
+export function pressesOf(level: PlatformerLevel): { time: number; dash: boolean }[] {
+  const presses: { time: number; dash: boolean }[] = [];
+  for (const o of level.obstacles) {
+    // A kick's gap has air; its step up or down has none, and no press of its own.
+    if ((o.kind === 'kick' && o.air !== undefined) || o.kind === 'held' || o.kind === 'spikes')
+      presses.push({ time: o.time, dash: false });
+    else if (o.kind === 'gate') presses.push({ time: o.time, dash: true });
+    else if (o.kind === 'bridge') {
+      const { takeoff, off } = bridgeTimes(level.grid, o.time);
+      presses.push({ time: takeoff, dash: false }, { time: off, dash: false });
+    }
+  }
+  return presses.sort((a, b) => a.time - b.time);
+}
