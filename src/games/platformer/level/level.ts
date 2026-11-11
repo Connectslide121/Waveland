@@ -17,6 +17,7 @@ import {
 /**
  * ground: a column of ground, from its top down into the pit.
  * step: a bar of the drop staircase (a column too).
+ * hurdle: a low, narrow column on the drop's plateau, jumped on its beat.
  * eq: an equaliser column whose height follows the bass.
  * bridge: a thin slab over a pit, there only after snare hits.
  * ledge: a thin slab added to make a jump possible.
@@ -29,7 +30,19 @@ import {
  *   a slam goes through (it breaks), so a low ceiling past it can only be got under so.
  */
 export type SolidKind =
-  'ground' | 'step' | 'eq' | 'bridge' | 'ledge' | 'overhang' | 'float' | 'heave' | 'plate';
+  | 'ground'
+  | 'step'
+  | 'hurdle'
+  | 'eq'
+  | 'bridge'
+  | 'ledge'
+  | 'overhang'
+  | 'float'
+  | 'heave'
+  | 'plate';
+
+/** The drop's set piece (its staircase and hurdles), drawn in the drop's colour. */
+export const isDropPiece = (kind: SolidKind) => kind === 'step' || kind === 'hurdle';
 
 /**
  * How a stretch's ground looks and moves, from the feel of its section (`SectionMood`):

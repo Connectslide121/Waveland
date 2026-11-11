@@ -120,6 +120,7 @@ describe('generateLevel: always completable', () => {
 
 describe('generateLevel: the music', () => {
   let drops = 0;
+  let hurdles = 0;
   // Longer songs with drops (one has two, one comes early), and fast ones, whose bars are
   // too short for a staircase in two.
   const songs: [number, number | undefined][] = [
@@ -153,11 +154,22 @@ describe('generateLevel: the music', () => {
           (p) => p.kind === 'gem' && p.time >= piece!.start && p.time < piece!.end,
         );
         expect(gems.length).toBeGreaterThanOrEqual(steps.length);
+        // Hurdles on the plateau's beats, above its top.
+        const plateau = steps[steps.length - 1]!;
+        for (const h of l.solids.filter(
+          (s) => s.kind === 'hurdle' && s.x0 >= plateau.x0 && s.x1 <= piece!.x1 + 1e-6,
+        )) {
+          expect(h.top).toBeGreaterThan(plateau.top);
+          hurdles++;
+        }
       }
     }, 20_000);
   }
 
-  it('had drops to check', () => expect(drops).toBeGreaterThanOrEqual(6));
+  it('had drops to check, with hurdles on their plateaus', () => {
+    expect(drops).toBeGreaterThanOrEqual(6);
+    expect(hurdles).toBeGreaterThan(0);
+  });
 
   it('keeps calm sections calm: their busy-music obstacles (spikes, equalisers, bridges) left out', () => {
     let calm = 0;

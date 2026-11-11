@@ -216,6 +216,10 @@ const BOOSTER_ABOVE = 6;
 const STAIR_STEPS = 7;
 /** Gems in the arc over the drop's plateau. */
 const PLATEAU_GEMS = 5;
+/** The hurdles on the drop's plateau: how high and wide (px), and spare air between them (s). */
+const HURDLE_HEIGHT = 36;
+const HURDLE_WIDTH = 20;
+const HURDLE_ROOM = 0.12;
 /** A fill's steps: at most this many, its hits at least this far apart (s). */
 const FILL_STEPS = 8;
 const FILL_STEP_GAP = 0.1;
@@ -1012,6 +1016,17 @@ function drop(ctx: BuildContext): Built {
     const arc = Math.sin(((i + 0.5) / PLATEAU_GEMS) * Math.PI);
     pickups.push({ kind: 'gem', x: x(t), y: top + 56 + 50 * arc, time: t });
   }
+  // After the arc, hurdles on the beats: jumped on the drop's beat, not run past. As far
+  // apart as a jump needs to land between them (every other beat, more on a fast song).
+  const every = Math.max(2, Math.ceil((JUMP_AIR + HURDLE_ROOM) / stretch.period));
+  let hurdles = 0;
+  for (let k = count + 3; k < steps.length; k += every) {
+    const x0 = clearFrom(x, steps[k]!, HURDLE_HEIGHT - STEP_UP);
+    // Room after it to land on the plateau before it ends.
+    if (x(steps[k]! + JUMP_AIR + HURDLE_ROOM) + PLAYER_WIDTH > end) break;
+    solids.push({ kind: 'hurdle', x0, x1: x0 + HURDLE_WIDTH, top: top + HURDLE_HEIGHT * ease });
+    hurdles++;
+  }
   return built('drop', solids, top, {
     pickups,
     obstacles: [
@@ -1022,7 +1037,7 @@ function drop(ctx: BuildContext): Built {
         x0: riser(1),
         x1: end,
         label: 'Drop staircase',
-        reason: `the drop, a step on each of ${count} beats`,
+        reason: `the drop, a step on each of ${count} beats${hurdles ? `, then ${hurdles} hurdles` : ''}`,
       },
     ],
   });

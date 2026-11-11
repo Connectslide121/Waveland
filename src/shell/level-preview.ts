@@ -12,6 +12,7 @@ import {
 import {
   cameraAt,
   generateLevelInWorker,
+  isDropPiece,
   solidTop,
   spikesOut,
   timeAtX,
@@ -608,9 +609,9 @@ function drawSolid(
     ctx.fillRect(x0, y, width, 2);
     return;
   }
-  const colour = s.kind === 'step' ? palette.magenta : palette.violet;
+  const colour = isDropPiece(s.kind) ? palette.magenta : palette.violet;
   const moving = s.kind === 'eq' || s.kind === 'heave';
-  ctx.fillStyle = alpha(colour, moving ? 0.4 : s.kind === 'step' ? 0.22 : 0.2);
+  ctx.fillStyle = alpha(colour, moving ? 0.4 : isDropPiece(s.kind) ? 0.22 : 0.2);
   ctx.fillRect(x0, y, width, h - y);
   ctx.fillStyle = colour;
   ctx.shadowColor = colour;

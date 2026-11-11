@@ -11,6 +11,7 @@ import {
 import { palette, paletteNumbers } from '../../theme/palette';
 import {
   cameraAt,
+  isDropPiece,
   lowerBound,
   MAX_SOLID_WIDTH,
   solidTop,
@@ -791,7 +792,7 @@ export class PlatformerScene extends Phaser.Scene {
       // What moves (equalisers, heaving and floating ground, ground reshaping) every frame.
       else if (solid.keys) this.#drawSolid(g, i, time, state.beatPhase, drop);
       else if (solid.kind === 'plate') this.#drawPlate(g, i, run, time);
-      else if (solid.kind === 'step') this.#drawStepFlare(g, i, state.beatPhase, drop);
+      else if (isDropPiece(solid.kind)) this.#drawStepFlare(g, i, state.beatPhase, drop);
       // Still ground and ledges are in the tiles.
     }
     this.#drawPulse(g, time, x0, x1);
@@ -1175,7 +1176,7 @@ export class PlatformerScene extends Phaser.Scene {
       return;
     }
     // The drop's staircase in the drop colour; the rest is the world's violet.
-    const color = s.kind === 'step' ? paletteNumbers.magenta : paletteNumbers.violet;
+    const color = isDropPiece(s.kind) ? paletteNumbers.magenta : paletteNumbers.violet;
     const y = sy(top);
     const bottom = sy(PIT_DEPTH);
     const pulse = Math.max(0, 1 - beatPhase * 3);
@@ -1198,7 +1199,7 @@ export class PlatformerScene extends Phaser.Scene {
     const flare =
       s.kind === 'eq' || s.kind === 'heave'
         ? 0.35 * pulse
-        : s.kind === 'step'
+        : isDropPiece(s.kind)
           ? (0.3 + 0.5 * drop) * pulse
           : 0;
     const haloA = joinedLeft ? s.x0 : s.x0 - 2;
@@ -1422,12 +1423,11 @@ export class PlatformerScene extends Phaser.Scene {
       const y = sy(top);
       const left = this.#joinedLeft[i] === 1;
       const right = this.#joinedRight[i] === 1;
-      const color =
-        s.kind === 'step'
-          ? paletteNumbers.magenta
-          : s.kind === 'ledge'
-            ? paletteNumbers.cyan
-            : paletteNumbers.violet;
+      const color = isDropPiece(s.kind)
+        ? paletteNumbers.magenta
+        : s.kind === 'ledge'
+          ? paletteNumbers.cyan
+          : paletteNumbers.violet;
       if (kick >= 0.02) {
         const a = left ? s.x0 : s.x0 - 3;
         const b = right ? s.x1 : s.x1 + 3;
