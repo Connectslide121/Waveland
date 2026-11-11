@@ -577,6 +577,37 @@ describe('generateLevel: songs whose tempo changes', () => {
   });
 });
 
+describe('generateLevel: a floor of obstacles', () => {
+  const feelAt = (map: LevelMap, t: number) =>
+    map.moods[map.sections.findIndex((s) => t >= s.start && t < s.end)]?.feel;
+  const calmFeel = (feel: string | undefined) => feel === 'calm' || feel === 'breakdown';
+
+  it('gives nearly every bar of a busy part something to press, and calm parts no more', () => {
+    let busy = 0;
+    let met = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const map = song(seed);
+      const l = level(seed, 'normal');
+      const start = l.chunks.find((c) => c.kind !== 'run-in')?.start ?? 0;
+      const runOut = l.chunks.find((c) => c.kind === 'run-out')?.start ?? l.duration;
+      map.downbeats.forEach((bar, i) => {
+        const end = map.downbeats[i + 1] ?? runOut;
+        const section = map.sections.find((s) => bar >= s.start && bar < s.end);
+        const calm = ['intro', 'breakdown', 'outro'].includes(section?.kind ?? '');
+        if (bar < start || end > runOut || calm || calmFeel(feelAt(map, bar))) return;
+        busy++;
+        if (l.obstacles.some((o) => o.time < end && o.end > bar)) met++;
+      });
+      // The floor's own gaps are never in calm parts.
+      for (const o of l.obstacles.filter((o) => o.reason === 'the beat'))
+        expect(calmFeel(feelAt(map, o.time))).toBe(false);
+    }
+    expect(busy).toBeGreaterThan(20);
+    // Repairs may still flatten a bar nobody gets through.
+    expect(met / busy).toBeGreaterThanOrEqual(0.9);
+  });
+});
+
 describe('generateLevel: obstacles from the music (a song with one of each moment)', () => {
   const song = momentsSong();
   const map = momentsMap();

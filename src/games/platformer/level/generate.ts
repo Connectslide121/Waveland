@@ -102,6 +102,12 @@ export interface DifficultySettings {
   slamFills: boolean;
   /** The downbeat opening each phrase of a chorus or a drop gets a slam plate too. */
   phraseSlams: boolean;
+  /**
+   * Obstacles a busy bar has at least, and a bar of a chorus or a drop: fractions carry
+   * from bar to bar (a half is one every other bar). Calm parts have none.
+   */
+  busyFloor: number;
+  peakFloor: number;
 }
 
 export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
@@ -120,6 +126,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     variation: false,
     slamFills: false,
     phraseSlams: false,
+    busyFloor: 0.5,
+    peakFloor: 1,
   },
   normal: {
     hazard: 0.7,
@@ -136,6 +144,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     variation: false,
     slamFills: true,
     phraseSlams: false,
+    busyFloor: 1,
+    peakFloor: 1.5,
   },
   hard: {
     hazard: 0.9,
@@ -152,6 +162,8 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     variation: true,
     slamFills: true,
     phraseSlams: true,
+    busyFloor: 1,
+    peakFloor: 2,
   },
 };
 
@@ -503,6 +515,8 @@ function planBars(
   calmAt: (t: number) => boolean,
   busyAt: (t: number) => number,
   seed: number,
+  /** Obstacles a bar starting at `t` has at least, fractions carried (calm parts: none). */
+  floorAt: (t: number) => number = () => 0,
 ): Moment[][] {
   const all = momentsOf(map, settings).filter((m) => m.from >= beatAt(map, bars[0] ?? 0) - 1e-6);
   const own: Moment[][] = bars.map(() => []);
@@ -527,6 +541,7 @@ function planBars(
   const groups: number[] = [];
   const times = new Map<number, number>();
   let carry = 0;
+  let floorCarry = 0;
   bars.forEach((start, i) => {
     const end = barEnd(i);
     const calm = calmAt(start);
@@ -572,6 +587,32 @@ function planBars(
       }
     };
 
+    // The floor: a busy bar always asks for something. More of its own common moments
+    // first, then a gap on its strongest free beat (the downbeat, then the third beat).
+    if (!calm) floorCarry += floorAt(start);
+    const floor = Math.floor(floorCarry + 1e-9);
+    floorCarry -= floor;
+    const fillFloor = (plan: Moment[]) => {
+      if (plan.length < floor) pick(plan, mine, floor - plan.length);
+      for (const k of [0, 2, 1, 3]) {
+        if (plan.length >= floor || first + k >= last - 1e-6) break;
+        const beat = Math.round(first) + k;
+        const period = periodAt(map, timeOfBeat(map, beat));
+        const air = settings.gap * JUMP_AIR;
+        const gap: Moment = {
+          kind: 'kick',
+          beat,
+          length: 0,
+          strength: 0.5,
+          what: FLOOR_GAP,
+          from: beat - 0.25,
+          to: beat + air / period + 0.75,
+        };
+        if (gap.to <= last + 1 && !plan.some((c) => overlaps(c, gap)) && !blocked(gap))
+          take(plan, gap);
+      }
+    };
+
     // A bar the song played before: the same obstacles on the same moments, as that bar
     // had a phrase back when the song played it there, else the first time, unless that
     // is under a phrase ago (a loop of a bar or two): then the loop's first phrase is
@@ -597,7 +638,7 @@ function planBars(
         // Its moment is here too (a low ceiling's kick may read a touch less heavy).
         const like = (o: Moment) => o.kind === m.kind || (m.kind === 'slam' && o.kind === 'kick');
         const here =
-          m.kind === 'eq'
+          m.what === FLOOR_GAP || m.kind === 'eq'
             ? mine.filter((o) => o.kind === 'kick').length >= 3
             : all.some((o) => like(o) && Math.abs(o.beat - m.beat) <= 0.15);
         // A bar played again wins over a common obstacle of the bar before: the repeat
@@ -612,6 +653,7 @@ function planBars(
           mine.filter((m) => !RARE.has(m.kind)),
           1,
         );
+      fillFloor(plan);
       plans.push(plan);
       return;
     }
@@ -620,6 +662,7 @@ function planBars(
 
     const plan: Moment[] = [];
     pick(plan, mine, common);
+    fillFloor(plan);
     // Kicks alone, with the bass pumping under them: a gap on the strongest, or the
     // equalisers that move with the bass. The one tie the music leaves open.
     const kicks = mine.filter((m) => m.kind === 'kick').length;
@@ -1360,6 +1403,8 @@ const HEAVE_SHARE = 0.45;
 
 /** Calm sections are built this much easier, with wider ground and narrower gaps. */
 const CALM_EASE = 0.6;
+/** What a gap the floor added (no kick of its own) is for. */
+const FLOOR_GAP = 'the beat';
 const isCalm = (kind: SectionKind) => kind === 'intro' || kind === 'breakdown' || kind === 'outro';
 
 /** The ways to build a stretch, from as planned to easiest. */
@@ -1610,7 +1655,22 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): Platformer
     return { start, end, period, steps };
   };
 
-  const plans = planBars(map, settings, bars, barEnd, (t) => isCalm(sectionAt(t)), busyAt, seed);
+  const floorAt = (t: number) => {
+    const feel = feelAt(t);
+    // Calm-feeling parts stay calm, whatever the section is called.
+    if (feel === 'calm' || feel === 'breakdown') return 0;
+    return feel === 'chorus' || feel === 'drop' ? settings.peakFloor : settings.busyFloor;
+  };
+  const plans = planBars(
+    map,
+    settings,
+    bars,
+    barEnd,
+    (t) => isCalm(sectionAt(t)),
+    busyAt,
+    seed,
+    floorAt,
+  );
 
   // Each drop's set piece starts on the first bar at or after it.
   const dropBars = new Set<number>();
