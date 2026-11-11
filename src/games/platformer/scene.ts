@@ -734,8 +734,9 @@ export class PlatformerScene extends Phaser.Scene {
   #draw(state: FrameState): void {
     const { time, run } = state;
     const level = this.level;
-    // The camera's left edge, shaken for a moment after a death.
-    let camera = cameraAt(level, time);
+    // The camera's left edge, shaken for a moment after a death. Through a count-in it holds
+    // where the player waits, so the player stays at the anchor until the run moves on.
+    let camera = cameraAt(level, run.phase === 'countin' ? Math.max(time, run.resumeAt) : time);
     let shakeY = 0;
     const sinceDeath = run.phase === 'dying' ? time - run.diedAt : Infinity;
     if (sinceDeath < 0.3 && !this.#reduced) {
