@@ -12,6 +12,7 @@ import {
   type Difficulty,
   type Song,
 } from '../core';
+import { songSeconds, STYLE_NAMES, type LibrarySong } from '../core/library/songs';
 import type { GameDefinition, ReadyGame } from '../games';
 import { openSettings } from './settings';
 import './title-screen.css';
@@ -24,6 +25,8 @@ export interface TitleScreenOptions {
   onPlay(game: ReadyGame, song: AnalysedSong): Promise<void>;
   /** Open the song details view for an analysed song. */
   onDetails(song: AnalysedSong): void;
+  /** The song library: its songs, and how one is composed into a file to load. */
+  library?: { songs: readonly LibrarySong[]; compose(song: LibrarySong): Promise<File> };
 }
 
 export interface TitleScreen {
@@ -38,6 +41,7 @@ const NOTE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l
 const PLAY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/></svg>`;
 const WAVE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4M21 12h0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 const GEAR_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+const CHEVRON_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SPINNER_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true" class="spin"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 14" stroke-linecap="round"/></svg>`;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -80,6 +84,7 @@ export function createTitleScreen({
   analyse,
   onPlay,
   onDetails,
+  library,
 }: TitleScreenOptions): TitleScreen {
   let song: Song | null = null;
   /** The picked song once analysed; null while it is being analysed or when that failed. */
@@ -184,8 +189,9 @@ export function createTitleScreen({
     progress = null;
     render();
   };
-  const takeFile = (file: File | undefined) => {
+  const takeFile = (file: File | undefined, listed = false) => {
     if (!file || starting) return;
+    if (!listed) fromLibrary = null;
     const picked = songFromFile(file);
     if (picked) {
       song = picked;
@@ -206,6 +212,70 @@ export function createTitleScreen({
     takeFile(fileInput.files?.[0]);
     fileInput.value = '';
   });
+
+  // The library: songs the game writes itself, behind a toggle so the screen stays short.
+  // Picking one composes it and loads it like a dropped file.
+  let libraryOpen = false;
+  /** The library song being composed, the one loaded, and whether the last one failed. */
+  let composing: LibrarySong | null = null;
+  let fromLibrary: LibrarySong | null = null;
+  let composeFailed = false;
+  const libraryBox = el('section', 'library');
+  libraryBox.setAttribute('aria-label', 'Song library');
+  const libraryToggle = el('button', 'library__toggle');
+  libraryToggle.type = 'button';
+  libraryToggle.setAttribute('aria-expanded', 'false');
+  libraryToggle.setAttribute('aria-controls', 'library-list');
+  const toggleIcon = el('span', 'library__chevron');
+  toggleIcon.innerHTML = CHEVRON_ICON;
+  libraryToggle.append(
+    el('span', 'library__label', 'Or play one from the library'),
+    el('span', 'library__count', `${library?.songs.length ?? 0} songs`),
+    toggleIcon,
+  );
+  const libraryList = el('div', 'library__list');
+  libraryList.id = 'library-list';
+  libraryList.hidden = true;
+  const clock = (seconds: number) =>
+    `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+  const libraryButtons = (library?.songs ?? []).map((entry) => {
+    const button = el('button', 'library__song');
+    button.type = 'button';
+    button.append(
+      el('span', 'library__title', entry.title),
+      el(
+        'span',
+        'library__meta',
+        `${STYLE_NAMES[entry.style]} · ${entry.bpm} BPM · ${clock(songSeconds(entry))}`,
+      ),
+    );
+    button.addEventListener('click', () => void pickFromLibrary(entry));
+    libraryList.append(button);
+    return button;
+  });
+  libraryToggle.addEventListener('click', () => {
+    libraryOpen = !libraryOpen;
+    render();
+  });
+  libraryBox.append(libraryToggle, libraryList);
+  async function pickFromLibrary(entry: LibrarySong): Promise<void> {
+    if (!library || composing || starting) return;
+    composing = entry;
+    composeFailed = false;
+    render();
+    try {
+      const file = await library.compose(entry);
+      composing = null;
+      fromLibrary = entry;
+      libraryOpen = false;
+      takeFile(file, true);
+    } catch (error) {
+      console.error(error);
+      composing = null;
+      composeFailed = true;
+      render();
+    }
+  }
 
   // Difficulty: a radio group like the level preview's, always shown, with what it means.
   let difficulty = getDifficulty();
@@ -291,7 +361,7 @@ export function createTitleScreen({
 
   const panel = el('section', 'title__panel');
   panel.setAttribute('aria-label', 'Pick a mode and a song');
-  panel.append(modes, zone, difficultyRow, playRow);
+  panel.append(modes, zone, ...(library ? [libraryBox] : []), difficultyRow, playRow);
   root.append(floor, settings, head, horizon, panel);
 
   function renderProgress(): void {
@@ -346,12 +416,25 @@ export function createTitleScreen({
     zone.title = song && !rejected ? song.file.name : '';
     renderProgress();
 
-    play.disabled = !analysed || !selected || starting;
+    libraryToggle.setAttribute('aria-expanded', String(libraryOpen));
+    libraryList.hidden = !libraryOpen;
+    libraryBox.classList.toggle('library--open', libraryOpen);
+    libraryButtons.forEach((button, i) => {
+      const entry = library!.songs[i]!;
+      button.disabled = starting || composing !== null;
+      button.setAttribute('aria-pressed', String(entry === fromLibrary));
+      button.setAttribute('aria-busy', String(entry === composing));
+    });
+
+    play.disabled = !analysed || !selected || starting || composing !== null;
     play.setAttribute('aria-busy', String(starting));
     playIcon.innerHTML = starting ? SPINNER_ICON : PLAY_ICON;
-    hint.classList.toggle('play-row__hint--error', failed || Boolean(problem));
-    if (!selected) hint.textContent = 'No mode can be played yet';
-    else if (!song) hint.textContent = 'Drop a song first';
+    hint.classList.toggle('play-row__hint--error', failed || Boolean(problem) || composeFailed);
+    if (composing) hint.textContent = `Composing ${composing.title}`;
+    else if (composeFailed) hint.textContent = 'That song could not be composed. Try again.';
+    else if (!selected) hint.textContent = 'No mode can be played yet';
+    else if (!song)
+      hint.textContent = library ? 'Drop a song or pick one first' : 'Drop a song first';
     else if (problem) hint.textContent = 'Pick a song that can be played';
     else if (analysing) hint.textContent = `Analysing ${song.title} first`;
     else if (starting) hint.textContent = `Building the level for ${song.title}`;

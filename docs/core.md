@@ -88,6 +88,47 @@ The tests render songs with known changes (120 → 150 BPM, 140 → 100 → 140,
 
 Whole songs in `analysis/test-songs.ts` are for playtesting and tuning the games end to end (`test-songs.test.ts`): `rockSong`, a stand-in for a fast rock song with tempo and mood changes (170 BPM with a pre-chorus fill, loud choruses with crashes, a full-band stop and a half-time breakdown; a quiet bridge and a build at 150; a last chorus at 180), and `electroSong`, a steady 128 BPM track with builds under a riser, drops and a drumless breakdown. Their tempo maps come out as built (170, 150, 180; one 128), the grid within 15 ms of every true beat and bar, the crashes as accents (not every downbeat over a bass and a guitar on the eighths), the drops and the quiet bridge as such. `wavFile` makes a WAV the browser can load.
 
+## The song library
+
+`src/core/library/` gives the player twenty songs without a file of their own. Nothing is shipped as audio: a song is a short description (`LibrarySong` in `songs.ts`: a style, a tempo, a key, a seed and a form of parts) and the composer (`compose.ts`) writes its samples from the synthetic sounds of `analysis/test-audio.ts` and `analysis/test-songs.ts` when it is picked. `composeInWorker` (`index.ts`, `worker.ts`) does that off the main thread, in a second or two, and hands back a WAV file named after the song; the title screen loads it like a dropped file (`TitleScreenOptions.library`), so it is hashed, analysed and cached the same way. The same description always gives the same samples, so the second time only the composing is paid for.
+
+**Styles** (four songs each): electro (four on the floor, stabs, a bass off the beat, long builds), synthwave (slower, an octave bass, arpeggios and a long lead), rock (power chords, strummed choruses), drum and bass (a break with the kick on 1 and the "and" of 3, sixteenth hats) and chiptune (square waves, quick arpeggios). A seed picks each song's chords for the verse and the chorus (four-chord loops in its key), its kick patterns, the lead's rhythms and notes, whether a snare is pushed onto the "and" of 4, and whether the band stops.
+
+**Forms** are three to five minutes whatever the tempo (`songSeconds`): 100 bars for the slow songs, 120 or 128 for the middle ones, 156 for the fast ones. Two rock songs slow down for the bridge and come back faster.
+
+**Written to be read.** A part's bars depend only on the bar's place in its eight-bar phrase, so the song repeats itself and the analysis hears the repeats. Each part gives the games its moments: a verse has a kick pattern of its own, a snare on 2 and 4 and a fill into every eighth bar; a pre-chorus is a build (kicks on every beat, a snare roll speeding up, a riser, a silent last beat); a chorus has crashes opening its phrases, a busier kick, a lead whose eight-bar phrase ends on a held note, and from the second chorus on a full-band stop in its seventh bar; a breakdown is half time with held chords and a long lead; a bridge is quiet; the outro fades and ends on one hit ringing out. What the first drafts got wrong, for whoever changes the composer:
+
+- A bass or a chord that never lets go reads as one held sound a bar: the rock and drum-and-bass songs came out with a held-note pit in most bars. Bass notes and strummed chords are short now, with air between them.
+- A bass with strong overtones on every eighth reads as an accent on every eighth (102 dash gates in one song). Drum and bass uses the round bass.
+- A dotted bass line under a drum-and-bass break pulls the tempo to two thirds. The bass plays straight eighths.
+
+**The songs**, as the analysis reads them (44.1 kHz), and the obstacles a minute each gives on easy, normal and hard. The platformer's obstacles span several beats (a bridge is two presses, a held pit a jump and a dash), so it tops out near 30 a minute on any song; the tunnel's are one hit each.
+
+| Song | Style | BPM | Length | Held · stops · accents · fills · off-beat | Platformer | Tunnel |
+|---|---|---|---|---|---|---|
+| Neon Overpass | Electro | 126 | 4:05 | 26 · 0 · 19 · 0 · 41 | 25 · 26 · 27 | 35 · 53 · 78 |
+| Gridrunner | Electro | 128 | 4:02 | 43 · 0 · 20 · 3 · 15 | 27 · 28 · 28 | 39 · 55 · 76 |
+| Voltage Bloom | Electro | 132 | 3:40 | 26 · 2 · 22 · 3 · 29 | 28 · 28 · 29 | 40 · 59 · 89 |
+| Afterglow Circuit | Electro | 124 | 4:09 | 28 · 2 · 21 · 3 · 14 | 26 · 27 · 28 | 36 · 53 · 79 |
+| Midnight Chrome | Synthwave | 100 | 4:01 | 14 · 0 · 22 · 4 · 19 | 18 · 23 · 23 | 35 · 53 · 73 |
+| Sunset Vector | Synthwave | 108 | 4:28 | 32 · 2 · 19 · 3 · 38 | 22 · 23 · 24 | 34 · 47 · 70 |
+| Laser Tide | Synthwave | 116 | 4:10 | 34 · 2 · 24 · 4 · 32 | 25 · 27 · 28 | 34 · 51 · 73 |
+| Polaroid Skyline | Synthwave | 96 | 4:12 | 16 · 2 · 38 · 7 · 21 | 20 · 21 · 21 | 35 · 47 · 63 |
+| Static Riot | Rock | 170 | 3:42 | 37 · 0 · 29 · 5 · 12 | 26 · 25 · 29 | 35 · 63 · 91 |
+| Broken Antenna | Rock | 156 | 4:01 | 33 · 5 · 34 · 4 · 18 | 26 · 31 · 30 | 37 · 62 · 83 |
+| Kerosene Hearts | Rock | 180 | 3:30 | 29 · 4 · 31 · 4 · 29 | 26 · 23 · 23 | 51 · 79 · 113 |
+| Last Bus Out | Rock | 148 | 3:16 | 25 · 2 · 21 · 1 · 22 | 29 · 31 · 28 | 43 · 66 · 87 |
+| Liquid Halogen | Drum and bass | 174 | 3:37 | 42 · 3 · 27 · 4 · 15 | 26 · 27 · 27 | 49 · 76 · 103 |
+| Subway Ghosts | Drum and bass | 170 | 3:42 | 35 · 3 · 38 · 4 · 9 | 23 · 21 · 21 | 46 · 72 · 106 |
+| Razorwire Sky | Drum and bass | 176 | 3:34 | 30 · 3 · 39 · 10 · 16 | 26 · 30 · 29 | 55 · 80 · 108 |
+| Pulse Cascade | Drum and bass | 172 | 3:39 | 53 · 3 · 35 · 4 · 13 | 27 · 30 · 29 | 47 · 75 · 108 |
+| Pixel Comet | Chiptune | 150 | 3:14 | 8 · 2 · 21 · 11 · 23 | 29 · 31 · 29 | 50 · 73 · 97 |
+| Boss Rush | Chiptune | 160 | 3:56 | 16 · 3 · 31 · 14 · 24 | 27 · 31 · 24 | 54 · 77 · 102 |
+| Coin Heaven | Chiptune | 140 | 3:27 | 9 · 2 · 31 · 7 · 12 | 29 · 30 · 30 | 37 · 59 · 84 |
+| Game Over, Again | Chiptune | 168 | 3:44 | 21 · 3 · 30 · 14 · 33 | 30 · 31 · 28 | 58 · 78 · 106 |
+
+Every song is found at exactly its tempo; the fast ones show their half-time breakdown as a segment at half the tempo, which the games fold to the same speed. `library.test.ts` composes one song at 22.05 kHz and checks its tempo, its moments and that both games build a level from it that can be finished; the numbers above come from running every song through the analysis and both generators, and are to be measured again when the composer changes.
+
 ## Timing and latency
 
 `AudioClock.time` is the song time the player hears: the context's clock since playback started, minus the output latency the browser reports (`outputLatency + baseLatency`) and the player's own offset (`settings.ts`, `getLatencyMs`, ±500 ms, 0 until calibrated). A positive offset means the sound reaches the player later than the browser thinks, as with Bluetooth headphones.

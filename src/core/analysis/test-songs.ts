@@ -17,7 +17,7 @@
 import { biquad, chord, crash, drumKit, noise, place, track, TEST_RATE } from './test-audio';
 
 /** A part of a song: how many bars at what tempo, and how each of its bars is played. */
-interface Part {
+export interface Part {
   name: string;
   bpm: number;
   bars: number;
@@ -25,7 +25,7 @@ interface Part {
 }
 
 /** What a part's bar player gets: where the bar is, and helpers to put sounds in it. */
-interface Bar {
+export interface Bar {
   /** The bar's number within its part, and how many bars the part has. */
   index: number;
   of: number;
@@ -49,7 +49,7 @@ export interface TestSong {
   parts: SongParts[];
 }
 
-function render(parts: Part[], tail: number, rate: number, start = 0.5): TestSong {
+export function render(parts: Part[], tail: number, rate: number, start = 0.5): TestSong {
   let length = start + tail;
   for (const p of parts) length += (p.bars * 4 * 60) / p.bpm;
   const out = track(length, rate);
@@ -82,7 +82,7 @@ function render(parts: Part[], tail: number, rate: number, start = 0.5): TestSon
 }
 
 /** A sound of `seconds`, filled sample by sample, with a 3 ms attack and a 20 ms release. */
-function tone(seconds: number, rate: number, fill: (t: number) => number): Float32Array {
+export function tone(seconds: number, rate: number, fill: (t: number) => number): Float32Array {
   const out = new Float32Array(Math.max(1, Math.round(seconds * rate)));
   for (let i = 0; i < out.length; i++) {
     const t = i / rate;
@@ -92,7 +92,12 @@ function tone(seconds: number, rate: number, fill: (t: number) => number): Float
 }
 
 /** A distorted power chord (root, fifth, octave), palm-muted when `muted`. */
-function powerChord(root: number, seconds: number, rate: number, muted = false): Float32Array {
+export function powerChord(
+  root: number,
+  seconds: number,
+  rate: number,
+  muted = false,
+): Float32Array {
   const w = 2 * Math.PI * root;
   return tone(seconds, rate, (t) => {
     const x = Math.sin(w * t) + Math.sin(1.5 * w * t) + 0.6 * Math.sin(2 * w * t);
@@ -102,7 +107,7 @@ function powerChord(root: number, seconds: number, rate: number, muted = false):
 }
 
 /** A bass note: a sine with two soft harmonics. */
-function bassNote(freq: number, seconds: number, rate: number): Float32Array {
+export function bassNote(freq: number, seconds: number, rate: number): Float32Array {
   const w = 2 * Math.PI * freq;
   return tone(
     seconds,
@@ -112,7 +117,7 @@ function bassNote(freq: number, seconds: number, rate: number): Float32Array {
 }
 
 /** A plucked clean note, ringing out. */
-function pluck(freq: number, seconds: number, rate: number): Float32Array {
+export function pluck(freq: number, seconds: number, rate: number): Float32Array {
   const w = 2 * Math.PI * freq;
   return tone(
     seconds,
@@ -122,7 +127,7 @@ function pluck(freq: number, seconds: number, rate: number): Float32Array {
 }
 
 /** A synth stab: a few detuned saws (as sines with harmonics), short. */
-function stab(freqs: number[], seconds: number, rate: number): Float32Array {
+export function stab(freqs: number[], seconds: number, rate: number): Float32Array {
   return tone(seconds, rate, (t) => {
     let v = 0;
     for (const f of freqs)
@@ -133,7 +138,7 @@ function stab(freqs: number[], seconds: number, rate: number): Float32Array {
 }
 
 /** Noise swelling up over `seconds`, its band rising: the riser before a drop. */
-function riser(seconds: number, rate: number): Float32Array {
+export function riser(seconds: number, rate: number): Float32Array {
   const n = Math.round(seconds * rate);
   const out = noise(29, n);
   biquad(out, 'highpass', 3000, 0.7, rate);
@@ -396,7 +401,7 @@ export function electroSong(rate = TEST_RATE): TestSong {
 }
 
 /** A synth lead: a saw-like tone (four harmonics, each weaker), held for `seconds`. */
-function lead(freq: number, seconds: number, rate: number): Float32Array {
+export function lead(freq: number, seconds: number, rate: number): Float32Array {
   const w = 2 * Math.PI * freq;
   return tone(seconds, rate, (t) => {
     let v = 0;
@@ -489,8 +494,8 @@ export function melodySong(rate = TEST_RATE): TestSong & { notes: MelodyNote[] }
   return { ...render(parts, 1, rate), notes };
 }
 
-/** The samples as a 16-bit mono WAV file. */
-export function wavFile(samples: Float32Array, rate: number, name: string): File {
+/** The samples as the bytes of a 16-bit mono WAV file. */
+export function wavBytes(samples: Float32Array, rate: number): ArrayBuffer {
   const bytes = new DataView(new ArrayBuffer(44 + samples.length * 2));
   const text = (at: number, s: string) => {
     for (let i = 0; i < s.length; i++) bytes.setUint8(at + i, s.charCodeAt(i));
@@ -512,5 +517,10 @@ export function wavFile(samples: Float32Array, rate: number, name: string): File
     const v = Math.max(-1, Math.min(1, samples[i]!));
     bytes.setInt16(44 + i * 2, Math.round(v * 32767), true);
   }
-  return new File([bytes.buffer], name, { type: 'audio/wav' });
+  return bytes.buffer;
+}
+
+/** The samples as a 16-bit mono WAV file. */
+export function wavFile(samples: Float32Array, rate: number, name: string): File {
+  return new File([wavBytes(samples, rate)], name, { type: 'audio/wav' });
 }

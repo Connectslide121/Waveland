@@ -324,6 +324,122 @@
   transition: transform 0.15s linear;
 }
 
+/* ---------- song library ---------- */
+
+.library {
+  display: grid;
+  gap: 10px;
+}
+
+.library__toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px clamp(16px, 2vw, 24px);
+  border: 1px solid #3a3370;
+  border-radius: clamp(12px, 1.4vw, 18px);
+  background: rgb(7 6 15 / 0.55);
+  color: var(--ink);
+  font: inherit;
+  font-size: clamp(13px, 1.3vw, 15px);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.library__toggle:hover,
+.library--open .library__toggle {
+  border-color: var(--cyan);
+}
+
+.library__toggle:focus-visible,
+.library__song:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.library__count {
+  color: var(--muted);
+  font-size: 0.85em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.library__chevron {
+  display: block;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.library--open .library__chevron {
+  transform: rotate(180deg);
+}
+
+.library__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: min(38vh, 300px);
+  padding: 2px;
+  overflow-y: auto;
+}
+
+.library__list[hidden] {
+  display: none;
+}
+
+.library__song {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px solid #2c2757;
+  border-left: 3px solid var(--violet);
+  border-radius: 10px;
+  background: rgb(7 6 15 / 0.6);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.library__song:hover:not(:disabled) {
+  border-color: var(--cyan);
+  background: rgb(46 242 255 / 0.06);
+}
+
+.library__song:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.library__song[aria-pressed='true'] {
+  border-color: var(--cyan);
+  box-shadow: inset 0 0 12px -6px var(--cyan);
+}
+
+.library__song[aria-busy='true'] {
+  opacity: 1;
+  border-color: var(--magenta);
+}
+
+.library__title {
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library__meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- difficulty ---------- */
 
 .difficulty-row {

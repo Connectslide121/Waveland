@@ -24,7 +24,7 @@ That starts the dev server and opens the game in your browser, normally at <http
 
 ## Play
 
-1. Pick **Platformer**, then drop a song on the drop zone (or click it to choose one): MP3, WAV or OGG, at least 15 seconds. The first time, the song is analysed for its beat, sections and drops, which takes a few seconds; after that it is remembered and loads at once.
+1. Pick **Platformer**, then drop a song on the drop zone (or click it to choose one): MP3, WAV or OGG, at least 15 seconds. Or open **Or play one from the library** under it and pick one of the twenty songs the game writes itself (electro, synthwave, rock, drum and bass and chiptune, three to five minutes each): it is composed in a second or two and then loads like any other song. The first time, the song is analysed for its beat, sections and drops, which takes a few seconds; after that it is remembered and loads at once.
 2. Pick a difficulty: **Easy** (relaxed: fewer, smaller obstacles on the strongest hits), **Normal**, or **Hard** (nearly every hit, with dash and slam combos). The pick is remembered. Then press **Play**. A one-bar count-in (4-3-2-1) starts you off.
 3. You run by yourself, always in time with the music: you can't speed up or stop. Stay alive until the song ends:
    - **jump** the pits and onto higher ground (hold for higher, tap for a short hop);

@@ -1,4 +1,5 @@
 import { analyseSong, type AnalysedSong } from '../core';
+import { composeInWorker, LIBRARY } from '../core/library';
 import { games, type GameSession } from '../games';
 import './base.css';
 import { createSongDetails, type SongDetails } from './song-details';
@@ -31,6 +32,7 @@ export function startApp(root: HTMLElement): void {
     games: games.all(),
     analyse: analyseSong,
     onDetails: openDetails,
+    library: { songs: LIBRARY, compose: composeInWorker },
     async onPlay(game, song) {
       // Start under the title screen so the game can size itself, then reveal it.
       stage.hidden = false;

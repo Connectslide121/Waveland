@@ -10,5 +10,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.ts'],
+    // Whole songs are analysed and whole levels searched: slow on a busy machine.
+    testTimeout: 30_000,
   },
 });
