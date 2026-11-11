@@ -774,3 +774,54 @@ describe('generateLevel: every obstacle has its musical moment', () => {
     }
   });
 });
+
+describe('generateLevel: presses on the pulse', () => {
+  /** How far `t` is from the nearest beat or "and", in beats. */
+  const offPulse = (map: LevelMap, t: number) => {
+    const eighths = beatAt(map, t) * 2;
+    return Math.abs(eighths - Math.round(eighths)) / 2;
+  };
+  /** The moments song with an accent and an off-beat hit moved onto a sixteenth. */
+  const pushed = (): LevelMap => {
+    const map = momentsMap();
+    const by = periodAt(map, 0) / 4;
+    const { accents, syncopations } = map.features;
+    return {
+      ...map,
+      features: {
+        ...map.features,
+        accents: accents.map((a) => ({ ...a, time: a.time + by })),
+        syncopations: syncopations.map((s) => ({ ...s, time: s.time + by })),
+      },
+    };
+  };
+
+  it('asks for no press on a sixteenth below hard', () => {
+    const map = pushed();
+    expect(map.features.accents.length + map.features.syncopations.length).toBeGreaterThan(1);
+    for (const difficulty of ['easy', 'normal'] as const) {
+      const level = generateLevel(map, difficulty);
+      const pressed = level.obstacles.filter((o) => ['gate', 'spikes', 'kick'].includes(o.kind));
+      expect(pressed.length).toBeGreaterThan(0);
+      for (const o of pressed) expect(offPulse(map, o.time)).toBeLessThanOrEqual(0.09);
+    }
+    const hard = generateLevel(map, 'hard');
+    const on16 = hard.obstacles.filter(
+      (o) => (o.kind === 'gate' || o.kind === 'spikes') && offPulse(map, o.time) > 0.2,
+    );
+    expect(on16.length).toBeGreaterThan(0);
+  });
+
+  it('gives off-beat hits that are the song’s texture no spikes', () => {
+    const map = momentsMap();
+    const period = periodAt(map, 0);
+    // An off-beat hit on every "and" of the song: a wall of guitars, not a moment.
+    const syncopations = map.beats.map((b) => ({ time: b + period / 2, strength: 0.8 }));
+    const dense = { ...map, features: { ...map.features, syncopations } };
+    for (const difficulty of DIFFICULTIES)
+      expect(generateLevel(dense, difficulty).obstacles.filter((o) => o.kind === 'spikes')).toEqual(
+        [],
+      );
+    expect(generateLevel(map, 'normal').obstacles.some((o) => o.kind === 'spikes')).toBe(true);
+  });
+});

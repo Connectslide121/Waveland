@@ -18,6 +18,7 @@ import {
   solidTop,
   spikesOut,
   timeAtX,
+  xAtTime,
   type PlatformerLevel,
   type Solid,
 } from './level';
@@ -797,6 +798,7 @@ export class PlatformerScene extends Phaser.Scene {
       // Still ground and ledges are in the tiles.
     }
     this.#drawPulse(g, time, x0, x1);
+    this.#drawBeats(g, time, x0, x1);
     const dots = this.#dotImages;
     for (let i = this.#dotsShown; i < dots.length && dots[i]!.visible; i++)
       dots[i]!.setVisible(false);
@@ -1445,6 +1447,52 @@ export class PlatformerScene extends Phaser.Scene {
         if (!left) g.lineBetween(s.x0 + 1, y, s.x0 + 1, y + depth);
         if (!right) g.lineBetween(s.x1 - 1, y, s.x1 - 1, y + depth);
       }
+    }
+  }
+
+  /**
+   * Beat marks: a notch under the ground's cap where the cube's middle is on each beat
+   * (longer on a bar's first), in the beat's magenta, flashing as the cube crosses it. They
+   * make the ground a ruler of the song's pulse: what sits on a mark is pressed on that
+   * beat, so the player reads the rhythm ahead and plays it by ear, not by reflex.
+   */
+  #drawBeats(g: Phaser.GameObjects.Graphics, t: number, x0: number, x1: number): void {
+    const level = this.level;
+    const { beats, downbeats } = level.grid;
+    const solids = level.solids;
+    const period = periodAt(level.grid, t);
+    const magenta = paletteNumbers.magenta;
+    let i = 0;
+    const from = timeAtX(level, x0) - period;
+    for (let hi = beats.length; i < hi;) {
+      const mid = (i + hi) >> 1;
+      if (beats[mid]! < from) i = mid + 1;
+      else hi = mid;
+    }
+    let bar = 0;
+    for (; i < beats.length; i++) {
+      const at = beats[i]!;
+      const x = xAtTime(level, at) + PLAYER_WIDTH / 2;
+      if (x > x1) break;
+      if (x < x0) continue;
+      // The ground under the mark, as it is now: the highest cap there, if any.
+      let top: number | null = null;
+      for (let k = lowerBound(solids, x - MAX_SOLID_WIDTH); k < solids.length; k++) {
+        const s = solids[k]!;
+        if (s.x0 > x) break;
+        if (s.x1 <= x || s.bottom !== undefined) continue;
+        if (s.kind === 'bridge' || s.kind === 'ledge' || s.kind === 'hurdle') continue;
+        const h = solidTop(s, t);
+        if (h !== null && (top === null || h > top)) top = h;
+      }
+      if (top === null) continue;
+      while (bar < downbeats.length && downbeats[bar]! < at - 1e-3) bar++;
+      const first = bar < downbeats.length && Math.abs(downbeats[bar]! - at) <= 1e-3;
+      const flash = this.#reduced ? 0 : Math.max(0, 1 - Math.abs(t - at) / (0.3 * period));
+      const y = sy(top);
+      g.fillStyle(magenta, (first ? 0.75 : 0.4) + 0.25 * flash);
+      g.fillRect(x - 1.5, y + 7, 3, (first ? 18 : 9) + 6 * flash);
+      if (flash > 0.02) g.fillStyle(magenta, 0.5 * flash).fillRect(x - 4, y - 3, 8, 3);
     }
   }
 

@@ -108,6 +108,11 @@ export interface DifficultySettings {
    */
   busyFloor: number;
   peakFloor: number;
+  /**
+   * Accents and off-beat hits on a sixteenth get an obstacle too. Without it every press
+   * the level asks for is on a beat or an "and", the pulse the player can count.
+   */
+  sixteenths: boolean;
 }
 
 export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
@@ -128,6 +133,7 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     phraseSlams: false,
     busyFloor: 0.5,
     peakFloor: 1,
+    sixteenths: false,
   },
   normal: {
     hazard: 0.7,
@@ -146,6 +152,7 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     phraseSlams: false,
     busyFloor: 1,
     peakFloor: 1.5,
+    sixteenths: false,
   },
   hard: {
     hazard: 0.9,
@@ -164,6 +171,7 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     phraseSlams: true,
     busyFloor: 1,
     peakFloor: 2,
+    sixteenths: true,
   },
 };
 
@@ -245,6 +253,13 @@ const SLAM_CEILING = 0.75;
 const SLAM_APPROACH = Math.min(OVERHANG_LATEST, 0.5);
 /** Kicks this much stronger than every kick in the two bars before are heavy. */
 const HEAVY_KICK = 1.15;
+/**
+ * Off-beat hits are moments while they are rare: more than this many a bar, over the
+ * `SYNC_WINDOW` beats either side, and they are the song's texture (a wall of guitars, a
+ * busy kick), which nobody hears one hit of.
+ */
+const SYNC_PER_BAR = 1.5;
+const SYNC_WINDOW = 16;
 /** Bars in a phrase: a loop of a bar or two repeats its obstacles a phrase at a time. */
 const PHRASE_BARS = 4;
 /** Common obstacles in a bar at full activity and hazard 1. */
@@ -329,6 +344,9 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
   const moments: Moment[] = [];
   const { sustains, stops, accents, fills, syncopations } = map.features;
   const longest = dashPitAir(settings.held);
+  /** On a beat or an "and": where a press can be counted in. */
+  const onPulse = (beat: number) => Math.abs(beat * 2 - Math.round(beat * 2)) <= KICK_ON_GRID * 2;
+  const pressable = (beat: number) => settings.sixteenths || onPulse(beat);
 
   for (const s of sustains) {
     const beat = b(s.time);
@@ -360,6 +378,7 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
   }
   for (const a of accents) {
     const beat = b(a.time);
+    if (!pressable(beat)) continue;
     moments.push({
       kind: 'gate',
       beat,
@@ -385,8 +404,15 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
       to: line + SLAM_CEILING + 0.25,
     });
   }
-  for (const s of syncopations) {
-    const beat = b(s.time);
+  const offBeats = syncopations.map((s) => b(s.time));
+  let near = 0;
+  let far = 0;
+  for (const [i, s] of syncopations.entries()) {
+    const beat = offBeats[i]!;
+    // Rare around here, or it is the texture and not a moment.
+    while (offBeats[near]! < beat - SYNC_WINDOW) near++;
+    while (far < offBeats.length && offBeats[far]! <= beat + SYNC_WINDOW) far++;
+    if (far - near > (SYNC_PER_BAR * 2 * SYNC_WINDOW) / 4 || !pressable(beat)) continue;
     moments.push({
       kind: 'spikes',
       beat,
@@ -405,8 +431,7 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
     const air = settings.gap * JUMP_AIR;
     // A gap only on a kick on the beat or the "and": one on a sixteenth is a chug or a
     // pickup, and a jump there feels random (a strong one is a syncopation: spikes).
-    const eighths = beat * 2;
-    if (Math.abs(eighths - Math.round(eighths)) <= KICK_ON_GRID * 2)
+    if (onPulse(beat))
       moments.push({
         kind: 'kick',
         beat,
@@ -551,9 +576,28 @@ function planBars(
     const calm = calmAt(start);
     // Calm sections leave out the busy music's obstacles, each by its own moment's section.
     const calmMoment = (m: Moment) => calmAt(timeOfBeat(map, m.beat)) && BUSY_ONLY.has(m.kind);
-    const mine = own[i]!.filter((m) => !calmMoment(m)).sort(byStrength);
     const first = beatAt(map, start);
     const last = beatAt(map, end);
+    // Which of the bar's moments come first: among those of a kind, the ones where the
+    // bar a phrase back had its obstacles, so a part keeps its pattern from phrase to
+    // phrase even where the song isn't heard to repeat; then the ones on the beat, which
+    // the player counts, before the "ands"; then the strongest.
+    const phraseBack = plans[i - PHRASE_BARS];
+    const backFirst = beatAt(map, bars[i - PHRASE_BARS] ?? 0);
+    const kept = (m: Moment) =>
+      phraseBack?.some(
+        (o) => o.kind === m.kind && Math.abs(o.beat - backFirst - (m.beat - first)) <= 0.15,
+      )
+        ? 1
+        : 0;
+    const onBeat = (m: Moment) => (Math.abs(m.beat - Math.round(m.beat)) <= KICK_ON_GRID ? 1 : 0);
+    const mine = own[i]!.filter((m) => !calmMoment(m)).sort(
+      (x, y) =>
+        SALIENCE[y.kind] - SALIENCE[x.kind] ||
+        kept(y) - kept(x) ||
+        onBeat(y) - onBeat(x) ||
+        byStrength(x, y),
+    );
 
     // How busy the music is: kicks and snares per beat, and the energy.
     const hits = events.filter((e) => e.time >= start - 1e-6 && e.time < end - 1e-6).length;
