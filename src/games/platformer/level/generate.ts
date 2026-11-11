@@ -16,10 +16,15 @@ import {
   ANCHOR_X,
   COYOTE_TIME,
   DASH_TIME,
+  GRAVITY,
   JUMP_AIR,
+  JUMP_VELOCITY,
   PHYSICS_DT,
   PLAYER_HEIGHT,
   PLAYER_WIDTH,
+  SPIKE_HEIGHT,
+  SPIKE_MERCY,
+  STEP_UP,
   startState,
   stepPlayer,
   VIEW_AHEAD,
@@ -211,6 +216,8 @@ const FILL_STEP_GAP = 0.1;
 const RISER_MAX = 120;
 /** The player meets a fill's first step this long before its first hit, s. */
 const RISER_LEAD = 0.25;
+/** A gap's kick is at most this far (beats) from a beat or an "and". */
+const KICK_ON_GRID = 0.08;
 /**
  * A slam plate stands this high over the ground it breaks through to: a fill's last steps
  * over the ground, a heavy kick's floor over ground this much lower.
@@ -385,15 +392,19 @@ function momentsOf(map: LevelMap, settings: DifficultySettings): Moment[] {
     const beat = b(k.time);
     const period = periodAt(map, k.time);
     const air = settings.gap * JUMP_AIR;
-    moments.push({
-      kind: 'kick',
-      beat,
-      length: 0,
-      strength: k.intensity,
-      what: 'kick',
-      from: beat - 0.25,
-      to: beat + air / period + 0.75,
-    });
+    // A gap only on a kick on the beat or the "and": one on a sixteenth is a chug or a
+    // pickup, and a jump there feels random (a strong one is a syncopation: spikes).
+    const eighths = beat * 2;
+    if (Math.abs(eighths - Math.round(eighths)) <= KICK_ON_GRID * 2)
+      moments.push({
+        kind: 'kick',
+        beat,
+        length: 0,
+        strength: k.intensity,
+        what: 'kick',
+        from: beat - 0.25,
+        to: beat + air / period + 0.75,
+      });
     // Heavy: clearly stronger than every kick in the two bars before it.
     if (k.intensity < 0.8) return;
     let loudest = -1;
@@ -785,13 +796,49 @@ function plain(ctx: BuildContext): Built {
 }
 
 /**
- * A pit the player takes off over at song time `takeoff` and needs `air` seconds in the
- * air to cross: the ground ends where the player's back leaves it then, and the far side
- * starts where their front is `air` later. Returns where the near ground ends and the far
- * one starts.
+ * A pit the player takes off over at song time `takeoff` (its kick) and needs `air` seconds
+ * in the air to cross: the ground ends under the player's middle then, so a jump on the
+ * kick looks like a jump at the edge and one a little late (half the player, then coyote
+ * time) still makes it; the far side starts where their front is `air` after the kick.
+ * Returns where the near ground ends and the far one starts.
  */
 export function pitAt(x: (t: number) => number, takeoff: number, air: number) {
-  return { x0: x(takeoff), x1: x(takeoff + air) + PLAYER_WIDTH };
+  return { x0: x(takeoff) + PLAYER_WIDTH / 2, x1: x(takeoff + air) + PLAYER_WIDTH };
+}
+
+/**
+ * How late after its moment a press may come and still clear what the moment built, s:
+ * a gate's grace, so jumps, like dashes, are in time when pressed on the hit.
+ */
+export const PRESS_GRACE = GATE_GRACE;
+
+/** Seconds from a jump's takeoff until the feet are `height` up. */
+export function riseTime(height: number): number {
+  const v = JUMP_VELOCITY;
+  return (v - Math.sqrt(Math.max(0, v * v - 2 * GRAVITY * height))) / GRAVITY;
+}
+
+/**
+ * Where something `height` above the ground may start so that a jump pressed on `time`,
+ * or up to `PRESS_GRACE` after it, is already that high when the player's front gets
+ * there (a physics step for the press to act).
+ */
+export function clearFrom(x: (t: number) => number, time: number, height: number): number {
+  return x(time + PRESS_GRACE + PHYSICS_DT + riseTime(height)) + PLAYER_WIDTH;
+}
+
+/**
+ * A spike strip `length` long for the hit at song time `time`, on ground at `top`: a jump
+ * on the hit (or up to `PRESS_GRACE` after it) is over the spikes when the player reaches them.
+ */
+export function spikesAt(
+  x: (t: number) => number,
+  time: number,
+  length: number,
+  top: number,
+): SpikeStrip {
+  const x0 = clearFrom(x, time, SPIKE_HEIGHT - SPIKE_MERCY) - SPIKE_MERCY;
+  return { x0, x1: x0 + length, top };
 }
 
 /**
@@ -901,19 +948,21 @@ function drop(ctx: BuildContext): Built {
   if (count < 2) return flat(ctx);
   const base = clampTop(Math.min(ctx.h, MAX_TOP - count * rise));
   const end = x(stretch.end);
-  const solids: Solid[] = [ground(x(stretch.start), x(steps[1]!), ctx.h)];
+  // Each step's riser where a jump on its beat is already over it: climbed on the beat.
+  const riser = (k: number) => clearFrom(x, steps[k]!, rise - STEP_UP);
+  const solids: Solid[] = [ground(x(stretch.start), riser(1), ctx.h)];
   const pickups: Pickup[] = [];
   const stepTime = steps[1]! - steps[0]!;
   let top = base;
   for (let k = 1; k <= count; k++) {
     top = base + k * rise;
-    const x0 = x(steps[k]!);
-    const x1 = x(steps[k + 1]!);
+    const x0 = riser(k);
+    const x1 = riser(k + 1);
     solids.push({ kind: 'step', x0, x1, top });
     pickups.push({ kind: 'gem', x: (x0 + x1) / 2, y: top + 56, time: steps[k]! + stepTime / 2 });
   }
   // The plateau, with an arc of gems to jump for.
-  const plateau = x(steps[count + 1]!);
+  const plateau = riser(count + 1);
   solids.push({ kind: 'step', x0: plateau, x1: end, top });
   const room = stretch.end - steps[count + 1]!;
   for (let i = 0; i < PLATEAU_GEMS; i++) {
@@ -928,7 +977,7 @@ function drop(ctx: BuildContext): Built {
         kind: 'drop',
         time: stretch.start,
         end: stretch.end,
-        x0: x(steps[1]!),
+        x0: riser(1),
         x1: end,
         label: 'Drop staircase',
         reason: `the drop, a step on each of ${count} beats`,
@@ -1106,10 +1155,10 @@ function compose(ctx: BuildContext, moments: Moment[]): Built {
       focus.dash ??= { time: t, end: t + period / 2 };
     } else if (m.kind === 'spikes') {
       const length = Math.max(16, settings.spike * ctx.common(t) * beatWidth);
-      const x0 = x(t) + PLAYER_WIDTH / 2;
-      const x1 = x0 + length;
+      const strip = spikesAt(x, t, length, h);
+      const { x0, x1 } = strip;
       if (x0 < from - 1e-6 || x1 > limit) return;
-      spikes.push({ x0, x1, top: h });
+      spikes.push(strip);
       add(
         {
           kind: 'spikes',

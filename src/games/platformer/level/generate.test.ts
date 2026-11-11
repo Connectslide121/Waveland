@@ -381,7 +381,7 @@ describe('generateLevel: repairs', () => {
 
   it('shrinks impossible gaps on their kicks until they are passable', () => {
     // Gaps on the kicks wider than a jump reaches, level on both sides.
-    Object.assign(DIFFICULTY.hard, { hazard: 1, gap: 1.3, rise: 0 });
+    Object.assign(DIFFICULTY.hard, { hazard: 1, gap: 2.4, rise: 0 });
     const map = buildLevelMap(randomAnalysis(5, { duration: 80, tempo: 100 }));
     const l = generateLevel(map, 'hard');
     expect(validateLevel(l).ok).toBe(true);
