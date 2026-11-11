@@ -44,20 +44,23 @@ export const BOOSTER_NAMES: Record<BoosterKind, string> = {
   shield: 'Shield',
   magnet: 'Magnet',
   dash: 'Extra dash',
+  rush: 'Coin rush',
 };
 const BOOSTER_SHORT: Record<BoosterKind, string> = {
   shield: 'Shield',
   magnet: 'Magnet',
   dash: 'Dash +1',
+  rush: 'Coins ×5',
 };
 
-/** Each booster's icon: a shield with a core, a horseshoe magnet, a double chevron. */
+/** Each booster's icon: a shield with a core, a horseshoe magnet, a double chevron, a coin with rays. */
 export const BOOSTER_ICONS: Record<BoosterKind, string> = {
   shield:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 19.5 5.6v5.6c0 4.6-3.1 8.2-7.5 10-4.4-1.8-7.5-5.4-7.5-10V5.6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="11.4" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
   magnet:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5v8.5a6 6 0 0 0 12 0V3.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M4.4 3.5h3.2M16.4 3.5h3.2M4.4 7.6h3.2M16.4 7.6h3.2" stroke="currentColor" stroke-width="2"/></svg>',
   dash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4.5 6 6 6-6 6M12.5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  rush: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 6.5 5.5 5.5-5.5 5.5L6.5 12z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12 1.8v2.4M12 19.8v2.4M1.8 12h2.4M19.8 12h2.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 };
 
 /** The shared HUD with the booster slots after overdrive and the first-time hint. */
@@ -92,7 +95,7 @@ export function createHud(options: HudOptions): Hud<PlatformerHudState> {
 
   const shown = {
     hint: null as string | null,
-    boosts: { shield: -2, magnet: -2, dash: -2 } as Record<BoosterKind, number>,
+    boosts: { shield: -2, magnet: -2, dash: -2, rush: -2 } as Record<BoosterKind, number>,
   };
   return {
     element: hud.element,
@@ -107,7 +110,12 @@ export function createHud(options: HudOptions): Hud<PlatformerHudState> {
           const { box, bar } = slotOf[kind];
           box.classList.toggle('on', left !== null);
           bar.style.width = `${Math.max(0, percent)}%`;
-          const what = left === null ? 'off' : kind === 'magnet' ? `on, ${percent}% left` : 'ready';
+          const what =
+            left === null
+              ? 'off'
+              : kind === 'magnet' || kind === 'rush'
+                ? `on, ${percent}% left`
+                : 'ready';
           box.setAttribute('aria-label', `${BOOSTER_NAMES[kind]}: ${what}`);
           shown.boosts[kind] = percent;
         }

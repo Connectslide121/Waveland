@@ -92,6 +92,7 @@ const BOOSTER_COLOR = {
   shield: { fill: paletteNumbers.cyan, text: palette.cyan },
   magnet: { fill: paletteNumbers.magenta, text: palette.magenta },
   dash: { fill: paletteNumbers.cyan, text: palette.cyan },
+  rush: { fill: paletteNumbers.magenta, text: palette.magenta },
 } as const;
 const SHARDS = 12;
 /** How long a speaker ring spreads out after a kick, in beats. */
@@ -534,7 +535,9 @@ export class PlatformerScene extends Phaser.Scene {
           if (e.pulled) this.#zip(k.x, k.y, time);
           else this.#burst('spark', k.x, k.y, time);
         } else {
-          const name = { shield: 'SHIELD', magnet: 'MAGNET', dash: 'DASH +1' }[k.kind];
+          const name = { shield: 'SHIELD', magnet: 'MAGNET', dash: 'DASH +1', rush: 'COINS ×5' }[
+            k.kind
+          ];
           this.#float(name, k.x, k.y + 22, time, BOOSTER_COLOR[k.kind].text);
           this.#burst('spark', k.x, k.y, time);
         }
@@ -1678,6 +1681,20 @@ export class PlatformerScene extends Phaser.Scene {
       g.fillStyle(paletteNumbers.flare, 1);
       g.fillRect(x - 8, y - 9, 4, 3);
       g.fillRect(x + 4, y - 9, 4, 3);
+    } else if (kind === 'rush') {
+      // A coin with rays.
+      g.beginPath();
+      g.moveTo(x, y - 6);
+      g.lineTo(x + 6, y);
+      g.lineTo(x, y + 6);
+      g.lineTo(x - 6, y);
+      g.closePath();
+      g.strokePath();
+      g.fillStyle(paletteNumbers.flare, 1);
+      g.fillRect(x - 1, y - 11, 2, 3);
+      g.fillRect(x - 1, y + 8, 2, 3);
+      g.fillRect(x - 11, y - 1, 3, 2);
+      g.fillRect(x + 8, y - 1, 3, 2);
     } else {
       for (let dx = -4; dx <= 4; dx += 8) {
         g.beginPath();
@@ -1805,6 +1822,16 @@ export class PlatformerScene extends Phaser.Scene {
         g.beginPath();
         g.arc(cx, cy, MAGNET_RADIUS * 0.6, a, a + 0.28);
         g.strokePath();
+      }
+    }
+    if (t >= b.rushFrom && t < b.rushUntil) {
+      // Four small coins circling the cube, on the beat's side of the palette.
+      const turn = t * 4;
+      for (let i = 0; i < 4; i++) {
+        const a = turn + (i / 4) * Math.PI * 2;
+        const px = cx + Math.cos(a) * 30;
+        const py = cy + Math.sin(a) * 30;
+        g.fillStyle(paletteNumbers.magenta, 0.9).fillRect(px - 2.5, py - 2.5, 5, 5);
       }
     }
     if (b.extraDash) {

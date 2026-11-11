@@ -64,7 +64,8 @@
   color: var(--cyan);
 }
 
-.pf-boost--magnet.on {
+.pf-boost--magnet.on,
+.pf-boost--rush.on {
   color: var(--magenta);
 }
 

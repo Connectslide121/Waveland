@@ -80,12 +80,13 @@ export interface SpikeStrip {
 }
 
 /**
- * A booster: a shield (survive one hit), a magnet (pulls coins for 4 bars) or an extra
+ * A booster: a coin rush (coins worth five times as much for 4 bars, each filling the
+ * overdrive meter a little), a shield (survive one hit), a magnet (pulls coins for 4 bars) or an extra
  * dash (a second dash until the next landing). Placed in optional or risky spots; never
  * needed to finish, so the validator never sees them.
  */
-export type BoosterKind = 'shield' | 'magnet' | 'dash';
-export const BOOSTER_KINDS: readonly BoosterKind[] = ['shield', 'magnet', 'dash'];
+export type BoosterKind = 'shield' | 'magnet' | 'dash' | 'rush';
+export const BOOSTER_KINDS: readonly BoosterKind[] = ['shield', 'magnet', 'dash', 'rush'];
 
 /** Something to pick up: a coin on a hi-hat, a gem in a drop's set piece, a booster. */
 export interface Pickup {

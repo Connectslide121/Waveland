@@ -84,6 +84,10 @@ export const CLEAN_BONUS = 2000;
 /** The magnet lasts this many beats (4 bars) and pulls coins from this far, px. */
 export const MAGNET_BEATS = 16;
 export const MAGNET_RADIUS = 110;
+/** A coin rush lasts this many beats (4 bars): coins score this many times as much and fill the meter. */
+export const RUSH_BEATS = 16;
+export const RUSH_FACTOR = 5;
+export const METER_RUSH_COIN = 1 / 32;
 /**
  * A shield's bounce lands at least this long after the hit and at most this long, on the
  * first surface the player can stand on for `SAFE_TIME` without doing anything.
@@ -177,6 +181,8 @@ interface Score {
   magnetFrom: number;
   magnetUntil: number;
   extraDash: boolean;
+  rushFrom: number;
+  rushUntil: number;
 }
 
 /** A shield's bounce: from the hit, up and over to a safe surface. */
@@ -338,6 +344,8 @@ export class PlatformerRun {
       magnetFrom: -Infinity,
       magnetUntil: -Infinity,
       extraDash: false,
+      rushFrom: -Infinity,
+      rushUntil: -Infinity,
     };
     this.#saved = copyScore(this.#score);
   }
@@ -369,13 +377,22 @@ export class PlatformerRun {
   }
 
   /** The boosters the player has: a shield, a magnet until a song time, an extra dash. */
-  get boosters(): { shield: boolean; magnetFrom: number; magnetUntil: number; extraDash: boolean } {
+  get boosters(): {
+    shield: boolean;
+    magnetFrom: number;
+    magnetUntil: number;
+    extraDash: boolean;
+    rushFrom: number;
+    rushUntil: number;
+  } {
     const s = this.#score;
     return {
       shield: s.shield,
       magnetFrom: s.magnetFrom,
       magnetUntil: s.magnetUntil,
       extraDash: s.extraDash,
+      rushFrom: s.rushFrom,
+      rushUntil: s.rushUntil,
     };
   }
 
@@ -737,6 +754,7 @@ export class PlatformerRun {
     const s = this.#score;
     const collected = s.collected;
     const magnet = t >= s.magnetFrom && t < s.magnetUntil;
+    const rush = t >= s.rushFrom && t < s.rushUntil;
     for (let i = 0; i < pickups.length; i++) {
       if (collected[i]) continue;
       const k = pickups[i]!;
@@ -750,8 +768,9 @@ export class PlatformerRun {
       const d2 = (nx - k.x) ** 2 + (ny - k.y) ** 2;
       if (d2 > r * r) continue;
       collected[i] = 1;
-      const points = this.#gain(t, POINTS[kind]);
+      const points = this.#gain(t, POINTS[kind] * (rush && kind === 'coin' ? RUSH_FACTOR : 1));
       if (k.kind === 'gem') this.#fill(t, METER_GEM);
+      else if (rush && kind === 'coin') this.#fill(t, METER_RUSH_COIN);
       else if (kind === 'booster') this.#boost(k.kind as BoosterKind, t);
       const pulled = pull && d2 > PICKUP_RADIUS.coin ** 2;
       events.push({ type: 'pickup', index: i, points, pulled });
@@ -766,7 +785,11 @@ export class PlatformerRun {
     const s = this.#score;
     if (kind === 'shield') s.shield = true;
     else if (kind === 'dash') s.extraDash = true;
-    else {
+    else if (kind === 'rush') {
+      const grid = this.level.grid;
+      s.rushFrom = t;
+      s.rushUntil = timeOfBeat(grid, beatAt(grid, t) + RUSH_BEATS);
+    } else {
       const grid = this.level.grid;
       s.magnetFrom = t;
       s.magnetUntil = timeOfBeat(grid, beatAt(grid, t) + MAGNET_BEATS);

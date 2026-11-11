@@ -14,6 +14,9 @@ import {
   GOOD_WINDOW,
   judgeAt,
   MAGNET_BEATS,
+  METER_RUSH_COIN,
+  RUSH_BEATS,
+  RUSH_FACTOR,
   METER_GEM,
   multiplierOf,
   offBeat,
@@ -487,6 +490,25 @@ describe('PlatformerRun: boosters', () => {
       expect.objectContaining({ type: 'pickup', index: 1, pulled: true }),
     );
     expect(run.isCollected(2)).toBe(false);
+  });
+
+  it('scores coins five times over and fills the meter while a coin rush lasts', () => {
+    const level = flat(30, 100);
+    level.pickups.push(
+      { kind: 'rush', x: ANCHOR_X + 14, y: 20, time: 0 },
+      { kind: 'coin', x: ANCHOR_X + 100 + 14, y: 20, time: 1 },
+      // Long after the rush's 4 bars.
+      { kind: 'coin', x: ANCHOR_X + 1200 + 14, y: 20, time: 12 },
+    );
+    const run = new PlatformerRun(level, []);
+    const events = drive(run, 0, 13);
+    expect(run.boosters.rushUntil).toBeCloseTo(RUSH_BEATS * 0.5, 1);
+    const points = (index: number) =>
+      events.find((e) => e.type === 'pickup' && e.index === index) as { points: number };
+    // The same multiplier for both (two and three pickups into the combo): five times over.
+    expect(points(1).points).toBe(RUSH_FACTOR * POINTS.coin);
+    expect(points(2).points).toBe(POINTS.coin);
+    expect(run.meter).toBeCloseTo(METER_RUSH_COIN);
   });
 
   it('gives a second dash in the air until the next landing', () => {

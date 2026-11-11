@@ -31,14 +31,15 @@ describe('createHud', () => {
 
   it('shows the boosters in fixed slots after overdrive', () => {
     const slots = [...hud.element.querySelectorAll('.pf-boost')];
-    expect(slots).toHaveLength(3);
+    expect(slots).toHaveLength(4);
     expect(hud.element.querySelector('.game-hud__status .game-od + .pf-boosts')).not.toBeNull();
-    hud.update({ ...base, boosters: { shield: 1, magnet: 0.4, dash: null } });
-    expect(slots.map((s) => s.classList.contains('on'))).toEqual([true, true, false]);
+    hud.update({ ...base, boosters: { shield: 1, magnet: 0.4, dash: null, rush: 0.5 } });
+    expect(slots.map((s) => s.classList.contains('on'))).toEqual([true, true, false, true]);
     expect(slots.map((s) => s.getAttribute('aria-label'))).toEqual([
       'Shield: ready',
       'Magnet: on, 40% left',
       'Extra dash: off',
+      'Coin rush: on, 50% left',
     ]);
     expect(slots[1]!.querySelector<HTMLElement>('.pf-boost__bar')!.style.width).toBe('40%');
   });

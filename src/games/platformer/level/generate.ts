@@ -1531,10 +1531,10 @@ function fullJump(
 }
 
 /**
- * Boosters (shield, magnet, extra dash, in turn) in optional or risky spots: just over
+ * Boosters (shield, magnet, extra dash, coin rush, in turn) in optional or risky spots: just over
  * the head at the top of a full jump taken on a beat, over a pit when a section has one
  * in its first bars, else over plain ground. A short hop or no jump passes under it. One
- * a section at most, at least `BOOSTER_BARS` apart, from the second section on, never in
+ * in a section's first bars and one more every `BOOSTER_BARS` it lasts, from the second section on, never in
  * a drop's set piece or around a lesson. The validator never sees pickups, so the level
  * stays completable without them.
  */
@@ -1548,23 +1548,32 @@ function boosters(level: PlatformerLevel, map: LevelMap, seed: number): void {
       (c) => (c.kind === 'drop' || c.kind === 'run-out') && t >= c.start - 1 && t < c.end,
     ) || level.lessons.some((l) => t >= l.time - 4 * periodAt(map, l.time) && t <= l.end + 0.5);
   for (const section of map.sections.slice(1)) {
-    const from = Math.max(section.start + 4 * periodAt(map, section.start), after);
-    const to = Math.min(section.end, timeOfBeat(map, beatAt(map, from) + BOOSTER_BARS * 4));
-    let best: ReturnType<typeof fullJump> = null;
-    for (const t of map.beats) {
-      if (t < from || t >= to || busy(t)) continue;
-      const spot = fullJump(level, world, t);
-      if (!spot || busy(spot.time)) continue;
-      if (spot.risky) {
-        best = spot;
-        break;
+    // One in the section's first bars, and one more for every `BOOSTER_BARS` it goes on.
+    for (
+      let from = Math.max(section.start + 4 * periodAt(map, section.start), after);
+      from < section.end;
+    ) {
+      const to = Math.min(section.end, timeOfBeat(map, beatAt(map, from) + BOOSTER_BARS * 4));
+      let best: ReturnType<typeof fullJump> = null;
+      for (const t of map.beats) {
+        if (t < from || t >= to || busy(t)) continue;
+        const spot = fullJump(level, world, t);
+        if (!spot || busy(spot.time)) continue;
+        if (spot.risky) {
+          best = spot;
+          break;
+        }
+        best ??= spot;
       }
-      best ??= spot;
+      if (!best) {
+        from = to + 1e-6;
+        continue;
+      }
+      const kind = BOOSTER_KINDS[turn++ % BOOSTER_KINDS.length]!;
+      level.pickups.push({ kind, x: best.x, y: best.y, time: best.time });
+      after = timeOfBeat(map, beatAt(map, best.time) + BOOSTER_BARS * 4);
+      from = after;
     }
-    if (!best) continue;
-    const kind = BOOSTER_KINDS[turn++ % BOOSTER_KINDS.length]!;
-    level.pickups.push({ kind, x: best.x, y: best.y, time: best.time });
-    after = timeOfBeat(map, beatAt(map, best.time) + BOOSTER_BARS * 4);
   }
 }
 

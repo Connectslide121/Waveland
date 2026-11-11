@@ -259,6 +259,7 @@ class PlatformerSession {
     shield: null,
     magnet: null,
     dash: null,
+    rush: null,
   };
 
   #boosters(t: number): Record<BoosterKind, number | null> {
@@ -267,6 +268,7 @@ class PlatformerSession {
     state.shield = b.shield ? 1 : null;
     state.magnet = this.#left(b.magnetFrom, b.magnetUntil, t);
     state.dash = b.extraDash ? 1 : null;
+    state.rush = this.#left(b.rushFrom, b.rushUntil, t);
     return state;
   }
 
