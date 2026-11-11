@@ -11,6 +11,7 @@ import {
 import { palette, paletteNumbers } from '../../theme/palette';
 import {
   cameraAt,
+  HURDLE_HEIGHT,
   isDropPiece,
   lowerBound,
   MAX_SOLID_WIDTH,
@@ -1178,7 +1179,8 @@ export class PlatformerScene extends Phaser.Scene {
     // The drop's staircase in the drop colour; the rest is the world's violet.
     const color = isDropPiece(s.kind) ? paletteNumbers.magenta : paletteNumbers.violet;
     const y = sy(top);
-    const bottom = sy(PIT_DEPTH);
+    // A hurdle is a stub on the plateau, not a column into the pit.
+    const bottom = sy(s.kind === 'hurdle' ? top - HURDLE_HEIGHT : PIT_DEPTH);
     const pulse = Math.max(0, 1 - beatPhase * 3);
     // Joined pieces run into each other; free ends get an edge and a rounded cap.
     const a = joinedLeft ? s.x0 : s.x0 + 1;

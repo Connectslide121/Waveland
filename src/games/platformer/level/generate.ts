@@ -217,7 +217,7 @@ const STAIR_STEPS = 7;
 /** Gems in the arc over the drop's plateau. */
 const PLATEAU_GEMS = 5;
 /** The hurdles on the drop's plateau: how high and wide (px), and spare air between them (s). */
-const HURDLE_HEIGHT = 36;
+export const HURDLE_HEIGHT = 36;
 const HURDLE_WIDTH = 20;
 const HURDLE_ROOM = 0.12;
 /** A fill's steps: at most this many, its hits at least this far apart (s). */
