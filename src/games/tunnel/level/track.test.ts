@@ -3,6 +3,8 @@ import { buildLevelMap, type LevelMap, type MelodyMove } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
 import {
   CLIMB_RANGE,
+  FEEL_OF_KIND,
+  looksFor,
   MAX_CLIMB,
   MAX_HEADING,
   pathAt,
@@ -114,5 +116,40 @@ describe('the path', () => {
     const last = track.path[track.path.length - 1]!;
     const past = pathAt(track, last.z + 10);
     expect(past.x).toBeCloseTo(last.x + Math.sin(last.heading) * 10, 6);
+  });
+});
+
+describe('the look of each feel', () => {
+  const feels = ['calm', 'breakdown', 'groove', 'chorus', 'build', 'drop'] as const;
+  const base = buildLevelMap(
+    randomAnalysis(5, {
+      sections: feels.map(() => ({ bars: 4, kind: 'main' as const, energy: 0.5 })),
+    }),
+  );
+  const looks = looksFor({
+    ...base,
+    moods: base.moods.map((m, i) => ({ ...m, feel: feels[i % feels.length]! })),
+  });
+  const by = Object.fromEntries(looks.map((l) => [l.feel, l]));
+
+  it('thins a calm part or a breakdown to sparse rings with a starfield', () => {
+    for (const feel of ['calm', 'breakdown']) {
+      expect(by[feel]!.ringBeats).toBeGreaterThanOrEqual(4);
+      expect(by[feel]!.stars).toBe(1);
+      expect(by[feel]!.radius).toBeGreaterThan(1);
+    }
+    expect(looks.filter((l) => l.stars > 0).map((l) => l.feel)).toEqual(['calm', 'breakdown']);
+  });
+
+  it('turns a chorus’s ring walls with the beat, and bursts the drop open on its downbeats', () => {
+    expect(by.chorus!.ringWalls).toBe(true);
+    expect(by.chorus!.spin).toBeGreaterThan(0);
+    expect(by.groove!.spin).toBe(0);
+    expect(by.drop!.burst).toBeGreaterThan(by.chorus!.burst);
+    expect(by.groove!.burst).toBe(0);
+  });
+
+  it('keeps a feel for every kind of section', () => {
+    for (const feel of Object.values(FEEL_OF_KIND)) expect(feels).toContain(feel);
   });
 });

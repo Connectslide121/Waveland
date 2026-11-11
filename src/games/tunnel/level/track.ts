@@ -19,9 +19,11 @@ import { BLOCK_DEPTH, type RacerObstacle, type RacerWorld } from '../physics';
  * What an obstacle is, by the musical moment it comes from (the grammar in
  * `generate.ts`): a block on a kick, a block opposite it on a snare, a wall with a gap on
  * an accent, a low wall on the strongest accents, a wall with a gap where the band comes
- * back after a stop, a sliding block on a syncopation, a slalom block on a fill's hit.
+ * back after a stop, a sliding block on a syncopation, a slalom block on a fill's hit, and
+ * a squeeze: three walls on the last bar of a build, each leaving a narrower way open.
  */
-export type ObstacleKind = 'kick' | 'snare' | 'wall' | 'low' | 'stop' | 'slide' | 'slalom';
+export type ObstacleKind =
+  'kick' | 'snare' | 'wall' | 'low' | 'stop' | 'slide' | 'slalom' | 'squeeze';
 
 /** One obstacle: where it is for the physics, and why it is there. */
 export interface Obstacle extends RacerObstacle {
@@ -45,6 +47,36 @@ export interface Pickup {
   time: number;
   z: number;
   lane: number;
+}
+
+/** What a booster pickup gives: see `run.ts`. */
+export type BoosterKind = 'magnet' | 'shield' | 'surge';
+
+/**
+ * A booster to collect, on a section's first phrase: never needed, so the validator never
+ * sees it.
+ */
+export interface Booster {
+  kind: BoosterKind;
+  time: number;
+  z: number;
+  lane: number;
+}
+
+/**
+ * A boost hoop (magenta): flown through in its lane for points. The hoops of one phrase
+ * (a chorus's or a drop's first four downbeats) share a `group`; flying through every
+ * one earns a streak bonus. A fill's slalom ends in a single hoop on the bar line.
+ */
+export interface Hoop {
+  kind: 'phrase' | 'fill';
+  time: number;
+  z: number;
+  lane: number;
+  group: number;
+  /** Which of the group's `size` hoops this is, from 0. */
+  slot: number;
+  size: number;
 }
 
 /**
@@ -107,6 +139,12 @@ export interface SectionLook {
   glow: number;
   /** Ring walls on every beat (a chorus). */
   ringWalls: boolean;
+  /** How fast the ring walls turn, radians a beat (0: they stand still). */
+  spin: number;
+  /** How much further the tube opens on each downbeat, a share of its radius (the drop). */
+  burst: number;
+  /** A starfield of dim points in the tube: 0 for none, 1 in calm parts and breakdowns. */
+  stars: number;
 }
 
 /** What makes the tunnel pulse with the bass: visual only, it never moves a lane. */
@@ -151,6 +189,10 @@ export interface TunnelTrack {
   obstacles: Obstacle[];
   /** Sorted by time. */
   pickups: Pickup[];
+  /** Boosters to collect, sorted by time: at most one a section, several bars apart. */
+  boosters: Booster[];
+  /** Boost hoops, sorted by time. */
+  hoops: Hoop[];
   holds: Hold[];
   dark: Dark[];
   chunks: Chunk[];
@@ -336,17 +378,72 @@ export function pathAt(track: Pick<TunnelTrack, 'path'>, z: number): PathPoint {
 // ---------- looks per section ----------
 
 /**
- * Each feel's look: calm parts and breakdowns open into a wide tube with slow rings,
- * grooves are steady, choruses tighten and brighten with ring walls on every beat, builds
- * narrow as they go and speed the rings up, the drop bursts open.
+ * Each feel's look: calm parts and breakdowns open into a wide tube with sparse rings and
+ * a starfield, grooves are steady, choruses tighten and brighten with ring walls that turn
+ * with the beat, builds narrow as they go and speed the rings up, the drop bursts open and
+ * opens wider still on every downbeat.
  */
 const LOOK_OF_FEEL: Record<SectionFeel, Omit<SectionLook, 'start' | 'end' | 'feel'>> = {
-  calm: { radius: 1.35, radiusEnd: 1.35, ringBeats: 2, glow: 0.45, ringWalls: false },
-  breakdown: { radius: 1.35, radiusEnd: 1.35, ringBeats: 2, glow: 0.4, ringWalls: false },
-  groove: { radius: 1, radiusEnd: 1, ringBeats: 1, glow: 0.65, ringWalls: false },
-  chorus: { radius: 0.9, radiusEnd: 0.9, ringBeats: 1, glow: 0.9, ringWalls: true },
-  build: { radius: 1, radiusEnd: 0.8, ringBeats: 0.5, glow: 0.75, ringWalls: false },
-  drop: { radius: 1.5, radiusEnd: 1.5, ringBeats: 1, glow: 1, ringWalls: false },
+  calm: {
+    radius: 1.35,
+    radiusEnd: 1.35,
+    ringBeats: 4,
+    glow: 0.45,
+    ringWalls: false,
+    spin: 0,
+    burst: 0,
+    stars: 1,
+  },
+  breakdown: {
+    radius: 1.35,
+    radiusEnd: 1.35,
+    ringBeats: 4,
+    glow: 0.4,
+    ringWalls: false,
+    spin: 0,
+    burst: 0,
+    stars: 1,
+  },
+  groove: {
+    radius: 1,
+    radiusEnd: 1,
+    ringBeats: 1,
+    glow: 0.65,
+    ringWalls: false,
+    spin: 0,
+    burst: 0,
+    stars: 0,
+  },
+  chorus: {
+    radius: 0.9,
+    radiusEnd: 0.9,
+    ringBeats: 1,
+    glow: 0.9,
+    ringWalls: true,
+    spin: 0.3,
+    burst: 0.03,
+    stars: 0,
+  },
+  build: {
+    radius: 1,
+    radiusEnd: 0.8,
+    ringBeats: 0.5,
+    glow: 0.75,
+    ringWalls: false,
+    spin: 0,
+    burst: 0,
+    stars: 0,
+  },
+  drop: {
+    radius: 1.5,
+    radiusEnd: 1.5,
+    ringBeats: 1,
+    glow: 1,
+    ringWalls: false,
+    spin: 0,
+    burst: 0.1,
+    stars: 0,
+  },
 };
 
 /** The feel of a section by its kind, for a map without moods. */

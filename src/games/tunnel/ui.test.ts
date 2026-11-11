@@ -40,6 +40,31 @@ describe('tunnel HUD', () => {
   });
 });
 
+describe('tunnel boosters', () => {
+  it('shows the magnet and the surge with their time left, dim when off', () => {
+    const hud = createHud({ title: 'Song', tempo: 120, duration: 60, drops: [] });
+    const magnet = hud.element.querySelector<HTMLElement>('.tn-boost--magnet')!;
+    const surge = hud.element.querySelector<HTMLElement>('.tn-boost--surge')!;
+    hud.update({ ...STATE, boosters: { magnet: null, surge: null } });
+    expect(magnet.classList.contains('on')).toBe(false);
+    expect(surge.getAttribute('aria-label')).toBe('Surge: off');
+    hud.update({ ...STATE, boosters: { magnet: 0.5, surge: null } });
+    expect(magnet.classList.contains('on')).toBe(true);
+    expect(magnet.querySelector<HTMLElement>('.tn-boost__bar')!.style.width).toBe('50%');
+    expect(magnet.getAttribute('aria-label')).toBe('Magnet: on, 50% left');
+    expect(surge.classList.contains('on')).toBe(false);
+  });
+
+  it('says a hoop, a streak or a booster as the last judgement', () => {
+    const hud = createHud({ title: 'Song', tempo: 120, duration: 60, drops: [] });
+    const word = hud.element.querySelector<HTMLElement>('.tn-judge')!;
+    hud.update({ ...STATE, judgement: { word: 'streak', age: 0 } });
+    expect(word.textContent).toBe('Hoop streak');
+    hud.update({ ...STATE, judgement: { word: 'surge', age: 0.5 } });
+    expect(word.textContent).toBe('Surge');
+  });
+});
+
 describe('tunnel results', () => {
   it('lists crashes, pickups and shield saves', () => {
     const screen = createResultsScreen('Song · Normal', { onRetry() {}, onBack() {} });
@@ -54,6 +79,11 @@ describe('tunnel results', () => {
       saves: 1,
       pickups: 30,
       totalPickups: 40,
+      boosters: 2,
+      totalBoosters: 5,
+      hoops: 9,
+      totalHoops: 12,
+      streaks: 1,
       bestCombo: 22,
       overdrives: 1,
       clean: 3,
@@ -63,6 +93,8 @@ describe('tunnel results', () => {
     expect(text).toContain('Crashes');
     expect(text).toContain('30 / 40');
     expect(text).toContain('Shield saves');
+    expect(text).toContain('9 / 12');
+    expect(text).toContain('2 / 5');
     expect(text).toMatch(/crashes/);
     screen.destroy();
   });

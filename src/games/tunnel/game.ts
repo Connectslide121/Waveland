@@ -173,6 +173,8 @@ class TunnelSession {
       for (const e of events) {
         if (e.type === 'beat') this.#judged = { word: e.quality, time };
         else if (e.type === 'crash') this.#judged = { word: e.shield ? 'saved' : 'crash', time };
+        else if (e.type === 'hoop') this.#judged = { word: e.bonus > 0 ? 'streak' : 'hoop', time };
+        else if (e.type === 'booster') this.#judged = { word: e.kind, time };
       }
       this.scene?.effects(events, this.run);
     }
@@ -203,6 +205,10 @@ class TunnelSession {
       overdrive: this.#left(this.run.overdrive.from, this.run.overdrive.until, time),
       overdriveKey: chipBinding(this.#bindings, 'overdrive'),
       shield: this.run.shield,
+      boosters: {
+        magnet: this.#left(this.run.magnet.from, this.run.magnet.until, time),
+        surge: this.#left(this.run.surge.from, this.run.surge.until, time),
+      },
       judgement: judged && age >= 0 && age < JUDGEMENT_TIME ? { word: judged.word, age } : null,
     });
     const state = this.#state;

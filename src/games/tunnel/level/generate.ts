@@ -18,7 +18,10 @@ import {
   runFor,
   TrackWorld,
   zAtTime,
+  type Booster,
+  type BoosterKind,
   type Hold,
+  type Hoop,
   type Obstacle,
   type ObstacleKind,
   type Pickup,
@@ -64,6 +67,24 @@ export interface DifficultySettings {
   slalomCentre: boolean;
   /** A gem on every n-th hi-hat. */
   gemEvery: number;
+  /**
+   * Kick and snare blocks, accent walls and sliding blocks on a sixteenth too. Without it
+   * every obstacle is on a beat or an "and", the pulse the player can count.
+   */
+  sixteenths: boolean;
+  /**
+   * Obstacles a busy bar has at least, and a bar of a chorus or a drop: fractions carry
+   * from bar to bar (a half is one every other bar). Calm parts have none.
+   */
+  busyFloor: number;
+  peakFloor: number;
+  /**
+   * The share of kick blocks that stand in the centre lane, where the racer starts and
+   * the gems' line is, so on easy a block is more often in the way.
+   */
+  lean: number;
+  /** The lanes left open in a squeeze's three walls, wide to narrow. */
+  squeeze: readonly number[];
 }
 
 export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
@@ -77,6 +98,11 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     slides: false,
     slalomCentre: false,
     gemEvery: 2,
+    sixteenths: false,
+    busyFloor: 0.5,
+    peakFloor: 1,
+    lean: 0.4,
+    squeeze: [2, 2, 2],
   },
   normal: {
     lanes: 5,
@@ -88,6 +114,11 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     slides: false,
     slalomCentre: false,
     gemEvery: 2,
+    sixteenths: false,
+    busyFloor: 1,
+    peakFloor: 1.75,
+    lean: 0.2,
+    squeeze: [3, 3, 2],
   },
   hard: {
     lanes: 5,
@@ -99,6 +130,11 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     slides: true,
     slalomCentre: true,
     gemEvery: 1,
+    sixteenths: true,
+    busyFloor: 1.75,
+    peakFloor: 3,
+    lean: 0,
+    squeeze: [3, 2, 1],
   },
 };
 
@@ -123,6 +159,17 @@ const SLALOM_MIN = 0.25;
 const WEAVE_TIME = 0.36;
 /** A sliding block starts sliding this many beats before the racer meets it. */
 const SLIDE_BEATS = 0.5;
+/** A beat is "on the pulse" when it is this near a beat or an "and" (in beats). */
+const ON_PULSE = 0.08;
+/**
+ * Off-beat hits are moments while they are rare: more than this many a bar, over the
+ * `SYNC_WINDOW` beats either side, and they are the song's texture (a wall of guitars, a
+ * busy kick), which nobody hears one hit of.
+ */
+const SYNC_PER_BAR = 1.5;
+const SYNC_WINDOW = 16;
+/** A squeeze's three walls are on beats 1, 2 and 3 of a build's last bar. */
+const SQUEEZE_BEATS = [1, 2, 3] as const;
 
 // ---------- the grammar: musical moments ----------
 
@@ -163,10 +210,11 @@ const SALIENCE: Record<MomentKind, number> = {
   slide: 1,
   snare: 1,
   kick: 1,
+  squeeze: 5,
 };
 
 /** Moments rare enough that every one becomes an obstacle, however busy the bar. */
-const RARE: ReadonlySet<MomentKind> = new Set(['stop', 'slalom', 'wall']);
+const RARE: ReadonlySet<MomentKind> = new Set(['stop', 'slalom', 'wall', 'squeeze']);
 /** Common moments a calm section (intro, breakdown, outro) leaves as free track. */
 const BUSY_ONLY: ReadonlySet<MomentKind> = new Set(['snare', 'slide']);
 
@@ -188,6 +236,9 @@ function momentsOf(map: LevelMap, settings: DifficultySettings, seed: number): M
     new Random(hashOf(seed, 'moment', kind, Math.round(beat * 4))).next();
   const moments: Moment[] = [];
   const { stops, accents, fills, syncopations } = map.features;
+  /** On a beat or an "and": where a press can be counted in. */
+  const onPulse = (beat: number) => Math.abs(beat * 2 - Math.round(beat * 2)) <= ON_PULSE * 2;
+  const pressable = (beat: number) => settings.sixteenths || onPulse(beat);
   const single = (kind: MomentKind, beat: number, strength: number, what: string, before = 0.5) =>
     moments.push({
       kind,
@@ -218,6 +269,7 @@ function momentsOf(map: LevelMap, settings: DifficultySettings, seed: number): M
   }
   for (const a of accents) {
     const beat = b(a.time);
+    if (!pressable(beat)) continue;
     moments.push({
       kind: 'wall',
       beat,
@@ -251,13 +303,50 @@ function momentsOf(map: LevelMap, settings: DifficultySettings, seed: number): M
       pick: pick('slalom', beat),
     });
   }
-  if (settings.slides)
-    for (const s of syncopations) single('slide', b(s.time), s.strength, 'off-beat hit');
+  if (settings.slides) {
+    const offBeats = syncopations.map((s) => b(s.time));
+    let near = 0;
+    let far = 0;
+    for (const [i, s] of syncopations.entries()) {
+      const beat = offBeats[i]!;
+      // Rare around here, or it is the texture and not a moment.
+      while (offBeats[near]! < beat - SYNC_WINDOW) near++;
+      while (far < offBeats.length && offBeats[far]! <= beat + SYNC_WINDOW) far++;
+      if (far - near > (SYNC_PER_BAR * 2 * SYNC_WINDOW) / 4 || !pressable(beat)) continue;
+      single('slide', beat, s.strength, 'off-beat hit');
+    }
+  }
   for (const e of map.events) {
     if (e.intensity < settings.minHit) continue;
-    if (e.kind === 'kick') single('kick', b(e.time), e.intensity, 'kick');
-    else if (e.kind === 'snare') single('snare', b(e.time), e.intensity, 'snare');
+    const beat = b(e.time);
+    if (!pressable(beat)) continue;
+    if (e.kind === 'kick') single('kick', beat, e.intensity, 'kick');
+    else if (e.kind === 'snare') single('snare', beat, e.intensity, 'snare');
   }
+  // The last bar of a build narrows: three walls, each leaving less open.
+  map.sections.forEach((s, i) => {
+    const feel = map.moods?.[i]?.feel ?? FEEL_OF_KIND[s.kind];
+    if (feel !== 'build') return;
+    // The last bar that has at least three beats before the section's end.
+    const bar = [...map.downbeats]
+      .reverse()
+      .find((d) => d >= s.start - 1e-6 && b(s.end) - b(d) >= 3 - 1e-6);
+    if (bar === undefined || b(s.end) - b(bar) >= 5) return;
+    const first = b(bar);
+    const hitBeats = SQUEEZE_BEATS.map((k) => first + k);
+    moments.push({
+      kind: 'squeeze',
+      beat: hitBeats[0]!,
+      length: hitBeats[2]! - hitBeats[0]!,
+      hits: hitBeats,
+      strength: 1,
+      what: 'build ends',
+      from: hitBeats[0]! - 0.75,
+      to: hitBeats[2]! + 0.5,
+      last: hitBeats[2]!,
+      pick: pick('squeeze', first),
+    });
+  });
   return moments;
 }
 
@@ -302,7 +391,9 @@ function planBars(
   open: ReadonlySet<number>,
   calmAt: (t: number) => boolean,
   busyAt: (t: number) => number,
-  hazard: number,
+  settings: DifficultySettings,
+  /** Obstacles a bar has at least at `t`, from the section's feel. */
+  floorAt: (t: number) => number,
 ): Moment[][] {
   const all = moments.filter((m) => m.from >= beatAt(map, bars[0] ?? 0) - 1e-6);
   const own: Moment[][] = bars.map(() => []);
@@ -325,6 +416,7 @@ function planBars(
   const firstOf = new Map<number, number>();
   const groups: number[] = [];
   let carry = 0;
+  let floorCarry = 0;
   bars.forEach((start, i) => {
     if (open.has(i)) {
       plans.push([]);
@@ -334,9 +426,28 @@ function planBars(
     const end = barEnd(i);
     const calm = calmAt(start);
     const calmMoment = (m: Moment) => calmAt(timeOfBeat(map, m.beat)) && BUSY_ONLY.has(m.kind);
-    const mine = own[i]!.filter((m) => !calmMoment(m)).sort(byStrength);
     const first = beatAt(map, start);
     const last = beatAt(map, end);
+    // Which of the bar's moments come first: among those of a kind, the ones where the
+    // bar a phrase back had its obstacles, so a part keeps its pattern from phrase to
+    // phrase even where the song isn't heard to repeat; then the ones on the beat, which
+    // the player counts, before the "ands" and sixteenths; then the strongest.
+    const phraseBack = plans[i - PHRASE_BARS];
+    const backFirst = beatAt(map, bars[i - PHRASE_BARS] ?? 0);
+    const kept = (m: Moment) =>
+      phraseBack?.some(
+        (o) => o.kind === m.kind && Math.abs(o.beat - backFirst - (m.beat - first)) <= 0.15,
+      )
+        ? 1
+        : 0;
+    const onBeat = (m: Moment) => (Math.abs(m.beat - Math.round(m.beat)) <= ON_PULSE ? 1 : 0);
+    const mine = own[i]!.filter((m) => !calmMoment(m)).sort(
+      (x, y) =>
+        SALIENCE[y.kind] - SALIENCE[x.kind] ||
+        kept(y) - kept(x) ||
+        onBeat(y) - onBeat(x) ||
+        byStrength(x, y),
+    );
 
     const hitCount = events.filter((e) => e.time >= start - 1e-6 && e.time < end - 1e-6).length;
     let energy = 0;
@@ -346,7 +457,7 @@ function planBars(
     const rate = hitCount / Math.max(1, last - first);
     const activity =
       0.6 * Math.max(0, Math.min(1, (rate - 0.5) / 2)) + 0.4 * (beats > 0 ? energy / beats : 0);
-    carry += activity * hazard * COMMON_PER_BAR * (calm ? 0.5 : 1) * busyAt(start);
+    carry += activity * settings.hazard * COMMON_PER_BAR * (calm ? 0.5 : 1) * busyAt(start);
     const common = Math.floor(carry);
     carry -= common;
 
@@ -389,15 +500,23 @@ function planBars(
     if (g >= 0 && !firstOf.has(group)) firstOf.set(group, i);
 
     const plan: Moment[] = [];
-    let commons = common;
-    for (const m of mine) {
-      if (plan.some((c) => overlaps(c, m)) || blocked(m)) continue;
-      if (RARE.has(m.kind)) take(plan, m);
-      else if (commons > 0) {
-        take(plan, m);
-        commons--;
+    const pick = (from: Moment[], commons: number) => {
+      for (const m of from) {
+        if (plan.some((c) => overlaps(c, m)) || blocked(m)) continue;
+        if (RARE.has(m.kind)) take(plan, m);
+        else if (commons > 0) {
+          take(plan, m);
+          commons--;
+        }
       }
-    }
+    };
+    pick(mine, common);
+    // The floor: a busy bar always asks for something, from its own moments (so a steady
+    // four-on-the-floor beat, which the music's activity rates low, still has obstacles).
+    if (!calm) floorCarry += floorAt(start);
+    const floor = Math.floor(floorCarry + 1e-9);
+    floorCarry -= floor;
+    if (plan.length < floor) pick(mine, floor - plan.length);
     plans.push(plan);
   });
   return plans;
@@ -436,6 +555,23 @@ const centreOf = (lanes: number) => (lanes - 1) / 2;
 
 /** A lane from a seeded pick. */
 const laneOf = (pick: number, lanes: number) => Math.min(lanes - 1, Math.floor(pick * lanes));
+
+/**
+ * A kick's lane from its seeded pick: the centre lane for the first `lean` share of
+ * picks (where the racer starts and the gems' line is), any lane for the rest. A pure
+ * function of the pick, so a repeated bar keeps its lanes.
+ */
+export function leanedLane(pick: number, lanes: number, lean: number): number {
+  if (pick < lean) return Math.floor(centreOf(lanes));
+  return laneOf((pick - lean) / (1 - lean), lanes);
+}
+
+/** `width` lanes next to each other that include `lane`, as near as can be centred on it. */
+export function laneWindow(lane: number, width: number, lanes: number): number[] {
+  const w = Math.max(1, Math.min(lanes, width));
+  const lo = Math.max(0, Math.min(lanes - w, lane - Math.floor((w - 1) / 2)));
+  return Array.from({ length: w }, (_, i) => lo + i);
+}
 
 /**
  * The lanes left open in a wall: `count` of them, from the picked lane, growing on the
@@ -498,7 +634,7 @@ function compose(
   for (const m of [...moments].sort((a, b) => a.beat - b.beat)) {
     switch (m.kind) {
       case 'kick': {
-        const lane = laneOf(m.pick, lanes);
+        const lane = leanedLane(m.pick, lanes, settings.lean);
         const two = ease === 0 && m.strength >= settings.twoLane;
         const other = lane + 1 < lanes ? lane + 1 : lane - 1;
         const blocked = two ? [lane, other].sort((a, b) => a - b) : [lane];
@@ -558,6 +694,22 @@ function compose(
               }
             : {},
         );
+        break;
+      }
+      case 'squeeze': {
+        // Three walls, each leaving fewer lanes open, all round the picked line.
+        const line = laneOf(m.pick, lanes);
+        (m.hits ?? []).forEach((h, j) => {
+          const open = laneWindow(line, (settings.squeeze[j] ?? 1) + ease, lanes);
+          add(
+            'squeeze',
+            h,
+            allBut(lanes, open),
+            m,
+            'Squeeze',
+            `build ends: the way narrows to ${open.length === 1 ? 'one lane' : `${open.length} lanes`}`,
+          );
+        });
         break;
       }
       case 'slalom': {
@@ -644,6 +796,8 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): TunnelTrac
     pulse: pulseFor(map),
     obstacles: [],
     pickups: [],
+    boosters: [],
+    hoops: [],
     holds: [],
     dark: map.features.stops.map((s) => ({ time: s.time, end: s.end })),
     chunks: [],
@@ -668,6 +822,12 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): TunnelTrac
     return 1 + BUILD_DENSER * Math.max(0, Math.min(1, (t - s.start) / (s.end - s.start)));
   };
 
+  const floorAt = (t: number) => {
+    const feel = feelAt(t);
+    if (feel === 'calm' || feel === 'breakdown') return 0;
+    return feel === 'chorus' || feel === 'drop' ? settings.peakFloor : settings.busyFloor;
+  };
+
   const runIn = map.downbeats.find((d) => d >= RUN_IN_SECONDS) ?? map.duration;
   const lastBar = [...map.downbeats].reverse().find((d) => d <= map.duration - RUN_OUT_SECONDS);
   const runOut = lastBar !== undefined && lastBar > runIn ? lastBar : runIn;
@@ -688,7 +848,8 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): TunnelTrac
     dropBars,
     calmAt,
     busyAt,
-    settings.hazard,
+    settings,
+    floorAt,
   );
   const drops: { start: number; end: number }[] = [];
 
@@ -769,9 +930,11 @@ export function generateLevel(map: LevelMap, difficulty: Difficulty): TunnelTrac
   if (track.chunks.length > 1 && track.chunks[track.chunks.length - 1]!.start >= map.duration)
     track.chunks.pop();
 
-  const { pickups, holds } = pickupsFor(track, map, settings, drops, runIn, runOut);
-  track.pickups = pickups;
-  track.holds = holds;
+  const made = pickupsFor(track, map, settings, drops, runIn, runOut);
+  track.pickups = made.pickups;
+  track.holds = made.holds;
+  track.boosters = made.boosters;
+  track.hoops = made.hoops;
   return track;
 }
 
@@ -788,6 +951,17 @@ const REACTION = 0.15;
 const GEM_SPACING = 0.25;
 /** A rail lasts at most this many beats. */
 const MAX_RAIL_BEATS = 8;
+/** A booster is on one of a section's first this many eligible downbeats. */
+const BOOSTER_BARS = 4;
+/** Boosters are at least this many bars apart. */
+const BOOSTER_GAP_BARS = 6;
+/** Bars in a hoop phrase, and how many bars after the first phrase a second one starts. */
+const HOOP_BARS = 4;
+const HOOP_AGAIN_BARS = 8;
+/** Boosters and hoops stay this many seconds clear of every obstacle in their lane. */
+const EXTRA_CLEAR = 0.3;
+/** Boosters and hoops start no sooner after the run-in and end no later before the run-out. */
+const EXTRA_EDGE = 2;
 
 /** The first obstacle whose time is at least `t`. */
 function firstFrom(obstacles: readonly Obstacle[], t: number): number {
@@ -815,7 +989,7 @@ function pickupsFor(
   drops: { start: number; end: number }[],
   from: number,
   to: number,
-): { pickups: Pickup[]; holds: Hold[] } {
+): { pickups: Pickup[]; holds: Hold[]; boosters: Booster[]; hoops: Hoop[] } {
   const { obstacles, lanes } = track;
   const z = (t: number) => zAtTime(track, t);
   const pickups: Pickup[] = [];
@@ -853,6 +1027,31 @@ function pickupsFor(
   for (const d of drops)
     for (let b = Math.round(beatAt(map, d.start)); timeOfBeat(map, b) < d.end - 1e-6; b++)
       for (let lane = 0; lane < lanes; lane++) add('gem', timeOfBeat(map, b), lane);
+
+  // A squeeze's single open line: gems along it every half beat through the bar.
+  const squeezes: { start: number; end: number }[] = [];
+  {
+    const walls = obstacles.filter((o) => o.kind === 'squeeze');
+    for (let i = 0; i < walls.length;) {
+      let j = i + 1;
+      while (
+        j < walls.length &&
+        walls[j]!.time - walls[j - 1]!.time < 1.5 * periodAt(map, walls[j]!.time)
+      )
+        j++;
+      const group = walls.slice(i, j);
+      i = j;
+      const open = Array.from({ length: lanes }, (_, k) => k).filter(
+        (k) => !group.some((o) => blocks(o, k)),
+      );
+      const first = beatAt(map, group[0]!.time);
+      const lastBeat = beatAt(map, group[group.length - 1]!.time);
+      squeezes.push({ start: timeOfBeat(map, first - 1), end: timeOfBeat(map, lastBeat + 0.5) });
+      if (open.length === 0) continue;
+      for (let b = first - 1; b <= lastBeat + 0.5 + 1e-6; b += 0.5)
+        add('gem', timeOfBeat(map, b), open[0]!);
+    }
+  }
 
   // Held sounds: a rail along the freest lane, or a ring.
   for (const s of map.features.sustains) {
@@ -902,6 +1101,7 @@ function pickupsFor(
   // Hats, and off-beats where there are none for a while, following a line of gems.
   const hats = map.events.filter((e) => e.kind === 'hat' && e.intensity >= 0.25);
   const times: number[] = hats.filter((_, i) => i % settings.gemEvery === 0).map((e) => e.time);
+  const inSqueeze = (t: number) => squeezes.some((q) => t >= q.start - 1e-6 && t <= q.end + 1e-6);
   for (const e of map.events) {
     if (e.kind !== 'offbeat' || e.intensity < 0.4) continue;
     const period = periodAt(map, e.time);
@@ -909,17 +1109,139 @@ function pickupsFor(
   }
   times.sort((a, b) => a - b);
   let line = track.startLane;
+  const linePoints: { time: number; lane: number }[] = [];
   for (const t of times) {
     if (t < from || t >= to || inDark(t) || drops.some((d) => t >= d.start && t < d.end)) continue;
+    if (inSqueeze(t)) continue;
     const order = Array.from({ length: lanes }, (_, k) => k).sort(
       (a, b) => Math.abs(a - line) - Math.abs(b - line) || a - b,
     );
     for (const lane of order)
       if (add('gem', t, lane)) {
         line = lane;
+        linePoints.push({ time: t, lane });
         break;
       }
   }
   pickups.sort((a, b) => a.time - b.time || a.lane - b.lane);
-  return { pickups, holds };
+
+  // Boosters and hoops: where the gems' line is, so a player chasing gems reaches them.
+  const inDrop = (t: number) => drops.some((d) => t >= d.start - 1e-6 && t < d.end);
+  /** Where the gems' line is at `t`: its last gem's lane. */
+  const lineAt = (t: number) => {
+    let lane = track.startLane;
+    for (const p of linePoints) {
+      if (p.time > t) break;
+      lane = p.lane;
+    }
+    return lane;
+  };
+  /** Free for an extra: not in a stop, a drop's set piece or the edges, and clear of obstacles. */
+  const freeFor = (t: number, lane: number) => {
+    if (t < from + EXTRA_EDGE || t >= to - EXTRA_EDGE || inDrop(t)) return false;
+    if (track.dark.some((d) => t >= d.time - 0.5 && t < d.end + 0.1)) return false;
+    for (let i = firstFrom(obstacles, t - EXTRA_CLEAR); i < obstacles.length; i++) {
+      const o = obstacles[i]!;
+      if (o.time > t + EXTRA_CLEAR) break;
+      if (blocks(o, lane)) return false;
+    }
+    return fits(t, lane);
+  };
+  /** The lanes within `reach` of `around`, nearest first (on a tie the one towards `prefer`). */
+  const nearby = (around: number, reach: number, prefer = -1) =>
+    Array.from({ length: lanes }, (_, k) => k)
+      .filter((k) => Math.abs(k - around) <= reach)
+      .sort(
+        (a, b) =>
+          Math.abs(a - around) - Math.abs(b - around) ||
+          (b - around) * prefer - (a - around) * prefer ||
+          a - b,
+      );
+  const downs = map.downbeats;
+
+  // At most one booster a section, on its first phrase's downbeats, several bars apart.
+  const boosters: Booster[] = [];
+  let lastBar = -Infinity;
+  for (const look of track.looks) {
+    let tried = 0;
+    for (let bar = 0; bar < downs.length && tried < BOOSTER_BARS; bar++) {
+      const t = downs[bar]!;
+      if (t < look.start - 1e-6) continue;
+      if (t >= look.end - 1e-6) break;
+      if (t < from + EXTRA_EDGE || t >= to - EXTRA_EDGE || inDrop(t) || inDark(t)) continue;
+      tried++;
+      if (bar - lastBar < BOOSTER_GAP_BARS) break;
+      const lane = nearby(lineAt(t), 1).find((k) => freeFor(t, k));
+      if (lane === undefined) continue;
+      boosters.push({
+        kind: boosterFor(look.feel, boosters[boosters.length - 1]?.kind),
+        time: t,
+        z: z(t),
+        lane,
+      });
+      lastBar = bar;
+      break;
+    }
+  }
+
+  // Boost hoops on the downbeats of a chorus's or a drop's first phrase (and again 8 bars
+  // on), each a lane from the last at most; a fill's slalom ends in one on the bar line.
+  const hoops: Hoop[] = [];
+  let group = 0;
+  for (const look of track.looks) {
+    if (look.feel !== 'chorus' && look.feel !== 'drop') continue;
+    const bars: number[] = [];
+    downs.forEach((t, bar) => {
+      if (t >= look.start - 1e-6 && t < look.end - 1e-6) bars.push(bar);
+    });
+    const phrase = (first: number) => {
+      const set = bars.slice(first, first + HOOP_BARS);
+      if (set.length < HOOP_BARS) return false;
+      const made: Hoop[] = [];
+      let lane = lineAt(downs[set[0]!]!);
+      const dir = new Random(hashOf(track.seed, 'hoops', set[0]!)).next() < 0.5 ? -1 : 1;
+      for (const [slot, bar] of set.entries()) {
+        const t = downs[bar]!;
+        const next = nearby(lane, 1, dir).find((k) => freeFor(t, k));
+        if (next === undefined) return false;
+        lane = next;
+        made.push({ kind: 'phrase', time: t, z: z(t), lane, group, slot, size: HOOP_BARS });
+      }
+      hoops.push(...made);
+      group++;
+      return true;
+    };
+    // The first phrase that fits (a drop's set piece is skipped), then one more later.
+    let start = 0;
+    while (start + HOOP_BARS <= bars.length && !phrase(start)) start++;
+    if (start + HOOP_AGAIN_BARS + HOOP_BARS <= bars.length) phrase(start + HOOP_AGAIN_BARS);
+  }
+  for (const f of map.features.fills) {
+    const slalom = obstacles.filter(
+      (o) => o.kind === 'slalom' && o.time >= f.time - 1e-6 && o.time < f.end - 1e-6,
+    );
+    const last = slalom[slalom.length - 1];
+    if (!last || f.end < from || inDark(f.end)) continue;
+    // A lane the last block leaves open, the nearest to the centre.
+    const lane = nearby((lanes - 1) / 2, lanes).find((k) => !blocks(last, k) && freeFor(f.end, k));
+    if (lane === undefined) continue;
+    hoops.push({ kind: 'fill', time: f.end, z: z(f.end), lane, group: group++, slot: 0, size: 1 });
+  }
+  hoops.sort((a, b) => a.time - b.time || a.lane - b.lane);
+  return { pickups, holds, boosters, hoops };
+}
+
+/** The boosters, in the order a repeated kind gives way to the next. */
+const BOOSTER_KINDS: readonly BoosterKind[] = ['magnet', 'surge', 'shield'];
+
+/**
+ * Which booster a section gets: a build a shield (for the drop), a chorus or a drop a
+ * surge (the gems are thick), the rest a magnet. Never the same as the one before: it
+ * takes the next kind instead.
+ */
+function boosterFor(feel: SectionFeel, before: BoosterKind | undefined): BoosterKind {
+  const want: BoosterKind =
+    feel === 'build' ? 'shield' : feel === 'chorus' || feel === 'drop' ? 'surge' : 'magnet';
+  if (want !== before) return want;
+  return BOOSTER_KINDS[(BOOSTER_KINDS.indexOf(want) + 1) % BOOSTER_KINDS.length]!;
 }

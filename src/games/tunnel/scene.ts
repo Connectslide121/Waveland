@@ -3,20 +3,32 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   beatAt,
   beatIndexAt,
+  beatInBar,
   getEffects,
   onSettingsChange,
+  periodAt,
   timeOfBeat,
   type LevelMap,
 } from '../../core';
 import { palette } from '../../theme/palette';
 import { FrameMonitor } from '../shared/perf';
-import { DROP_BARS, pathAt, timeAtZ, zAtTime, type SectionLook, type TunnelTrack } from './level';
+import {
+  DROP_BARS,
+  pathAt,
+  timeAtZ,
+  zAtTime,
+  type BoosterKind,
+  type Obstacle,
+  type SectionLook,
+  type TunnelTrack,
+} from './level';
 import { QUALITY, type Quality } from './perf';
 import { BLOCK_DEPTH, BLOCK_HALF, LOW_WALL_HEIGHT, obstacleLaneAt, RACER_DEPTH } from './physics';
-import type { RunEvent, TunnelRun } from './run';
+import { MAGNET_REACH, type RunEvent, type TunnelRun } from './run';
 
 /**
  * The tunnel drawn with Three.js in the Neon arcade look: glowing rings and lane lines on
@@ -72,6 +84,21 @@ const PICKUP_HEIGHT = 0.42;
 const DARK_LIGHT = 0.07;
 /** Bloom, before the section's glow. */
 const BLOOM_STRENGTH = 0.6;
+/** A telegraph strip's width across its lane, lanes. */
+const TELEGRAPH_HALF = 0.38;
+/** The wall of a lane's obstacle is announced over this many beats before it. */
+const TELEGRAPH_BEATS = 1;
+/** A wall's gap lanes are marked cyan over this many beats before it. */
+const GAP_BEATS = 1.5;
+/** Gems this close ahead of the craft (units) fly into it while the magnet is on. */
+const MAGNET_PULL = 6;
+/** Boost hoops: the ring's radius (lanes) and how high its middle is over the deck. */
+const HOOP_RADIUS = 0.62;
+const HOOP_HEIGHT = 0.55;
+/** The starfield of calm parts: how many points it has. */
+const MAX_STARS = 420;
+/** The notched ring walls of a chorus: how many gates round the tube. */
+const WALL_GATES = 6;
 
 const MAX_RINGS = 128;
 const MAX_WALLS = 64;
@@ -79,7 +106,9 @@ const MAX_HOLD_RINGS = 64;
 const MAX_KICK_RINGS = 6;
 const MAX_BLOCKS = 320;
 const MAX_PICKUPS = 256;
-const MAX_QUADS = 6000;
+const MAX_HOOPS = 32;
+const MAX_BOOSTERS = 8;
+const MAX_QUADS = 9000;
 const MAX_PARTICLES = 700;
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -163,6 +192,37 @@ function glowTexture(): THREE.Texture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+/** A ring of separate gates, so a turning wall can be seen turning. */
+function gatedRing(): THREE.BufferGeometry {
+  const arc = (Math.PI * 2) / WALL_GATES;
+  const parts = Array.from(
+    { length: WALL_GATES },
+    (_, i) => new THREE.RingGeometry(0.84, 1, 10, 1, i * arc, arc * 0.62),
+  );
+  const merged = mergeGeometries(parts)!;
+  for (const g of parts) g.dispose();
+  return merged;
+}
+
+/** A booster's colour: cyan the shield (safe), magenta the magnet, white-hot the surge. */
+const boosterColor = (kind: BoosterKind) =>
+  kind === 'shield' ? COLOR.cyan : kind === 'magnet' ? COLOR.magenta : COLOR.flare;
+
+/** A fixed hash of an index, 0 to 1. */
+const hash01 = (i: number) => {
+  const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/** Each star's place along the view, its share of the starfield, its angle and its depth in the tube. */
+const STARS = new Float32Array(MAX_STARS * 4);
+for (let i = 0; i < MAX_STARS; i++) {
+  STARS[i * 4] = hash01(i) * 1000;
+  STARS[i * 4 + 1] = hash01(i + 0.5);
+  STARS[i * 4 + 2] = hash01(i + 0.25) * Math.PI * 2;
+  STARS[i * 4 + 3] = 0.35 + 0.6 * hash01(i + 0.75);
 }
 
 /**
@@ -349,6 +409,14 @@ export class TunnelScene {
   readonly #kickRings: THREE.InstancedMesh;
   readonly #blocks: THREE.InstancedMesh;
   readonly #pickups: THREE.InstancedMesh;
+  readonly #hoops: THREE.InstancedMesh;
+  readonly #boostCores: THREE.InstancedMesh;
+  readonly #boostHalos: THREE.InstancedMesh;
+  readonly #stars: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+  readonly #starPos = new Float32Array(MAX_STARS * 3);
+  readonly #starCol = new Float32Array(MAX_STARS * 3);
+  readonly #magnetRing: THREE.Mesh;
+  readonly #surgeRing: THREE.Mesh;
   readonly #ribbons = new Ribbons();
   readonly #sparks: Sparks;
   readonly #craft = new THREE.Group();
@@ -394,6 +462,10 @@ export class TunnelScene {
   readonly #s = new THREE.Vector3();
   readonly #color = new THREE.Color();
   readonly #color2 = new THREE.Color();
+  readonly #color3 = new THREE.Color();
+  readonly #u = new THREE.Vector3();
+  /** The craft's z this frame, for the helpers. */
+  #zr = 0;
   readonly #back = new THREE.Vector3();
 
   constructor(
@@ -453,7 +525,7 @@ export class TunnelScene {
       return mesh;
     };
     this.#rings = instanced(new THREE.TorusGeometry(1, 0.011, 3, 96), additive(), MAX_RINGS);
-    this.#walls = instanced(new THREE.RingGeometry(0.86, 1, 96, 1), additive(), MAX_WALLS);
+    this.#walls = instanced(gatedRing(), additive(), MAX_WALLS);
     this.#holdRings = instanced(
       new THREE.TorusGeometry(1, 0.01, 3, 96),
       additive(),
@@ -470,7 +542,44 @@ export class TunnelScene {
       new THREE.MeshBasicMaterial({ color: COLOR.flare }),
       MAX_PICKUPS,
     );
+    this.#hoops = instanced(new THREE.TorusGeometry(1, 0.055, 6, 40), additive(), MAX_HOOPS);
+    this.#boostCores = instanced(
+      new THREE.IcosahedronGeometry(1, 0),
+      new THREE.MeshBasicMaterial({ color: COLOR.flare }),
+      MAX_BOOSTERS,
+    );
+    this.#boostHalos = instanced(
+      new THREE.TorusGeometry(1, 0.05, 6, 32),
+      additive(),
+      MAX_BOOSTERS * 2,
+    );
     this.#scene.add(this.#ribbons.mesh);
+    {
+      // The calm parts' stars: points inside the tube, placed each frame.
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        'position',
+        new THREE.BufferAttribute(this.#starPos, 3).setUsage(THREE.DynamicDrawUsage),
+      );
+      geometry.setAttribute(
+        'color',
+        new THREE.BufferAttribute(this.#starCol, 3).setUsage(THREE.DynamicDrawUsage),
+      );
+      geometry.setDrawRange(0, 0);
+      this.#stars = new THREE.Points(
+        geometry,
+        new THREE.PointsMaterial({
+          size: 0.2,
+          map: this.#glow,
+          vertexColors: true,
+          blending: THREE.AdditiveBlending,
+          transparent: true,
+          depthWrite: false,
+        }),
+      );
+      this.#stars.frustumCulled = false;
+      this.#scene.add(this.#stars);
+    }
     this.#sparks = new Sparks(this.#glow);
     this.#scene.add(this.#sparks.points);
 
@@ -512,7 +621,28 @@ export class TunnelScene {
         depthWrite: false,
       }),
     );
-    this.#craft.add(bodyMesh, rim, engine, this.#shield);
+    // The magnet's ring lies flat round the craft, the surge's stands upright.
+    this.#magnetRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.62, 0.012, 4, 40),
+      new THREE.MeshBasicMaterial({
+        color: COLOR.magenta,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        depthWrite: false,
+      }),
+    );
+    this.#magnetRing.rotation.x = Math.PI / 2;
+    this.#surgeRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.46, 0.012, 4, 32),
+      new THREE.MeshBasicMaterial({
+        color: COLOR.flare,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        depthWrite: false,
+      }),
+    );
+    this.#magnetRing.visible = this.#surgeRing.visible = false;
+    this.#craft.add(bodyMesh, rim, engine, this.#shield, this.#magnetRing, this.#surgeRing);
     this.#scene.add(this.#craft);
 
     // The light at the far end of the tunnel.
@@ -573,6 +703,15 @@ export class TunnelScene {
         const p = this.track.pickups[e.index]!;
         this.#deckAt(p.z, p.lane, PICKUP_HEIGHT, this.#v);
         this.#sparks.burst(this.#v, COLOR.magenta, n(p.kind === 'gem' ? 14 : 7), 3.5);
+      } else if (e.type === 'hoop') {
+        const h = this.track.hoops[e.index]!;
+        this.#deckAt(h.z, h.lane, HOOP_HEIGHT, this.#v);
+        this.#sparks.burst(this.#v, COLOR.magenta, n(e.bonus > 0 ? 50 : 22), e.bonus > 0 ? 7 : 4.5);
+        if (e.bonus > 0) this.#sparks.burst(this.#v, COLOR.flare, n(20), 5, 0.7);
+      } else if (e.type === 'booster') {
+        const k = this.track.boosters[e.index]!;
+        this.#deckAt(k.z, k.lane, PICKUP_HEIGHT, this.#v);
+        this.#sparks.burst(this.#v, boosterColor(k.kind), n(40), 6, 0.7);
       } else if (e.type === 'crash') {
         this.#crashed = e.index;
         this.#deckAt(run.racer.z, e.pos, 0.3, this.#v);
@@ -743,6 +882,55 @@ export class TunnelScene {
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
+  /**
+   * The deck ahead of an obstacle, so the rhythm can be read before it arrives: orange
+   * strips fading in over the beat before it in every lane it blocks (where a sliding
+   * block ends up), and a cyan strip in the open lanes of a wall: the safe path.
+   */
+  #telegraph(o: Obstacle): void {
+    const track = this.track;
+    const zr = this.#zr;
+    const gap = o.kind === 'wall' || o.kind === 'stop' || o.kind === 'squeeze';
+    const period = periodAt(track.grid, o.time);
+    const lead = o.z0 - zAtTime(track, o.time - period * (gap ? GAP_BEATS : TELEGRAPH_BEATS));
+    if (lead <= 0.1) return;
+    const [pa, pb, da, db] = this.#lineVectors;
+    const a = this.#h;
+    const b = this.#g;
+    const ca = this.#color2;
+    const cb = this.#color3;
+    const steps = 4;
+    this.#frameAt(o.z0 - lead, a);
+    for (let j = 0; j < steps; j++) {
+      const za = o.z0 - lead + (lead * j) / steps;
+      const zb = o.z0 - lead + (lead * (j + 1)) / steps;
+      this.#frameAt(zb, b);
+      const ka = Math.pow(j / steps, 1.5);
+      const kb = Math.pow((j + 1) / steps, 1.5);
+      const lightA = this.#lightAt(timeAtZ(track, za)) * this.#fade(za - zr);
+      const lightB = this.#lightAt(timeAtZ(track, zb)) * this.#fade(zb - zr);
+      if (lightA > 0.002 || lightB > 0.002)
+        for (let lane = 0; lane < track.lanes; lane++) {
+          const k = o.lanes.indexOf(lane);
+          if (k < 0 && !gap) continue;
+          const pos = k < 0 ? lane : obstacleLaneAt(o, k, o.time);
+          const colour = k < 0 ? COLOR.cyan : COLOR.orange;
+          const peak = k < 0 ? 0.32 : 0.6;
+          this.#deck(a, pos, 0.014, pa);
+          this.#deck(b, pos, 0.014, pb);
+          this.#across(a, pos, da);
+          this.#across(b, pos, db);
+          ca.copy(colour).multiplyScalar(peak * ka * lightA);
+          cb.copy(colour).multiplyScalar(peak * kb * lightB);
+          this.#ribbons.quad(pa, da, ca, pb, db, cb, TELEGRAPH_HALF);
+        }
+      a.c.copy(b.c);
+      a.f.copy(b.f);
+      a.r.copy(b.r);
+      a.u.copy(b.u);
+    }
+  }
+
   #draw(now: number): void {
     const start = performance.now();
     const state = this.frame();
@@ -754,6 +942,7 @@ export class TunnelScene {
     const grid = track.grid;
     const racer = run.racer;
     const zr = racer.z;
+    this.#zr = zr;
     const reduced = this.#reduced;
     const zMin = zr - VIEW_BEHIND;
     const zMax = zr + this.#quality.viewAhead;
@@ -776,12 +965,19 @@ export class TunnelScene {
     const kickEnv = lastKick ? lastKick.strength * Math.exp(-(time - lastKick.time) / 0.12) : 0;
     const bass = time >= 0 ? (track.pulse.bass[beatIndexAt(grid, time)] ?? 0) : 0;
     const soft = reduced ? 0.4 : 1;
-    const breathe = 1 + soft * (0.05 * bass + 0.05 * kickEnv);
     const beats = beatAt(grid, time);
     const beatPhase = beats - Math.floor(beats);
     const drop = this.#dropAt(time);
     const overdrive = run.overdriveAt(time);
     const here = this.#lookAt(time);
+    // The tube opens a little further on every beat where the look says so (the drop's
+    // burst, strongest on the downbeat).
+    const burst =
+      soft *
+      here.look.burst *
+      Math.max(0, 1 - beatPhase * 2.5) *
+      (beatInBar(grid, time) === 0 ? 1 : 0.45);
+    const breathe = 1 + soft * (0.05 * bass + 0.05 * kickEnv) + burst;
 
     // Rings of light down the tube, on the section's beats.
     const f = this.#f;
@@ -811,8 +1007,15 @@ export class TunnelScene {
         this.#back.copy(f.f).negate();
         this.#place(this.#rings, rings++, f.c, f.r, f.u, this.#back, r, r, r, color);
         if (look.ringWalls && Number.isInteger(b) && walls < MAX_WALLS) {
-          const wall = this.#color2.copy(COLOR.violet).multiplyScalar(0.22 * light);
-          this.#place(this.#walls, walls++, f.c, f.r, f.u, this.#back, r, r, r, wall);
+          // Gates turning with the beat, each wall the other way round from the last.
+          const wall = this.#color2.copy(COLOR.violet).multiplyScalar(0.3 * light);
+          const turn =
+            (b % 2 === 0 ? 1 : -1) * (beats * look.spin + 0.15 * kickEnv) * soft + b * 0.45;
+          const c = Math.cos(turn);
+          const sn = Math.sin(turn);
+          this.#d.copy(f.r).multiplyScalar(c).addScaledVector(f.u, sn);
+          this.#e.copy(f.r).multiplyScalar(-sn).addScaledVector(f.u, c);
+          this.#place(this.#walls, walls++, f.c, this.#d, this.#e, this.#back, r, r, r, wall);
         }
       }
     }
@@ -892,6 +1095,29 @@ export class TunnelScene {
       }
     }
 
+    // A mark across the deck on every beat, stronger on the downbeat: the pulse to count.
+    {
+      const [pa, pb] = this.#lineVectors;
+      const a = this.#h;
+      const c = this.#color;
+      const first = Math.max(0, Math.ceil(beatAt(grid, timeAtZ(track, zMin))));
+      for (let b = first; b < grid.beats.length; b++) {
+        const t = timeOfBeat(grid, b);
+        const z = zAtTime(track, t);
+        if (z > zMax) break;
+        const light = this.#lightAt(t) * this.#fade(z - zr);
+        if (light <= 0.002) continue;
+        this.#frameAt(z, a);
+        const down = beatInBar(grid, t + 1e-3) === 0;
+        c.copy(COLOR.magenta).multiplyScalar((down ? 0.85 : 0.3) * light);
+        for (let i = 0; i < track.lanes; i++) {
+          this.#deck(a, i - 0.5, 0.012, pa);
+          this.#deck(a, i + 0.5, 0.012, pb);
+          this.#ribbons.quad(pa, a.f, c, pb, a.f, c, down ? 0.07 : 0.035);
+        }
+      }
+    }
+
     // Held sounds: a rail of light along its lane, rings of light across the tube.
     let holdRings = 0;
     {
@@ -932,7 +1158,6 @@ export class TunnelScene {
       }
     }
     this.#finish(this.#holdRings, holdRings);
-    ribbons.end();
 
     // Kick rings: a ring of the beat's colour opening out around the craft on each kick.
     let kickRings = 0;
@@ -943,7 +1168,9 @@ export class TunnelScene {
       const r = TUBE_RADIUS * here.radius * (0.55 + 0.45 * age);
       const color = this.#color
         .copy(COLOR.magenta)
-        .multiplyScalar(kick.strength * (1 - age) * 1.6 * soft * this.#lightAt(time));
+        .multiplyScalar(
+          kick.strength * (1 - age) * (drop >= 0 ? 2.4 : 1.6) * soft * this.#lightAt(time),
+        );
       this.#back.copy(f.f).negate();
       this.#place(this.#kickRings, kickRings++, f.c, f.r, f.u, this.#back, r, r, r, color);
     }
@@ -973,6 +1200,7 @@ export class TunnelScene {
         if (i === this.#crashed && sinceCrash < CRASH_TIME * 2)
           color.lerp(COLOR.flare, 0.7 * (1 - sinceCrash / (CRASH_TIME * 2)));
         color.multiplyScalar(light);
+        this.#telegraph(o);
         this.#back.copy(f.f).negate();
         for (let k = 0; k < o.lanes.length && blocks < MAX_BLOCKS; k++) {
           const pos = obstacleLaneAt(o, k, time);
@@ -1008,6 +1236,7 @@ export class TunnelScene {
         else hi = mid;
       }
       const spin = time * 2.4;
+      const magnet = run.magnetAt(time);
       for (let i = lo; i < list.length && pickups < MAX_PICKUPS; i++) {
         const p = list[i]!;
         if (p.z > zMax) break;
@@ -1017,9 +1246,13 @@ export class TunnelScene {
         this.#frameAt(p.z, f);
         const size = p.kind === 'gem' ? 0.2 : 0.13;
         const bob = 0.05 * Math.sin(spin * 1.7 + i);
-        this.#deck(f, p.lane, PICKUP_HEIGHT + bob, this.#v);
-        this.#across(f, p.lane, this.#d);
-        this.#normal(f, p.lane, this.#e);
+        // With the magnet, gems in the lanes beside the craft fly into it.
+        let pos = p.lane;
+        if (magnet && Math.abs(p.lane - racer.pos) < MAGNET_REACH && p.z - zr < MAGNET_PULL)
+          pos += (racer.pos - p.lane) * (1 - smoothstep(0, MAGNET_PULL, p.z - zr));
+        this.#deck(f, pos, PICKUP_HEIGHT + bob, this.#v);
+        this.#across(f, pos, this.#d);
+        this.#normal(f, pos, this.#e);
         // Spin round the deck's normal.
         this.#d.applyAxisAngle(this.#e, spin + i);
         this.#back.crossVectors(this.#d, this.#e);
@@ -1041,6 +1274,130 @@ export class TunnelScene {
     }
     this.#finish(this.#pickups, pickups);
 
+    // Boost hoops: magenta rings standing in their lane, pulsing on the beat.
+    let hoops = 0;
+    {
+      const list = track.hoops;
+      const pulse = 1 + 0.5 * Math.max(0, 1 - beatPhase * 3) * soft;
+      for (let i = 0; i < list.length && hoops < MAX_HOOPS; i++) {
+        const h = list[i]!;
+        if (h.z < zMin) continue;
+        if (h.z > zMax) break;
+        if (run.hoopTaken(i)) continue;
+        const light = this.#fade(h.z - zr) * this.#lightAt(h.time);
+        if (light <= 0.002) continue;
+        this.#frameAt(h.z, f);
+        this.#deck(f, h.lane, HOOP_HEIGHT, this.#v);
+        this.#across(f, h.lane, this.#d);
+        this.#normal(f, h.lane, this.#e);
+        this.#back.copy(f.f).negate();
+        const color = this.#color.copy(COLOR.magenta).multiplyScalar(1.5 * pulse * light);
+        const r = HOOP_RADIUS;
+        this.#place(this.#hoops, hoops++, this.#v, this.#d, this.#e, this.#back, r, r, r, color);
+      }
+    }
+    this.#finish(this.#hoops, hoops);
+
+    // Boosters: a bright core in two turning halos, in the booster's colour.
+    let cores = 0;
+    let halos = 0;
+    {
+      const list = track.boosters;
+      for (let i = 0; i < list.length && cores < MAX_BOOSTERS; i++) {
+        const k = list[i]!;
+        if (k.z < zMin) continue;
+        if (k.z > zMax) break;
+        if (run.boosterTaken(i)) continue;
+        const light = this.#fade(k.z - zr) * this.#lightAt(k.time);
+        if (light <= 0.002) continue;
+        this.#frameAt(k.z, f);
+        const base = boosterColor(k.kind);
+        const height = PICKUP_HEIGHT + 0.12 + 0.06 * Math.sin(time * 3 + i);
+        this.#deck(f, k.lane, height, this.#v);
+        this.#across(f, k.lane, this.#d);
+        this.#normal(f, k.lane, this.#e);
+        const color = this.#color.copy(base).multiplyScalar(1.7 * light);
+        this.#back.crossVectors(this.#d, this.#e);
+        this.#place(
+          this.#boostCores,
+          cores++,
+          this.#v,
+          this.#d,
+          this.#e,
+          this.#back,
+          0.2,
+          0.2,
+          0.2,
+          color,
+        );
+        const halo = this.#color2.copy(base).multiplyScalar(1.2 * light);
+        // One ring standing, turning round the deck's normal; one lying flat.
+        this.#w.copy(this.#d).applyAxisAngle(this.#e, time * 2 + i);
+        this.#u.crossVectors(this.#w, this.#e);
+        this.#place(
+          this.#boostHalos,
+          halos++,
+          this.#v,
+          this.#w,
+          this.#e,
+          this.#u,
+          0.46,
+          0.46,
+          0.46,
+          halo,
+        );
+        this.#place(
+          this.#boostHalos,
+          halos++,
+          this.#v,
+          this.#d,
+          this.#u.copy(this.#back).negate(),
+          this.#e,
+          0.36,
+          0.36,
+          0.36,
+          halo,
+        );
+      }
+    }
+    this.#finish(this.#boostCores, cores);
+    this.#finish(this.#boostHalos, halos);
+
+    // The calm parts' stars: dim violet points in the tube, fixed in the world and
+    // twinkling a little with the bass.
+    {
+      const span = zMax - zMin;
+      const pos = this.#starPos;
+      const col = this.#starCol;
+      let n = 0;
+      for (let i = 0; i < MAX_STARS; i++) {
+        const z = zMin + ((((STARS[i * 4]! - zMin) % span) + span) % span);
+        const t = timeAtZ(track, z);
+        const look = this.#lookAt(t);
+        if (look.look.stars <= 0 || STARS[i * 4 + 1]! >= look.look.stars) continue;
+        const light = this.#lightAt(t) * this.#fade(z - zr);
+        if (light <= 0.002) continue;
+        this.#frameAt(z, f);
+        const angle = STARS[i * 4 + 2]!;
+        const reach = TUBE_RADIUS * look.radius * STARS[i * 4 + 3]! * breathe;
+        const k = (0.3 + 0.2 * Math.sin(time * 1.6 + i * 7.3)) * (1 + 0.8 * bass * soft) * light;
+        const sn = Math.sin(angle) * reach;
+        const cs = Math.cos(angle) * reach;
+        pos[n * 3] = f.c.x + f.r.x * sn - f.u.x * cs;
+        pos[n * 3 + 1] = f.c.y + f.r.y * sn - f.u.y * cs;
+        pos[n * 3 + 2] = f.c.z + f.r.z * sn - f.u.z * cs;
+        col[n * 3] = COLOR.violet.r * k;
+        col[n * 3 + 1] = COLOR.violet.g * k;
+        col[n * 3 + 2] = COLOR.violet.b * k;
+        n++;
+      }
+      const g = this.#stars.geometry;
+      g.setDrawRange(0, n);
+      g.attributes.position!.needsUpdate = true;
+      g.attributes.color!.needsUpdate = true;
+    }
+    ribbons.end();
+
     // The craft: on its lane (between two while hopping), its feet at its height, banked
     // with the deck and leaning into a hop.
     {
@@ -1060,6 +1417,11 @@ export class TunnelScene {
       this.#shield.visible = run.shield || shieldHit < CRASH_TIME;
       this.#shield.rotation.y = time * 1.3;
       this.#shield.scale.setScalar(run.shield ? 1 + 0.06 * kickEnv : 1 + shieldHit * 3);
+      this.#magnetRing.visible = run.magnetAt(time);
+      this.#magnetRing.scale.setScalar(1 + 0.1 * Math.sin(time * 9) + 0.15 * kickEnv * soft);
+      this.#surgeRing.visible = run.surgeAt(time);
+      this.#surgeRing.rotation.y = time * 4;
+      this.#surgeRing.scale.setScalar(1 + 0.12 * kickEnv * soft);
     }
 
     // The camera: behind the craft and above the deck, following its lane halfway and

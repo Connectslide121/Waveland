@@ -20,6 +20,8 @@ export function testTrack(obstacles: Partial<Obstacle>[] = [], lanes = 5, durati
     pulse: { bass: [], kicks: [] },
     obstacles: [],
     pickups: [],
+    boosters: [],
+    hoops: [],
     holds: [],
     dark: [],
     chunks: [],

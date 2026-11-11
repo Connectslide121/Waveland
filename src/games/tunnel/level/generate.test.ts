@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  beatAt,
   beatIndexAt,
   buildLevelMap,
   DIFFICULTIES,
@@ -248,6 +249,15 @@ describe('generateLevel on random songs', () => {
         stop: f.stops.map((s) => s.end),
         slide: f.syncopations.map((s) => s.time),
         slalom: f.fills.flatMap((x) => x.hits),
+        // A build's last bar (the last with three beats before its end): walls on beats 1 to 3.
+        squeeze: map.sections
+          .filter((x) => x.kind === 'build')
+          .flatMap((x) => {
+            const bar = [...map.downbeats]
+              .reverse()
+              .find((d) => beatAt(map, x.end) - beatAt(map, d) >= 3 - 1e-6)!;
+            return [1, 2, 3].map((k) => timeOfBeat(map, beatAt(map, bar) + k));
+          }),
       };
       for (const d of DIFFICULTIES)
         for (const o of track(seed, d).obstacles)

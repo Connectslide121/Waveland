@@ -18,8 +18,9 @@ import './ui.css';
 
 /**
  * The tunnel's HTML over the canvas: the shared HUD, pause menu and results screen
- * (`src/games/shared/`), with what only the tunnel has: the shield slot after the
- * overdrive meter and the word a hop or jump was judged, in a place of its own.
+ * (`src/games/shared/`), with what only the tunnel has: the booster slots (shield,
+ * magnet, surge) after the overdrive meter and the word a hop or jump was judged, in a
+ * place of its own.
  */
 
 export interface HudOptions {
@@ -31,14 +32,38 @@ export interface HudOptions {
 }
 
 /** What a hop or jump was judged, as the HUD shows it. */
-export type Judgement = 'perfect' | 'good' | 'miss' | 'crash' | 'saved';
+export type Judgement =
+  | 'perfect'
+  | 'good'
+  | 'miss'
+  | 'crash'
+  | 'saved'
+  | 'hoop'
+  | 'streak'
+  | 'magnet'
+  | 'surge'
+  | 'shield';
 
 export interface TunnelHudState extends HudState {
   /** The racer has a shield: the next crash costs it instead of points. */
   shield: boolean;
   /** The last judgement and how long ago it was, in seconds; null for none showing. */
   judgement: { word: Judgement; age: number } | null;
+  /** Each timed booster's share of its time left, 0 to 1, or null when off. */
+  boosters?: Record<TimedBooster, number | null>;
 }
+
+/** The boosters that run for a while (the shield is held until a crash). */
+export type TimedBooster = 'magnet' | 'surge';
+
+const TIMED_NAMES: Record<TimedBooster, string> = { magnet: 'Magnet', surge: 'Surge' };
+
+const TIMED_ICONS: Record<TimedBooster, string> = {
+  magnet:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5v8.5a6 6 0 0 0 12 0V3.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M4.4 3.5h3.2M16.4 3.5h3.2M4.4 7.6h3.2M16.4 7.6h3.2" stroke="currentColor" stroke-width="2"/></svg>',
+  surge:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.2 2.5 5.5 13.4h5.3L9.8 21.5l8.7-11.6h-5.4z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>',
+};
 
 const WORDS: Record<Judgement, string> = {
   perfect: 'Perfect',
@@ -46,6 +71,11 @@ const WORDS: Record<Judgement, string> = {
   miss: 'Miss',
   crash: 'Crash',
   saved: 'Shield saved',
+  hoop: 'Hoop',
+  streak: 'Hoop streak',
+  magnet: 'Magnet',
+  surge: 'Surge',
+  shield: 'Shield up',
 };
 
 /** How long a judgement word shows, seconds. */
@@ -71,12 +101,32 @@ export function createHud(options: HudOptions): Hud<TunnelHudState> {
   shield.append(icon, el('span', 'tn-shield__name', 'Shield'));
   hud.status.append(shield);
 
+  // The timed boosters: a slot each, dim when off, with the time left as a bar.
+  const timed = {} as Record<TimedBooster, { box: HTMLElement; bar: HTMLElement }>;
+  for (const kind of Object.keys(TIMED_NAMES) as TimedBooster[]) {
+    const box = el('div', `tn-boost tn-boost--${kind}`);
+    box.setAttribute('role', 'img');
+    box.setAttribute('aria-label', `${TIMED_NAMES[kind]}: off`);
+    const boxIcon = el('span', 'tn-boost__icon');
+    boxIcon.innerHTML = TIMED_ICONS[kind];
+    const track = el('span', 'tn-boost__track');
+    const bar = track.appendChild(el('i', 'tn-boost__bar'));
+    box.append(boxIcon, track, el('span', 'tn-boost__name', TIMED_NAMES[kind]));
+    hud.status.append(box);
+    timed[kind] = { box, bar };
+  }
+
   // The judgement word, in a place of its own under the count-in: it fades, nothing moves.
   const word = el('div', 'tn-judge');
   word.setAttribute('aria-hidden', 'true');
   hud.element.append(word);
 
-  const shown = { shield: false, word: '', opacity: -1 };
+  const shown = {
+    shield: false,
+    word: '',
+    opacity: -1,
+    boosters: { magnet: -2, surge: -2 } as Record<TimedBooster, number>,
+  };
   return {
     element: hud.element,
     status: hud.status,
@@ -92,6 +142,20 @@ export function createHud(options: HudOptions): Hud<TunnelHudState> {
         );
         shown.shield = state.shield;
       }
+      if (state.boosters)
+        for (const kind of Object.keys(timed) as TimedBooster[]) {
+          const left = state.boosters[kind];
+          const percent = left === null ? -1 : Math.round(100 * left);
+          if (percent === shown.boosters[kind]) continue;
+          const { box, bar } = timed[kind];
+          box.classList.toggle('on', left !== null);
+          bar.style.width = `${Math.max(0, percent)}%`;
+          box.setAttribute(
+            'aria-label',
+            `${TIMED_NAMES[kind]}: ${left === null ? 'off' : `on, ${percent}% left`}`,
+          );
+          shown.boosters[kind] = percent;
+        }
       const j = state.judgement;
       const text = j ? WORDS[j.word] : '';
       if (text && text !== shown.word) {

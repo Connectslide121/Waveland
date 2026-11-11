@@ -3,13 +3,25 @@ import { buildLevelMap, steadyGrid } from '../../core';
 import { analyseSamples } from '../../core/analysis/analyse';
 import { electroSong } from '../../core/analysis/test-songs';
 import { COMBO_STEP, DOWNBEAT_BONUS, OVERDRIVE_FACTOR, RESUME_BEATS } from '../shared/scoring';
-import { generateLevel, solveLevel, zAtTime, type Obstacle, type SectionLook } from './level';
+import {
+  generateLevel,
+  solveLevel,
+  zAtTime,
+  type BoosterKind,
+  type Obstacle,
+  type SectionLook,
+} from './level';
 import { testTrack } from './level/test-track';
 import { LANE_HOP_TIME, PHYSICS_DT } from './physics';
 import {
+  BOOSTER_BEATS,
   CLEAN_BONUS,
   CRASH_PENALTY,
+  HOOP_STREAK_BONUS,
+  MAGNET_REACH,
+  PICKUP_REACH,
   POINTS,
+  SURGE_FACTOR,
   rankOf,
   rankRules,
   summaryOf,
@@ -32,11 +44,26 @@ const JUMP: RunInput = { ...NOTHING, jumpPressed: true };
 /** A hand-built track at 120 BPM (a beat every 0.5 s), with gems and sections when given. */
 function race(
   obstacles: Partial<Obstacle>[] = [],
-  opts: { gems?: { time: number; lane: number }[]; sections?: number[]; duration?: number } = {},
+  opts: {
+    gems?: { time: number; lane: number }[];
+    sections?: number[];
+    duration?: number;
+    boosters?: { kind: BoosterKind; time: number; lane: number }[];
+    hoops?: { time: number; lane: number; group?: number; slot?: number; size?: number }[];
+  } = {},
 ) {
   const duration = opts.duration ?? 6;
   const { track } = testTrack(obstacles, 5, duration);
   track.grid = steadyGrid(0, 0.5, duration);
+  track.boosters = (opts.boosters ?? []).map((b) => ({ ...b, z: zAtTime(track, b.time) }));
+  track.hoops = (opts.hoops ?? []).map((h) => ({
+    kind: 'phrase' as const,
+    group: 0,
+    slot: 0,
+    size: 1,
+    ...h,
+    z: zAtTime(track, h.time),
+  }));
   track.pickups = (opts.gems ?? []).map((g) => ({
     kind: 'gem' as const,
     ...g,
@@ -52,6 +79,9 @@ function race(
     ringBeats: 1,
     glow: 0.5,
     ringWalls: false,
+    spin: 0,
+    burst: 0,
+    stars: 0,
   }));
   return { track, run: new TunnelRun(track) };
 }
@@ -258,6 +288,133 @@ describe('TunnelRun', () => {
     const r = run.results();
     expect(r).toMatchObject({ perfect: 2, crashes: 0, clean: 1, pickups: 0, rank: 'C' });
     expect(r.timing).toBe(1);
+  });
+});
+
+describe('boosters', () => {
+  it('puts up a shield when the shield is taken, which takes the next crash', () => {
+    const { run } = race([{ time: 3, lanes: [2] }], {
+      boosters: [{ kind: 'shield', time: 1, lane: 2 }],
+    });
+    const taken = ofType(play(run, 0, 1.5), 'booster');
+    expect(taken).toEqual([
+      expect.objectContaining({ kind: 'shield', shield: true, points: POINTS.booster }),
+    ]);
+    expect(run.shield).toBe(true);
+    expect(run.boosterTaken(0)).toBe(true);
+    const crash = ofType(play(run, 1.5 + PHYSICS_DT, 3.5), 'crash')[0]!;
+    expect(crash).toMatchObject({ shield: true, lost: 0 });
+    expect(run.results()).toMatchObject({ boosters: 1, totalBoosters: 1, saves: 1 });
+  });
+
+  it('is only taken in its own lane', () => {
+    const { run } = race([], { boosters: [{ kind: 'surge', time: 1, lane: 0 }] });
+    expect(ofType(play(run, 0, 1.5), 'booster')).toEqual([]);
+    expect(run.boosterTaken(0)).toBe(false);
+  });
+
+  it('runs the magnet for two bars: gems in the lanes beside the racer are taken, then not', () => {
+    const gems = [
+      { time: 1.5, lane: 3 },
+      { time: 1.6, lane: 4 },
+      { time: 5, lane: 3 },
+    ];
+    const { run } = race([], {
+      gems,
+      boosters: [{ kind: 'magnet', time: 1, lane: 2 }],
+      duration: 8,
+    });
+    play(run, 0, 1.2);
+    expect(run.magnetAt(1.2)).toBe(true);
+    expect(run.magnet.until - run.magnet.from).toBeCloseTo(BOOSTER_BEATS.magnet * 0.5, 6);
+    play(run, 1.2 + PHYSICS_DT, 2);
+    // The next lane is taken (1 lane away), the one two lanes away is not.
+    expect(run.isCollected(0)).toBe(true);
+    expect(run.isCollected(1)).toBe(false);
+    expect(MAGNET_REACH).toBeGreaterThan(1);
+    expect(MAGNET_REACH).toBeLessThan(2);
+    // Once the magnet has run out, a gem beside the racer is out of reach again.
+    play(run, 2 + PHYSICS_DT, 5.5);
+    expect(run.magnetAt(5)).toBe(false);
+    expect(run.isCollected(2)).toBe(false);
+    expect(PICKUP_REACH).toBeLessThan(1);
+  });
+
+  it('doubles what gems and hoops score while the surge runs, and not the hops', () => {
+    const gems = [
+      { time: 1.5, lane: 2 },
+      { time: 5.5, lane: 2 },
+    ];
+    const { run } = race([], {
+      gems,
+      boosters: [{ kind: 'surge', time: 1, lane: 2 }],
+      hoops: [{ time: 2, lane: 2 }],
+      duration: 8,
+    });
+    const events = play(run, 0, 2.5);
+    expect(run.surgeAt(2)).toBe(true);
+    const [gem] = ofType(events, 'pickup');
+    // The booster before it is combo 1; the gem is combo 2 (still ×1), doubled.
+    expect(gem!.points).toBe(POINTS.gem * SURGE_FACTOR);
+    expect(ofType(events, 'hoop')[0]!.points).toBe(POINTS.hoop * SURGE_FACTOR);
+    // Back to normal after two bars.
+    const late = ofType(play(run, 2.5 + PHYSICS_DT, 6), 'pickup')[0]!;
+    expect(run.surgeAt(5)).toBe(false);
+    expect(late.points).toBe(POINTS.gem);
+  });
+
+  it('never counts toward the rank: only gems do', () => {
+    const { run } = race([], {
+      gems: [{ time: 4, lane: 2 }],
+      boosters: [{ kind: 'magnet', time: 1, lane: 2 }],
+      hoops: [{ time: 2, lane: 2 }],
+    });
+    play(run, 0, 6.1);
+    const r = run.results();
+    expect(r).toMatchObject({ pickups: 1, totalPickups: 1, boosters: 1, hoops: 1 });
+    expect(r.rank).toBe('C');
+  });
+});
+
+describe('boost hoops', () => {
+  const phrase = [1, 2, 3, 4].map((time, slot) => ({ time, lane: 2, group: 0, slot, size: 4 }));
+
+  it('are flown through in their lane for points, and fill the meter', () => {
+    const { run } = race([], {
+      hoops: [
+        { time: 1, lane: 2 },
+        { time: 2, lane: 4 },
+      ],
+    });
+    const events = ofType(play(run, 0, 2.5), 'hoop');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ points: POINTS.hoop, streak: 1, bonus: 0 });
+    expect(run.hoopTaken(0)).toBe(true);
+    expect(run.hoopTaken(1)).toBe(false);
+    expect(run.meter).toBeGreaterThan(0);
+    expect(run.combo).toBe(1);
+  });
+
+  it('earn a streak bonus for every hoop of a phrase in a row', () => {
+    const { run } = race([], { hoops: phrase, duration: 8 });
+    const events = ofType(play(run, 0, 4.5), 'hoop');
+    expect(events.map((e) => e.streak)).toEqual([1, 2, 3, 4]);
+    expect(events.map((e) => e.bonus)).toEqual([0, 0, 0, run.multiplier * HOOP_STREAK_BONUS]);
+    expect(run.results()).toMatchObject({ hoops: 4, totalHoops: 4, streaks: 1 });
+  });
+
+  it('lose the streak when one of the phrase is missed', () => {
+    const missed = phrase.map((h, i) => (i === 1 ? { ...h, lane: 0 } : h));
+    const { run } = race([], { hoops: missed, duration: 8 });
+    const events = ofType(play(run, 0, 4.5), 'hoop');
+    expect(events.map((e) => e.bonus)).toEqual([0, 0, 0]);
+    expect(events.map((e) => e.streak)).toEqual([1, 0, 0]);
+    expect(run.results().streaks).toBe(0);
+  });
+
+  it('give a single hoop no streak bonus', () => {
+    const { run } = race([], { hoops: [{ time: 1, lane: 2 }] });
+    expect(ofType(play(run, 0, 1.5), 'hoop')[0]!.bonus).toBe(0);
   });
 });
 

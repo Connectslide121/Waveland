@@ -18,7 +18,7 @@ import {
   type RankRule,
 } from '../shared/scoring';
 import { formatAccuracy } from '../shared/format';
-import { stepAt, TrackWorld, type Obstacle, type TunnelTrack } from './level';
+import { stepAt, TrackWorld, type BoosterKind, type Obstacle, type TunnelTrack } from './level';
 import {
   LANE_REPEAT,
   PHYSICS_DT,
@@ -43,10 +43,27 @@ import {
  */
 
 /** Points, before the combo multiplier and overdrive. */
-export const POINTS = { gem: 100, rail: 50, perfect: 300, good: 100 } as const;
+export const POINTS = {
+  gem: 100,
+  rail: 50,
+  perfect: 300,
+  good: 100,
+  booster: 250,
+  hoop: 400,
+} as const;
 /** How much of the overdrive meter a perfect and a pickup fill. */
 export const METER_PERFECT = 1 / 12;
-export const METER_PICKUP = { gem: 1 / 40, rail: 1 / 80 } as const;
+export const METER_PICKUP = { gem: 1 / 40, rail: 1 / 80, booster: 1 / 40, hoop: 1 / 30 } as const;
+/** Flying through every hoop of a phrase: the bonus, times the multiplier. */
+export const HOOP_STREAK_BONUS = 2000;
+/** How near across (lanes) the racer's middle must pass a hoop's lane to fly through it. */
+export const HOOP_REACH = 0.6;
+/** With the magnet, gems this near across (lanes) are taken: the lanes beside the racer. */
+export const MAGNET_REACH = 1.5;
+/** How long the magnet and the surge last, in beats (two bars). */
+export const BOOSTER_BEATS = { magnet: 8, surge: 8 } as const;
+/** The surge multiplies what gems, rails and hoops score. */
+export const SURGE_FACTOR = 2;
 /** A crash costs this many points (never below zero), unless a shield takes it. */
 export const CRASH_PENALTY = 500;
 /** Getting through a section without a crash: the bonus, and a shield if the racer has none. */
@@ -105,6 +122,13 @@ export type RunEvent =
       y: number;
     }
   | { type: 'pickup'; index: number; points: number }
+  /** A booster was taken: `shield` says a new shield was put up (false when it had one). */
+  | { type: 'booster'; index: number; kind: BoosterKind; points: number; shield: boolean }
+  /**
+   * A hoop was flown through. `streak` is how many of its phrase's hoops in a row, and
+   * `bonus` the streak bonus when this one finished the phrase (otherwise 0).
+   */
+  | { type: 'hoop'; index: number; points: number; streak: number; bonus: number }
   | { type: 'overdrive'; downbeat: boolean; points: number }
   | { type: 'clean'; points: number; shield: boolean }
   /**
@@ -140,6 +164,13 @@ export interface RunResults {
   saves: number;
   pickups: number;
   totalPickups: number;
+  /** Boosters and hoops taken, of all: bonuses, never counted in the rank. */
+  boosters: number;
+  totalBoosters: number;
+  hoops: number;
+  totalHoops: number;
+  /** Phrases of hoops flown through in full. */
+  streaks: number;
   bestCombo: number;
   overdrives: number;
   clean: number;
@@ -158,6 +189,7 @@ export function summaryOf(r: RunResults): ResultsSummary {
         { name: 'Miss', value: String(r.miss) },
         { name: 'Timing', value: formatAccuracy(r.timing) },
         { name: 'Crashes', value: String(r.crashes) },
+        { name: 'Hoops', value: r.totalHoops > 0 ? `${r.hoops} / ${r.totalHoops}` : '—' },
       ],
       [
         { name: 'Best combo', value: String(r.bestCombo) },
@@ -165,6 +197,10 @@ export function summaryOf(r: RunResults): ResultsSummary {
         { name: 'Clean sections', value: `${r.clean} / ${r.sections}` },
         { name: 'Pickups', value: r.totalPickups > 0 ? `${r.pickups} / ${r.totalPickups}` : '—' },
         { name: 'Shield saves', value: String(r.saves) },
+        {
+          name: 'Boosters',
+          value: r.totalBoosters > 0 ? `${r.boosters} / ${r.totalBoosters}` : '—',
+        },
       ],
     ],
   };
@@ -215,10 +251,21 @@ export class TunnelRun {
   shieldHitAt = -Infinity;
   /** The song times the last overdrive runs from and to. */
   overdrive = { from: -Infinity, until: -Infinity };
+  /** The song times the magnet and the surge run from and to. */
+  magnet = { from: -Infinity, until: -Infinity };
+  surge = { from: -Infinity, until: -Infinity };
+  /** Song time a booster was last taken. */
+  boostedAt = -Infinity;
 
   readonly #collected: Uint8Array;
-  /** The first pickup the racer hasn't passed yet. */
+  readonly #boostersTaken: Uint8Array;
+  readonly #hoopsTaken: Uint8Array;
+  /** The first pickup, booster and hoop the racer hasn't passed yet. */
   #nextPickup = 0;
+  #nextBooster = 0;
+  #nextHoop = 0;
+  /** The hoop phrase being flown through, and how many of it in a row. */
+  #streak = { group: -1, count: 0 };
   #step = 0;
   /** Beats of music before `resumeAt` that the count-in plays, following the tempo map. */
   #countIn = BAR_BEATS;
@@ -228,12 +275,22 @@ export class TunnelRun {
   /** The section the racer is in, and whether it has crashed in it. */
   #section = 0;
   #sectionClean = true;
-  readonly #counts = { perfect: 0, good: 0, miss: 0, overdrives: 0, saves: 0, clean: 0 };
+  readonly #counts = {
+    perfect: 0,
+    good: 0,
+    miss: 0,
+    overdrives: 0,
+    saves: 0,
+    clean: 0,
+    streaks: 0,
+  };
 
   constructor(readonly track: TunnelTrack) {
     this.world = new TrackWorld(track);
     this.racer = startRacer(track.startLane, this.world.zAt(0));
     this.#collected = new Uint8Array(track.pickups.length);
+    this.#boostersTaken = new Uint8Array(track.boosters.length);
+    this.#hoopsTaken = new Uint8Array(track.hoops.length);
     const ends = track.looks.map((l) => l.end).filter((e) => e < track.duration - 1e-6);
     this.sectionEnds = [...ends, track.duration];
   }
@@ -248,6 +305,22 @@ export class TunnelRun {
 
   isCollected(index: number): boolean {
     return this.#collected[index] === 1;
+  }
+
+  boosterTaken(index: number): boolean {
+    return this.#boostersTaken[index] === 1;
+  }
+
+  hoopTaken(index: number): boolean {
+    return this.#hoopsTaken[index] === 1;
+  }
+
+  magnetAt(t: number): boolean {
+    return t >= this.magnet.from && t < this.magnet.until;
+  }
+
+  surgeAt(t: number): boolean {
+    return t >= this.surge.from && t < this.surge.until;
   }
 
   /**
@@ -325,7 +398,9 @@ export class TunnelRun {
   results(): RunResults {
     let pickups = 0;
     for (const c of this.#collected) pickups += c;
-    const { perfect, good, miss, overdrives, saves, clean } = this.#counts;
+    const { perfect, good, miss, overdrives, saves, clean, streaks } = this.#counts;
+    const boosters = this.#boostersTaken.reduce((n, c) => n + c, 0);
+    const hoops = this.#hoopsTaken.reduce((n, c) => n + c, 0);
     const timing = timingOf(perfect, good, miss);
     const total = this.track.pickups.length;
     return {
@@ -339,6 +414,11 @@ export class TunnelRun {
       saves,
       pickups,
       totalPickups: total,
+      boosters,
+      totalBoosters: this.track.boosters.length,
+      hoops,
+      totalHoops: this.track.hoops.length,
+      streaks,
       bestCombo: this.bestCombo,
       overdrives,
       clean,
@@ -378,7 +458,7 @@ export class TunnelRun {
       events.push(this.#judge('jump', t, p));
     }
     if (p.crash >= 0) this.#crash(t, p, events);
-    this.#collect(p, events);
+    this.#collect(p, t, events);
   }
 
   /**
@@ -436,20 +516,73 @@ export class TunnelRun {
     events.push({ type: 'crash', index: p.crash, obstacle, lost, shield, pos: p.pos });
   }
 
-  /** Take every pickup the racer's length passes over in its lane. */
-  #collect(p: RacerState, events: RunEvent[]): void {
-    const pickups = this.track.pickups;
+  /**
+   * Take every pickup, booster and hoop the racer's length passes over in its lane (with
+   * the magnet, gems in the lanes beside it too).
+   */
+  #collect(p: RacerState, t: number, events: RunEvent[]): void {
     const back = p.z - RACER_DEPTH;
+    const pickups = this.track.pickups;
     while (this.#nextPickup < pickups.length && pickups[this.#nextPickup]!.z < back)
       this.#nextPickup++;
+    const reach = this.magnetAt(t) ? MAGNET_REACH : PICKUP_REACH;
     for (let i = this.#nextPickup; i < pickups.length; i++) {
       const k = pickups[i]!;
       if (k.z > p.z) break;
-      if (this.#collected[i] || Math.abs(p.pos - k.lane) >= PICKUP_REACH) continue;
+      if (this.#collected[i] || Math.abs(p.pos - k.lane) >= reach) continue;
       this.#collected[i] = 1;
       this.#fill(k.time, METER_PICKUP[k.kind]);
-      events.push({ type: 'pickup', index: i, points: this.#gain(k.time, POINTS[k.kind]) });
+      events.push({ type: 'pickup', index: i, points: this.#gain(k.time, POINTS[k.kind], true) });
     }
+
+    const boosters = this.track.boosters;
+    while (this.#nextBooster < boosters.length && boosters[this.#nextBooster]!.z < back)
+      this.#nextBooster++;
+    for (let i = this.#nextBooster; i < boosters.length; i++) {
+      const k = boosters[i]!;
+      if (k.z > p.z) break;
+      if (this.#boostersTaken[i] || Math.abs(p.pos - k.lane) >= PICKUP_REACH) continue;
+      this.#boostersTaken[i] = 1;
+      events.push(this.#boost(i, k.kind, k.time));
+    }
+
+    const hoops = this.track.hoops;
+    while (this.#nextHoop < hoops.length && hoops[this.#nextHoop]!.z < back) this.#nextHoop++;
+    for (let i = this.#nextHoop; i < hoops.length; i++) {
+      const k = hoops[i]!;
+      if (k.z > p.z) break;
+      if (this.#hoopsTaken[i] || Math.abs(p.pos - k.lane) >= HOOP_REACH) continue;
+      this.#hoopsTaken[i] = 1;
+      this.#fill(k.time, METER_PICKUP.hoop);
+      const points = this.#gain(k.time, POINTS.hoop, true);
+      // A phrase's hoops in a row: one missed or taken out of turn starts the count over.
+      const s = this.#streak;
+      if (s.group !== k.group || k.slot !== s.count) {
+        s.group = k.group;
+        s.count = k.slot === 0 ? 1 : 0;
+      } else s.count++;
+      let bonus = 0;
+      if (k.size > 1 && s.count === k.size) {
+        bonus = this.#bonus(k.time, HOOP_STREAK_BONUS, true);
+        this.#counts.streaks++;
+      }
+      events.push({ type: 'hoop', index: i, points, streak: s.count, bonus });
+    }
+  }
+
+  /** A booster is taken: a shield goes up, or the magnet or the surge runs for two bars. */
+  #boost(index: number, kind: BoosterKind, time: number): RunEvent {
+    const grid = this.track.grid;
+    const until = (beats: number) => timeOfBeat(grid, beatAt(grid, time) + beats);
+    let shield = false;
+    if (kind === 'shield') {
+      shield = !this.shield;
+      this.shield = true;
+    } else if (kind === 'magnet') this.magnet = { from: time, until: until(BOOSTER_BEATS.magnet) };
+    else this.surge = { from: time, until: until(BOOSTER_BEATS.surge) };
+    this.boostedAt = time;
+    this.#fill(time, METER_PICKUP.booster);
+    return { type: 'booster', index, kind, points: this.#gain(time, POINTS.booster), shield };
   }
 
   /** The section the racer is in ends: a bonus and a shield when it had no crash. */
@@ -485,16 +618,23 @@ export class TunnelRun {
       this.meter = this.meter + amount >= 1 - 1e-9 ? 1 : this.meter + amount;
   }
 
-  /** Add to the combo and the score, multiplied; returns the points scored. */
-  #gain(t: number, base: number): number {
+  /**
+   * Add to the combo and the score, multiplied; returns the points scored. A pickup (a
+   * gem, a rail, a hoop) is doubled while the surge runs.
+   */
+  #gain(t: number, base: number, pickup = false): number {
     this.combo++;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
-    return this.#bonus(t, base);
+    return this.#bonus(t, base, pickup);
   }
 
   /** Points times the multiplier and overdrive, without adding to the combo. */
-  #bonus(t: number, base: number): number {
-    const points = base * multiplierOf(this.combo) * (this.overdriveAt(t) ? OVERDRIVE_FACTOR : 1);
+  #bonus(t: number, base: number, pickup = false): number {
+    const points =
+      base *
+      multiplierOf(this.combo) *
+      (this.overdriveAt(t) ? OVERDRIVE_FACTOR : 1) *
+      (pickup && this.surgeAt(t) ? SURGE_FACTOR : 1);
     this.score += points;
     return points;
   }
