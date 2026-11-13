@@ -55,8 +55,6 @@ export interface DifficultySettings {
   hazard: number;
   /** The weakest kick or snare (its intensity, 0 to 1) that is a moment at all. */
   minHit: number;
-  /** Kicks at least this strong block two lanes. */
-  twoLane: number;
   /** Lanes left open in an accent's wall, and in the wall after a stop. */
   gaps: number;
   /** Accents at least this strong are low walls across every lane, to jump. */
@@ -87,7 +85,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     lanes: 3,
     hazard: 0.6,
     minHit: 0.5,
-    twoLane: 0.9,
     gaps: 2,
     lowAccent: 0.95,
     slides: false,
@@ -102,7 +99,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     lanes: 5,
     hazard: 0.9,
     minHit: 0.4,
-    twoLane: 0.8,
     gaps: 1,
     lowAccent: 0.85,
     slides: false,
@@ -117,7 +113,6 @@ export const DIFFICULTY: Record<Difficulty, DifficultySettings> = {
     lanes: 5,
     hazard: 1,
     minHit: 0.3,
-    twoLane: 0.6,
     gaps: 1,
     lowAccent: 0.75,
     slides: true,
@@ -146,11 +141,15 @@ const WALL_APPROACH = 1.5;
 /** Beats after an obstacle's last contact that count as passing it (`endOf`). */
 const PASS_BEATS = 0.75;
 /**
- * The racer acts on the beat, and what it acts on comes this long after it (s, at most
- * `ACT_LEAD_BEATS` of a beat): a hop pressed on a kick is over by then, a jump pressed on
- * a snare is at its top. Without it the press had to come before the beat.
+ * The racer acts on the beat, and what it acts on comes just after it, as soon as the
+ * move is done (s, at most `ACT_LEAD_BEATS` of a beat): a hop pressed on a kick is clear
+ * of its lane after `HOP_LEAD`, a jump pressed on a snare is over a low wall after
+ * `JUMP_LEAD`. With none the press had to come before the beat; with more (0.15 s at
+ * first) the obstacle stood well past the beat's mark, and acting on the beat felt like
+ * acting in the wrong place.
  */
-export const ACT_LEAD = 0.15;
+export const HOP_LEAD = 0.1;
+export const JUMP_LEAD = 0.06;
 const ACT_LEAD_BEATS = 0.4;
 /** A slalom's blocks are at least this many beats apart (dense fills are thinned). */
 const SLALOM_MIN = 0.25;
@@ -590,15 +589,16 @@ const allBut = (lanes: number, open: number[]) =>
  * The obstacles of a stretch's moments, in time order, and the line's lane after them.
  * The track is played on the beat: a kick puts a block where the racer is (the line) and
  * the racer hops off it, a snare puts a low wall across the track and the racer jumps it,
- * both pressed on the hit (`ACT_LEAD`).
+ * both pressed on the hit (`HOP_LEAD`, `JUMP_LEAD`).
  */
 function compose(ctx: BuildContext, moments: Moment[]): { obstacles: Obstacle[]; line: number } {
   const { map, settings, lanes, ease, z } = ctx;
   const centre = centreOf(lanes);
   let line = ctx.line;
   const obstacles: Obstacle[] = [];
-  /** How long after its beat an obstacle the racer acts on comes, s. */
-  const leadAt = (time: number) => Math.min(ACT_LEAD, ACT_LEAD_BEATS * periodAt(map, time));
+  /** How long after its beat an obstacle the racer hops off or jumps comes, s. */
+  const leadAt = (time: number, lead: number) =>
+    Math.min(lead, ACT_LEAD_BEATS * periodAt(map, time));
   /** Off a lane that is blocked: the line moves to the nearest open one, the centre's side first. */
   const follow = (blocked: number[]) => {
     if (!blocked.includes(line)) return;
@@ -619,12 +619,12 @@ function compose(ctx: BuildContext, moments: Moment[]): { obstacles: Obstacle[];
     label: string,
     reason: string,
     more: Partial<Obstacle> = {},
-    /** Acted on by a press on its beat: it comes `leadAt` after it. */
-    acted = false,
+    /** Acted on by a press on its beat: it comes this long after it (`HOP_LEAD`, `JUMP_LEAD`). */
+    lead = 0,
   ) => {
     if (blocked.length === 0) return;
     const time = timeOfBeat(map, beat);
-    const z0 = z(time + (acted ? leadAt(time) : 0));
+    const z0 = z(time + (lead > 0 ? leadAt(time, lead) : 0));
     obstacles.push({
       kind,
       time,
@@ -647,14 +647,14 @@ function compose(ctx: BuildContext, moments: Moment[]): { obstacles: Obstacle[];
         if (line + dir < 0 || line + dir >= lanes) dir = -dir;
         else if (line !== centre && Math.sign(centre - line) !== dir && (m.pick * 7) % 1 < 0.67)
           dir = -dir;
-        // A strong kick walls off the whole side the racer is on; a weaker one blocks its
-        // lane and the one behind it, so the way to hop is plain.
-        const side = ease === 0 && m.strength >= settings.twoLane;
+        // The block walls off the whole side the racer is on, so whichever lane the racer
+        // was in, the open side is where it has to be: nobody is left beside the line with
+        // nothing to do. A repair leaves only the racer's own lane blocked.
+        const side = ease === 0;
         const blocked: number[] = [];
         for (let l = 0; l < lanes; l++) {
           const behind = (line - l) * dir;
-          if (behind === 0 || (behind > 0 && (side || (ease === 0 && behind === 1))))
-            blocked.push(l);
+          if (behind === 0 || (behind > 0 && side)) blocked.push(l);
         }
         add(
           'kick',
@@ -662,9 +662,9 @@ function compose(ctx: BuildContext, moments: Moment[]): { obstacles: Obstacle[];
           blocked,
           m,
           side ? 'Side wall' : 'Block',
-          side ? 'strong kick: hop across' : 'kick: hop off it',
+          side ? 'kick: hop across' : 'kick: hop off it',
           {},
-          true,
+          HOP_LEAD,
         );
         line += dir;
         break;
@@ -678,7 +678,7 @@ function compose(ctx: BuildContext, moments: Moment[]): { obstacles: Obstacle[];
           'Low wall',
           'snare: jump it',
           { low: true },
-          true,
+          JUMP_LEAD,
         );
         break;
       }
@@ -692,7 +692,7 @@ function compose(ctx: BuildContext, moments: Moment[]): { obstacles: Obstacle[];
             'Low wall',
             'strong accent: jump it',
             { low: true },
-            true,
+            JUMP_LEAD,
           );
           break;
         }

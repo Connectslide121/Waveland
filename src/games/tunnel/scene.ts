@@ -883,6 +883,40 @@ export class TunnelScene {
   }
 
   /**
+   * Where to act, on the beat itself, in the craft's cyan: a kick's block and a low wall
+   * come a moment after their beat (`HOP_LEAD`, `JUMP_LEAD`), so the beat's own spot is
+   * marked. For a block, the open lane beside it from the beat to the block: hop here,
+   * now. For a low wall, a bar across the deck on the beat: jump here.
+   */
+  #actMark(o: Obstacle): void {
+    if (o.kind !== 'kick' && !o.low) return;
+    const track = this.track;
+    const at = zAtTime(track, o.time);
+    if (o.z0 - at < 0.05) return;
+    const light = this.#lightAt(o.time) * this.#fade(at - this.#zr);
+    if (light <= 0.002) return;
+    const [pa, pb, da, db] = this.#lineVectors;
+    const a = this.#h;
+    const b = this.#g;
+    const colour = this.#color2.copy(COLOR.cyan).multiplyScalar(0.6 * light);
+    const from = o.low ? at - 0.14 : at;
+    const to = o.low ? at + 0.14 : o.z1;
+    this.#frameAt(from, a);
+    this.#frameAt(to, b);
+    const lo = o.lanes[0]!;
+    const hi = o.lanes[o.lanes.length - 1]!;
+    const first = o.low ? 0 : lo > 0 ? lo - 1 : hi + 1;
+    const last = o.low ? track.lanes - 1 : first;
+    for (let lane = first; lane <= last && lane < track.lanes; lane++) {
+      this.#deck(a, lane, 0.018, pa);
+      this.#deck(b, lane, 0.018, pb);
+      this.#across(a, lane, da);
+      this.#across(b, lane, db);
+      this.#ribbons.quad(pa, da, colour, pb, db, colour, o.low ? 0.5 : TELEGRAPH_HALF);
+    }
+  }
+
+  /**
    * The deck ahead of an obstacle, so the rhythm can be read before it arrives: orange
    * strips fading in over the beat before it in every lane it blocks (where a sliding
    * block ends up), and a cyan strip in the open lanes of a wall: the safe path.
@@ -893,6 +927,7 @@ export class TunnelScene {
     const gap = o.kind === 'wall' || o.kind === 'stop' || o.kind === 'squeeze';
     const period = periodAt(track.grid, o.time);
     const lead = o.z0 - zAtTime(track, o.time - period * (gap ? GAP_BEATS : TELEGRAPH_BEATS));
+    this.#actMark(o);
     // A low wall crosses every lane and is jumped, not steered round: no strips for it,
     // or the whole deck would be orange on every snare.
     if (lead <= 0.1 || o.low) return;

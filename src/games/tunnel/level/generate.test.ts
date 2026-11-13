@@ -13,7 +13,7 @@ import {
 } from '../../../core';
 import { randomAnalysis } from '../../../core/test-analysis';
 import { hits } from '../physics';
-import { ACT_LEAD, DIFFICULTY, DROP_BARS, gapLanes, generateLevel } from './generate';
+import { DIFFICULTY, HOP_LEAD, JUMP_LEAD, DROP_BARS, gapLanes, generateLevel } from './generate';
 import { zAtTime, type Obstacle, type TunnelTrack } from './track';
 import { validateLevel } from './validate';
 
@@ -155,12 +155,14 @@ describe('the grammar', () => {
             next.lanes.includes(o.lanes[o.lanes.length - 1]! + 1),
         ).toBe(true);
     });
-    // A strong kick walls off the racer's whole side; a weaker one its lane and the one behind.
-    expect(kicks.some((o) => o.label === 'Side wall')).toBe(true);
-    for (const o of kicks) expect(['Side wall', 'Block']).toContain(o.label);
-    // Both come a moment after their beat, so the press is on the beat.
-    for (const o of [...kicks, ...snares])
-      expect(o.z0).toBeCloseTo(zAtTime(track, o.time + ACT_LEAD), 6);
+    // Every kick walls off the racer's whole side: from the tunnel's edge to its lane.
+    for (const o of kicks) {
+      expect(o.label).toBe('Side wall');
+      expect(o.lanes[0] === 0 || o.lanes[o.lanes.length - 1] === 4).toBe(true);
+    }
+    // Both come just after their beat, as soon as the move is done: the press is on the beat.
+    for (const o of kicks) expect(o.z0).toBeCloseTo(zAtTime(track, o.time + HOP_LEAD), 6);
+    for (const o of snares) expect(o.z0).toBeCloseTo(zAtTime(track, o.time + JUMP_LEAD), 6);
     expect(validateLevel(track).ok).toBe(true);
   });
 
